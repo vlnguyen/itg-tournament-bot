@@ -75,13 +75,13 @@ Not all five are necessarily played: a set ending 3-0 plays three songs. The fou
 The four protected charts have a canonical **protect order** — the sequence in which they were protected during ABBAAB (A's first, B's first, A's second, B's second).
 
 - The **first song of the set is the first Protect**.
-- After each song, the **loser of that song selects the next song**, taking the first of these that is available:
-  1. their **own remaining Protect**;
+- After each song, the **loser of that song plays the next**, taking the first of these that is available:
+  1. their **own earliest unplayed Protect** — a player's two protects are consumed in the order they were protected;
   2. the **Decider**, if it has not been played;
-  3. **whatever chart remains** — necessarily the opponent's Protect, so the choice is forced.
-- If a song ends in a **tie** there is no loser, so **no selection happens**. The bot plays the **next unplayed chart in protect order**, falling through to the Decider if all four protects have been played.
+  3. **whatever chart remains** — necessarily the opponent's Protect.
+- If a song ends in a **tie** there is no loser. The bot plays the **next unplayed chart in protect order**, falling through to the Decider if all four protects have been played.
 
-Every reachable state is covered by one of these clauses, so the next song is always determined.
+**No player chooses the next song.** Every clause resolves to exactly one chart, so play order is fully determined from the moment Protect/Veto ends. The loser of a song influences what comes next — it is their protect that gets played — but they make no selection, and the bot advances the set on its own until a tiebreak is needed or a player reaches 3.
 
 ### 4. Scoring a song
 
@@ -167,8 +167,10 @@ Chart flags surface to players at three points:
 
 **Enforcement.** The bot cannot observe what modifiers a player used, so flags are enforced socially rather than technically. If a player completed the song with the wrong setting:
 
-- competitors are instructed to **report it to a TO**, and
+- either competitor may press **report a settings problem**, a button the bot shows alongside the settings prompt at score verification. It escalates to the TO alert channel with the match, song, chart, flag, reporter, and both submitted EX% values attached. Reporting outside the bot — telling a TO directly — remains available and reaches the same ruling.
 - the TO is instructed to **grant the song win to the player who played with the correct settings**.
+
+The report button is available only **until the song commits**. Once both players have agreed a winner the result is frozen (see Bracket Immutability), and a violation noticed after that point cannot be corrected.
 
 **If both players used the wrong setting** there is no correct-settings player, so the bot notifies the TO and offers a choice:
 
@@ -255,12 +257,29 @@ A player who later renames themselves keeps all their history, because the ID ne
 
 ### Granted roles
 
-These are explicitly assigned and confer permissions:
+These are explicitly assigned and confer permissions. The first three are **server-scoped tiers, granted by assigning a Discord role**; the fourth is deployment-scoped and unrelated to Discord roles.
 
 | Role | Scope | Capabilities |
 | --- | --- | --- |
-| Tournament Organizer (TO) | One tournament | Create and configure tournaments, manage song packs, seed the bracket, override match state within the limits in Bracket Immutability |
+| Referee | One Discord server | Rule on matches to unblock them — award or void a song, force a result on an escalation, reset Protect/Veto before song 1, forfeit a match, disqualify a player at either scope. All within the limits in Bracket Immutability. **Cannot create, start, or close a tournament** |
+| Tournament Organizer (TO) | One Discord server | Everything a Referee can do, plus create and configure tournaments, manage song packs, open and close registration and check-in, seed the bracket, start and cancel a tournament |
+| Server Administrator | One Discord server | Everything a TO can do, plus reconfigure the bot for that server — the channels and roles chosen during `/setup` |
 | Bot Administrator | The whole deployment | View every Discord server the bot has been added to, and the tournaments and brackets belonging to each |
+
+**The tiers are cumulative**: each holds every capability of the one below it.
+
+**Referee exists so refereeing can be delegated.** Running an event needs more hands than running the tournament does, and someone trusted to unblock a stalled match need not be trusted to cancel the tournament.
+
+**A server may collapse the tiers.** Pointing two or three of the tier slots at the same Discord role is a supported configuration, for servers that want the same people involved at every level.
+
+**"Server Administrator" and "Bot Administrator" are unrelated.** The first is a per-server tier; the second is a deployment-wide role held by whoever operates the bot. Neither implies the other.
+
+### Granting the server tiers
+
+- Each tier is bound to a **Discord role**, chosen during `/setup`. Membership of that role *is* the grant — there is no separate list maintained inside the application.
+- Adding or removing someone is therefore done in Discord, using its own member and role management.
+- The bot **records every grant and revocation** of a tier role in its own audit log, so there is a timestamped, application-side history independent of Discord's.
+- Because anyone with Discord's Manage Roles permission can assign a tier role, including to themselves, **tournament start warns if any entrant also holds a tier role**, naming them. The warning does not block the start.
 
 ### Granting the Bot Administrator role
 
@@ -272,7 +291,7 @@ These are explicitly assigned and confer permissions:
 
 **Competitor is derived state, not a grant.** Any member of the Discord server may run `/join` while registration is open; from that point they are on the roster. Their permissions are per-match and follow from being one of the two players in a given thread — there is nothing to assign and nothing to revoke when the tournament ends.
 
-Note that "role" here means an **application permission level**. It is unrelated to Discord's native role system, which the bot does not use for access control.
+Note that the three server tiers are **bound to** Discord roles but are not the same thing as them: the bot cares only about membership of the specific roles named during `/setup`, and ignores every other role and every native Discord permission. Bot Administrator is not a Discord role at all.
 
 ## Tournament Lifecycle
 
@@ -326,8 +345,8 @@ Every transition is an explicit TO action; nothing in the lifecycle is on a time
 
 - The bot uses **slash commands with interactive buttons** throughout. There are no prefix (`!`) commands. Protect/Veto actions, winner selection, and tiebreak song selection are all button-driven.
 - Matches take place in **threads under a single matches channel**, not in dedicated channels.
-- A match thread is **private to the two competitors and TOs**. Spectators do not have read access.
-- On creating a thread the bot adds the two competitors and **every TO on that tournament's TO list** as members. The TO list is the single source of truth for organizer access; no Discord role is involved.
+- A match thread is **private to the two competitors and anyone holding a server tier role**. Spectators do not have read access.
+- On creating a thread the bot adds **only the two competitors** as members. Organizers see match threads through Discord's **Manage Threads** permission on the matches channel, which every tier role must hold — so a thread has two members however large the referee pool is, and someone granted a tier mid-tournament can immediately read every open match.
 - Each player may only submit **their own** score and **their own** Protect/Veto actions.
 - On match completion the bot **posts a result summary** — songs played, per-song scores and winners, any tiebreak songs, and the final result — as the last message in the thread.
 - The thread is then **auto-archived immediately**.
@@ -343,9 +362,12 @@ The web backend remains the system of record for structured data — every chart
 | --- | --- | --- |
 | `/join` | Competitor | Enter the open tournament. Works only while the registration window is open |
 | `/checkin` | Competitor | Confirm attendance during the check-in window |
-| `/setup` | TO | First-time server setup — point the bot at the existing matches channel and TO alert channel |
-| `/dq` | TO | Disqualify a player, choosing whether it applies to this match only or withdraws them from the tournament |
-| `/forfeit` | TO | Award a match to a player whose opponent is absent or unresponsive |
+| `/setup` | Server Administrator, or anyone with Discord's Manage Guild | Server setup — point the bot at the existing matches channel, TO alert channel, and the Discord role for each tier. Re-runnable |
+| `/setup status` | Server Administrator | Re-run the configuration and permission diagnostic without changing anything |
+| `/dq` | Referee | Disqualify a player, choosing whether it applies to this match only or withdraws them from the tournament |
+| `/forfeit` | Referee | Award a match to a player whose opponent is absent or unresponsive |
+
+`/setup` accepts Manage Guild as well as the Server Administrator tier because the tier is *configured by* `/setup` — a freshly-invited server has no administrator role yet, and Manage Guild remains the recovery path if the roles are later deleted or misconfigured.
 
 Match play itself uses **buttons, not commands** — Protect, Veto, score submission, winner selection, and tiebreak song selection are all button interactions inside the match thread. Where a button needs a typed value, it opens a **modal** rather than asking for a chat message; EX% entry is the only such case.
 
@@ -359,7 +381,9 @@ TOs can rule from either surface:
 - **From slash commands**, for anything the alert buttons do not cover.
 - **From the web UI**, which retains the full set of override capabilities.
 
-**Authorization.** Button interactions and TO slash commands are authorized by checking the acting user against **that tournament's TO list**. A user who is not on the list receives an ephemeral rejection visible only to them. Discord server permissions are not used for this — the TO list is the sole authority, so a server administrator who is not a TO for the tournament cannot rule on it.
+**Authorization.** Button interactions and organizer slash commands are authorized by resolving the acting user's **tier** — the highest of the three configured Discord roles they hold — and comparing it against what the action requires. Every ruling in the alert channel requires **Referee**; nothing there requires more. A user below the required tier receives an ephemeral rejection visible only to them.
+
+Only the specific roles named during `/setup` are consulted. No other Discord role and no native Discord permission grants authority over a tournament, so a server administrator who has not been given a tier role cannot rule on a match.
 
 Buttons remain *visible* to anyone who can read the channel; enforcement happens on the click. The TO alert channel is expected to be permission-restricted in Discord as a first gate.
 
@@ -374,15 +398,17 @@ Direct messages are not used.
 
 ## Server Setup
 
-- **`/setup`** runs first-time setup. It does **not** provision channels itself — it asks the TO to create the channels, then has them point the bot at the existing **matches channel** and **TO alert channel**.
+- **`/setup`** runs server setup and can be re-run at any time. It does **not** provision channels or roles itself — it asks the administrator to create them, then has them point the bot at the existing **matches channel**, **TO alert channel**, and a Discord role for each of the three tiers. The same role may be given for more than one tier.
 - A **guided first-run wizard** in the web UI walks a new server through server configuration, building a song pack, and creating its first tournament.
-- **Setup is blocked until all required Discord permissions are granted.** The wizard names exactly which are missing.
-- Permissions are **re-checked at tournament start**; the start is blocked if any required permission has since been removed.
+- **Setup accepts any selection.** No role or channel picker is filtered and no choice is rejected for lacking a permission — an administrator does not necessarily know a role's permissions, and refusing the input would prevent them recording the decision before they have been told what to fix.
+- **The bot reports exactly what is missing**, for each channel and each tier role, and says *where* the permission was lost — absent from the role itself, or denied by a channel overwrite — because the fix differs. The report offers a one-click re-check and is available any time via `/setup status`.
+- **Tournament start is the blocking gate.** Permissions are re-checked there and the start is blocked if anything required is missing or has since been removed.
 
 ## Authentication
 
 - TOs and bot administrators sign in to the web UI with **Discord OAuth**.
-- TO access is **granted per-tournament by an explicit TO list** maintained by the tournament creator, rather than inferred from Discord server roles.
+- Organizer access is **granted by Discord role membership**, using the roles bound to each tier during `/setup`. Signing in is never required to hold a tier: a referee can work entirely from Discord, since alert-channel buttons and slash commands are a complete workflow.
+- Only `identify` scope is requested. Which servers a signed-in user may act in is resolved from their tier role membership, not from the OAuth token.
 
 ## TO Web UI
 

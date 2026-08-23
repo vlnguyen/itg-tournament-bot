@@ -49,7 +49,7 @@ How the system specified in [REQUIREMENTS.md](REQUIREMENTS.md) is built. Require
 
 **The rule that keeps this honest:** `DiscordModule` and `ApiModule` are *transports*. They parse input, check authorization, and call domain services. They contain no match rules. Every rule lives in `MatchModule` / `BracketModule`, which know nothing about Discord or HTTP — they depend on the ports below, never on a library.
 
-This is what makes the requirement that TOs can rule "from the alert channel, from slash commands, or from the web UI" cheap: three transports, one implementation.
+This is what makes the requirement that referees can rule "from the alert channel, from slash commands, or from the web UI" cheap: three transports, one implementation.
 
 ## Ports and Adapters
 
@@ -62,6 +62,13 @@ interface MatchChannelPort {
   postMatchState(thread: ThreadRef, view: PendingActionView): Promise<void>;
   postResultSummary(thread: ThreadRef, summary: MatchSummary): Promise<void>;
   archiveThread(thread: ThreadRef): Promise<void>;
+  /** One public line per finished match, outside any thread. */
+  publishResult(summary: PublicMatchSummary): Promise<void>;
+}
+
+/** "Tell these players their match is ready" — the adapter decides how. */
+interface PlayerNotificationPort {
+  matchReady(playerIds: string[], thread: ThreadRef): Promise<void>;
 }
 
 /** Organizer-facing alerts. */
@@ -88,7 +95,7 @@ interface PrivatePromptPort {
 - **necord vs. discord.js stops being load-bearing.** Pick either; it is an implementation detail of one adapter. Start with whichever is more pleasant and swap if it disappoints.
 - A different platform, or a web-only match flow, becomes an additional adapter rather than a rewrite.
 
-The ports are defined by **what the domain needs**, not by what Discord offers. `PrivatePromptPort` says "ask this user privately" — it does not mention ephemeral interaction replies, which is how Discord happens to satisfy it.
+The ports are defined by **what the domain needs**, not by what Discord offers. `PrivatePromptPort` says "ask this user privately" — it does not mention ephemeral interaction replies, which is how Discord happens to satisfy it. `PlayerNotificationPort.matchReady` says "tell these players"; that it lands as both a thread mention and a direct message is the adapter's business, and swapping one out changes no domain code.
 
 ### Two more ports, for determinism
 
@@ -101,8 +108,10 @@ Prisma models, abbreviated. Sketch, but the constraints called out below are loa
 ```prisma
 model Guild {
   id               String   @id            // Discord guild ID
-  matchesChannelId String?
-  toAlertChannelId String?
+  matchesChannelId String?                 // hosts threads; no bot messages in its body
+  alertChannelId   String?
+  resultsChannelId String?
+  generalChannelId String?                 // optional forward target — where competitors discuss
   adminRoleId      String?            // tier 3 — may reconfigure the bot here
   toRoleId         String?            // tier 2 — may run tournaments
   refereeRoleId    String?            // tier 1 — may rule on matches
@@ -138,7 +147,7 @@ model Entrant {
   displayName   String                    // snapshot at registration
   seed          Int?
   checkedIn     Boolean @default(false)
-  status        EntrantStatus             // ACTIVE | WITHDRAWN
+  status        EntrantStatus             // ACTIVE | NOT_CHECKED_IN | WITHDRAWN
   @@unique([tournamentId, discordUserId])
   @@unique([tournamentId, seed])
 }
@@ -227,9 +236,9 @@ model AuditLog {
 }
 ```
 
-### Two constraints Prisma cannot express
+### Three constraints Prisma cannot express
 
-Both need raw SQL in a migration, and both are worth the awkwardness because they enforce a requirement at the only level that cannot be bypassed by a bug in a service.
+All three need raw SQL in a migration, and all three are worth the awkwardness because they enforce a requirement at the only level that cannot be bypassed by a bug in a service.
 
 **One active tournament per guild.** A partial unique index:
 
@@ -241,7 +250,23 @@ CREATE UNIQUE INDEX one_active_tournament_per_guild
 
 Drafts do not occupy the slot — a TO can prepare the next event while one is running, which the requirement's "cannot *start* until the current one finishes" permits. Everything from open registration through the grand final does.
 
-**Sparse seed uniqueness.** `@@unique([tournamentId, seed])` behaves correctly on nulls in Postgres (multiple nulls allowed), so unseeded entrants coexist and committed seeds cannot collide.
+**Sparse seed uniqueness.** `@@unique([tournamentId, seed])` allows multiple nulls, so unseeded entrants coexist while seeds are still being assigned and assigned seeds cannot collide. This is the SQL standard's nulls-are-distinct rule rather than a Postgres quirk — but **PostgreSQL 15 added `UNIQUE NULLS NOT DISTINCT`**, which inverts it. The design depends on the default; a migration that opts into the inversion would permit exactly one unseeded entrant per tournament, so the dependency is written down rather than assumed.
+
+**Deferred seed uniqueness.** Seeding runs continuously from the first `/join`, so reordering is a routine live operation rather than one-time entry — and **swapping two seeds transiently violates uniqueness** partway through. A unique *index*, which is what Prisma's `@@unique` produces, is checked per statement and cannot be deferred. A unique *constraint* can:
+
+```sql
+ALTER TABLE "Entrant" DROP CONSTRAINT IF EXISTS "Entrant_tournamentId_seed_key";
+ALTER TABLE "Entrant"
+  ADD CONSTRAINT entrant_seed_unique UNIQUE ("tournamentId", "seed")
+  DEFERRABLE INITIALLY DEFERRED;
+```
+
+Checked at commit rather than per row, a whole reorder lands as one valid state. The alternative — writing a temporary sentinel seed, then the real one — is two writes per row and a window where the table is briefly nonsense.
+
+Two distinct cases need this, and only one is obvious:
+
+- **Arbitrary reordering**, where a target seed may be higher than its source, so an intermediate state genuinely collides.
+- **Compacting after check-in**, which looks safe because every target is lower than its source — and is, if you update row by row in ascending order. But the natural implementation is one set-based `UPDATE … FROM (SELECT row_number() …)`, and Postgres checks unique indexes **per row within a statement**, not at statement end. This is why `UPDATE t SET n = n + 1` fails on a unique column despite a valid final state. Deferral is what lets the renumber be a single statement.
 
 ### Why an append-only event log
 
@@ -251,7 +276,7 @@ Three requirements push toward this, and each would otherwise need bespoke work:
 
 - **"Full state is persisted; a restart mid-Protect/Veto resumes exactly where it left off."** Replay events, get state. Nothing to reconstruct by hand.
 - **The public match view** must show every chart drawn, the full Protect/Veto sequence, per-song scores and winners, and every tiebreak round. That *is* the event log, rendered.
-- **"Results freeze as they commit. Nothing rewinds."** Append-only storage makes immutability structural rather than a rule the code has to remember. A TO override is a new event, never a mutation.
+- **"Results freeze as they commit. Nothing rewinds."** Append-only storage makes immutability structural rather than a rule the code has to remember. A referee override is a new event, never a mutation.
 
 `Match.state` exists so the common path — "what is this match waiting on?" — is a single column read rather than a replay. `stateSeq` records which event the cache reflects, so a cache that ever falls behind is detectable rather than silently wrong: on read, if `stateSeq` does not equal the match's highest event seq, replay and repair.
 
@@ -286,7 +311,7 @@ interface SongRecord {
 }
 ```
 
-The event catalog. `actor` is the Discord user ID on player and TO events, null on bot events.
+The event catalog. `actor` is the Discord user ID on player and referee events, null on bot events.
 
 | Event | Actor | Payload |
 | --- | --- | --- |
@@ -295,29 +320,29 @@ The event catalog. `actor` is the Discord user ID on player and TO events, null 
 | `DRAW_MADE` | bot | `{ seed, charts: ChartId[7] }` |
 | `CHART_PROTECTED` | player | `{ chart }` |
 | `CHART_VETOED` | player | `{ chart }` |
-| `PROTECT_VETO_RESET` | TO | `{ reason }` — legal only before song 1 |
+| `PROTECT_VETO_RESET` | Referee | `{ reason }` — legal only before song 1 |
 | `SONG_STARTED` | bot | `{ songIndex, chart, source }` |
 | `SCORE_SUBMITTED` | player | `{ songIndex, ex }` |
 | `PHOTO_OBSERVED` | bot | `{ songIndex, playerId, messageId }` |
 | `SONG_WINNER_SELECTED` | player | `{ songIndex, choice: EntrantId \| 'TIE' }` |
 | `SONG_ESCALATED` | bot or player | `{ songIndex, reason }` — actor is the reporter, if any |
-| `SONG_RULED` | TO | `{ songIndex, result, note }` |
+| `SONG_RULED` | Referee | `{ songIndex, result, note }` |
 | `TIEBREAK_DRAWN` | bot | `{ round, seed, charts: ChartId[3] }` |
 | `TIEBREAK_CHOICE` | player | `{ round, chart }` — **hidden until both land** |
 | `SET_RESULT_CONFIRMED` | player | `{}` |
-| `FORFEIT_APPLIED` | TO | `{ winnerId }` |
-| `DQ_APPLIED` | TO | `{ playerId, scope: 'MATCH' \| 'TOURNAMENT' }` |
+| `FORFEIT_APPLIED` | Referee | `{ winnerId }` |
+| `DQ_APPLIED` | Referee | `{ playerId, scope: 'MATCH' \| 'TOURNAMENT' }` |
 | `WALKOVER` | bot | `{ winnerId }` — opponent withdrew or received a bye |
 
 ### No commit events
 
 **There is no `SONG_COMMITTED` event, and no `SET_COMMITTED`.** A song is committed once the log holds agreeing `SONG_WINNER_SELECTED` events from both players, or a single `SONG_RULED`. The set is decided when `outcome()` says it is. Neither fact gets written down; both are read out of what is already there.
 
-The freeze boundary from the requirements therefore has exactly one expression — `songs[i].result !== undefined` — and the reducer, the TO-override check, and the public projection all read that same predicate. A commit event would be a second record of a fact the selections already carry, and a second record is something that can disagree with the first.
+The freeze boundary from the requirements therefore has exactly one expression — `songs[i].result !== undefined` — and the reducer, the override check, and the public projection all read that same predicate. A commit event would be a second record of a fact the selections already carry, and a second record is something that can disagree with the first.
 
 Two conditions make this sound, and both are settled elsewhere in this document.
 
-**The commit boundary needs a total order.** Song 3 is live. Both players select the same winner at the moment a TO, in the alert channel, clicks *award the song to B*. Whether that ruling is legal turns on whether it lands before or after the second selection — and with nothing written at the instant of commit, it is not obvious what arbitrates. The per-match row lock does: every append serializes through `SELECT … FOR UPDATE` on the `Match` row (see Concurrency), so the three actions take a definite order and each is validated against the state its predecessors left behind. The ruling either finds song 3 open and appends, or finds it settled and is refused. The lock is load-bearing for the event model, not only for write safety; weakening either means revisiting the other.
+**The commit boundary needs a total order.** Song 3 is live. Both players select the same winner at the moment a referee, in the alert channel, clicks *award the song to B*. Whether that ruling is legal turns on whether it lands before or after the second selection — and with nothing written at the instant of commit, it is not obvious what arbitrates. The per-match row lock does: every append serializes through `SELECT … FOR UPDATE` on the `Match` row (see Concurrency), so the three actions take a definite order and each is validated against the state its predecessors left behind. The ruling either finds song 3 open and appends, or finds it settled and is refused. The lock is load-bearing for the event model, not only for write safety; weakening either means revisiting the other.
 
 **Replay needs to be stable.** A derived commit is a function of the events *and* the code that folds them, so an edit to the reducer can change what an archived tournament decided — precisely what a written commit event would have nailed down. Format versioning and golden replay, below, is the answer: `formatKey` pins each match to the rules that ran it, and a CI corpus of archived logs fails the build if any committed outcome shifts.
 
@@ -485,13 +510,13 @@ Bracket generation is one problem; moving players through it is another, and it 
 
 **A bye is a walkover, not a match.** Round 1 matches with one null occupant are settled by a `WALKOVER` event at generation time — the requirement's stated exemption from the automation boundary. No thread is created.
 
-**Tournament-scope disqualification cascades.** `DQ_APPLIED` with scope `TOURNAMENT` sets the entrant to `WITHDRAWN` and then, in the same transaction, walks both brackets: every not-yet-started match where they occupy a slot resolves as a `WALKOVER` to the opponent, and each of those resolutions advances, which may itself fill another match containing them. The walk repeats until no match containing a withdrawn entrant remains unresolved. This is the single TO action the requirement asks for.
+**Tournament-scope disqualification cascades.** `DQ_APPLIED` with scope `TOURNAMENT` sets the entrant to `WITHDRAWN` and then, in the same transaction, walks both brackets: every not-yet-started match where they occupy a slot resolves as a `WALKOVER` to the opponent, and each of those resolutions advances, which may itself fill another match containing them. The walk repeats until no match containing a withdrawn entrant remains unresolved. This is the single referee action the requirement asks for.
 
 The one case needing care: if their *current, in-progress* match is mid-set, that match resolves as a forfeit — an ordinary loss — and then the cascade covers the losers-side path they would have dropped into.
 
 **Grand final reset is a distinct match row, not a rerun.** It exists in the generated bracket from the start with `bracket = GRAND_FINAL, round = 2`, and is skipped by advancement when the winners-side finalist takes the first set. Because it is a separate row it gets a fresh event log, hence a fresh Draw and a full ABBAAB — which is exactly what the requirement asks for. Seed advantage reads from `Entrant.seed`, not from anything about the first set, so the winners-bracket finalist keeps the first-or-second Protect choice in both.
 
-**Standings are derived, never stored.** Placement follows elimination depth: the grand final decides 1st and 2nd, the last losers round decides 3rd, and players eliminated in the same losers round share a placement (4th, then 5–6, 7–8, and so on). A query over `Match` grouped by the round in which each entrant took their second loss produces this directly; withdrawn entrants place by where their withdrawal landed them. Deriving rather than storing means a late TO ruling that changes a match also changes the standings, with nothing to invalidate.
+**Standings are derived, never stored.** Placement follows elimination depth: the grand final decides 1st and 2nd, the last losers round decides 3rd, and players eliminated in the same losers round share a placement (4th, then 5–6, 7–8, and so on). A query over `Match` grouped by the round in which each entrant took their second loss produces this directly; withdrawn entrants place by where their withdrawal landed them. Deriving rather than storing means a late referee ruling that changes a match also changes the standings, with nothing to invalidate.
 
 ## Duration Estimate
 
@@ -505,7 +530,7 @@ For the standard shape this equals `2⌈log₂ n⌉ + 1` rounds including both g
 
 ### Bootstrap: the one place Discord permissions gate anything
 
-A freshly-invited server has no configured TO role, no tournament, and therefore no application-level authority. Something has to establish the first one.
+A freshly-invited server has no configured tier roles, no tournament, and therefore no application-level authority. Something has to establish the first one.
 
 **`/setup` is gated on Manage Guild *or* the Server Administrator role.** Whoever added the bot runs it first and names the three tier roles; from then on the configured administrators can re-run it themselves. The Manage Guild path is narrow by necessity — the administrator role cannot authorize the command that decides which role is the administrator role — and it remains as the recovery route.
 
@@ -517,24 +542,15 @@ A freshly-invited server has no configured TO role, no tournament, and therefore
 
 Authority is Discord role membership, resolved to one of three cumulative tiers. `/setup` points the bot at a role for each, stored on `Guild`.
 
-| | Referee | Tournament Organizer | Server Administrator |
-| --- | :-: | :-: | :-: |
-| Rule on a song — award, void, force | ✓ | ✓ | ✓ |
-| Reset Protect/Veto before song 1 | ✓ | ✓ | ✓ |
-| Forfeit a match | ✓ | ✓ | ✓ |
-| Disqualify a player, either scope | ✓ | ✓ | ✓ |
-| Dismiss alerts, audit any match | ✓ | ✓ | ✓ |
-| Create and configure a tournament | | ✓ | ✓ |
-| Manage the song pack | | ✓ | ✓ |
-| Open and close registration, check-in | | ✓ | ✓ |
-| Seed, commit seeds, start, cancel | | ✓ | ✓ |
-| Run `/setup` — channels, roles | | | ✓ |
+**The capability list lives in REQUIREMENTS.md**, under *What each role may do*, and is not restated here. A second copy is a second thing to keep in step, and the one that drifts is always the copy — the same reasoning that removed commit events from the match log.
 
-**Tiers are cumulative and totally ordered**, so the check is `tierOf(member) >= required` rather than a set intersection. `tierOf` returns the highest tier whose role the member holds.
+What belongs here is the mechanism:
 
-**The dividing line is the one you named:** a referee unblocks matches; they cannot create, start, or close a tournament. Everything in the alert channel is therefore Referee tier, and everything in the lifecycle state machine is Tournament Organizer tier.
+**Tiers are cumulative and totally ordered**, so a check is `tierOf(member) >= required` rather than a set intersection. `tierOf` returns the highest tier whose role the member holds, and `required` is a constant on the action — one comparison, no per-capability bookkeeping, and adding an action means naming its tier rather than editing a matrix.
 
-**Tournament-scope disqualification sits with referees, deliberately.** It is the most consequential thing at that tier — it withdraws an entrant and cascades walkovers through both brackets. It belongs there because it is conflict resolution rather than lifecycle: requirements added the tournament-scope option precisely so a player who has left for good is handled in one action instead of being disqualified again in the losers bracket, and forcing a referee to escalate for that reintroduces the friction the option exists to remove. It is audit-logged like every other ruling.
+**The dividing line is refereeing versus running an event:** a referee unblocks matches but cannot create, start, or close a tournament. That falls out cleanly in implementation — everything reachable from the alert channel is Referee tier, everything in the lifecycle state machine is Tournament Organizer tier, and `/setup` is the only thing above it.
+
+**Tournament-scope disqualification sits with referees, deliberately** — the one placement in that list worth arguing about. It is the most consequential thing at the tier, withdrawing an entrant and cascading walkovers through both brackets. It belongs there because it is conflict resolution rather than lifecycle: the tournament-scope option exists precisely so a player who has left for good is handled in one action instead of being disqualified again in the losers bracket, and making a referee escalate for it reintroduces the friction the option was added to remove. It is audit-logged like every other ruling.
 
 #### Two things called "administrator"
 
@@ -572,25 +588,25 @@ What it costs, all accepted:
 
 Tier is read from the gateway's member cache, kept current by `GUILD_MEMBER_UPDATE`, so an authorization check is a local lookup rather than a query or an API call. A cache miss falls back to a REST member fetch. The web UI shares the process and therefore the cache, so the check is identical on both transports — authorization stays transport-independent exactly as before, against a different source of truth.
 
-### TOs are a referee pool
+### Refereeing is a pool activity
 
 **Refereeing is a pool activity, and there are normally several.** Everyone at Referee tier or above holds identical powers to audit a match and rule on it — the tiers above add tournament and server management, never a better ruling. Configuration being one person's job is a division of labour at the tiers above, not a hierarchy within refereeing.
 
 Three parts of the design read differently once the role is understood as a pool rather than a person:
 
 - **The alert channel is the work queue; the role's thread access is for auditing.** A referee is not expected to watch sixteen match threads. They watch one channel, and an alert points them at the thread that needs them. This is why alerts resolve by editing in place — with several people on one queue, an alert still showing buttons has to mean nobody has taken it.
-- **Concurrent rulings are the normal case, not an edge case.** Two referees reaching for the same escalation is what a pool does under load. The match row lock orders them and the second gets "already resolved by @X" — see TO Alerts and Escalation.
+- **Concurrent rulings are the normal case, not an edge case.** Two referees reaching for the same escalation is what a pool does under load. The match row lock orders them and the second gets "already resolved by @X" — see Organizer Alerts and Escalation.
 - **A referee may never sign in to the web UI at all.** Ruling from alert buttons and slash commands is a complete workflow, which is why sign-in is tracked as information rather than enforced as a gate.
 
 ### What `/setup` does
 
 Requirements are explicit that it does not provision channels — it asks the organizer to create them, then points the bot at them. The same applies to the role.
 
-1. Takes the matches channel, the TO alert channel, and a role for each of the three tiers. The same role may be given for more than one tier.
+1. Takes the matches channel, the organizer alert channel, and a role for each of the three tiers. The same role may be given for more than one tier.
 2. **Accepts every selection.** No picker is filtered and no choice is rejected for lacking a permission.
 3. Writes the `Guild` row, then reports a diagnostic of everything still missing.
 
-**Selection is never the place to enforce permissions.** An admin choosing a role does not necessarily know its permissions, and refusing the input means they cannot even record the decision until Discord is already correct — which is backwards, because the diagnostic is what tells them what to correct. So `/setup` saves the configuration and reports; **tournament start is the blocking gate**, which is where requirements put it and where a stale configuration actually causes harm.
+**Selection is never the place to enforce permissions.** A server administrator choosing a role does not necessarily know its permissions, and refusing the input means they cannot even record the decision until Discord is already correct — which is backwards, because the diagnostic is what tells them what to correct. So `/setup` saves the configuration and reports; **tournament start is the blocking gate**, which is where requirements put it and where a stale configuration actually causes harm.
 
 The same principle extends to channel selection, which your point did not name but would be inconsistent to treat differently: pick any channel, get told precisely what it lacks.
 
@@ -608,7 +624,10 @@ What it reports, per target:
 
 | Target | Needs | Why |
 | --- | --- | --- |
-| Bot, in both channels | View Channel, Send Messages, Send Messages in Threads, Create Private Threads, Manage Threads, Attach Files, Embed Links, Read Message History | Running matches at all |
+| Bot, in the matches channel | View Channel, Send Messages, Send Messages in Threads, Create Private Threads, Manage Threads, Attach Files, Embed Links, Read Message History | Running matches at all |
+| Bot, in the organizer alert channel | View Channel, Send Messages, Embed Links, Read Message History | Raising and editing alerts |
+| Bot, in the results channel | View Channel, Send Messages, Embed Links | Posting the result feed |
+| Bot, in the general channel, if set | View Channel, Send Messages, Embed Links | Forwarding results |
 | Each tier role, in the matches channel | View Channel, Manage Threads | Seeing private match threads. Tier capability is ours; thread visibility is Discord's, and it does not inherit — a Server Administrator without `Manage Threads` can rule on a match they cannot read |
 | Referee-tier role | At least one member | A tournament started with an empty referee pool has no way to resolve a dispute |
 
@@ -622,17 +641,17 @@ The last is a warning rather than a gap, since a server may legitimately configu
 
 **Bot administrator promotion picks from signed-in users.** It is deployment-scoped, so there is no guild member list to pick from — the person being promoted may be in a different server entirely. Choosing from `User` rows is the only mechanism that does not degrade to typing an ID.
 
-**Sign-in is information, never a gate.** A TO can rule entirely from Discord — alert buttons and slash commands are equal surfaces by requirement — so a referee who never opens the web UI is fully functional.
+**Sign-in is information, never a gate.** A referee can rule entirely from Discord — alert buttons and slash commands are equal surfaces by requirement — so a referee who never opens the web UI is fully functional.
 
 **OAuth requests `identify` only.** Which servers a user may act in is resolved from role membership in the gateway cache. Requesting `guilds` would add a broader consent prompt and a second, staler notion of "may act here" beside the one that already exists.
 
-**The `User` table is a cache for current UI, never for history.** Requirements fix the display name as a snapshot taken at registration and stored per tournament, so past brackets show the name someone competed under. `User.displayName` serves admin screens; rendering a bracket or match history from it would silently break that guarantee, and is the single most likely way to do so by accident.
+**The `User` table is a cache for current UI, never for history.** Requirements fix the display name as a snapshot taken at registration and stored per tournament, so past brackets show the name someone competed under. `User.displayName` serves organizer screens; rendering a bracket or match history from it would silently break that guarantee, and is the single most likely way to do so by accident.
 
 ### Permission drift during an event
 
 Permissions are reported at `/setup` without blocking, enforced at tournament start where a missing one blocks the start, and checked **once more before each round's thread burst** — the highest-risk moment and the cheapest to guard, since one effective-permissions computation covers a burst of sixteen thread creations.
 
-Everywhere else the adapter fails loud rather than pre-checking: a permission error is raised as a TO alert naming the missing permission and the action it blocked, and the operation retries once the permission returns. Polling for drift would mean recomputing two channels' permissions forever to catch a rare event, and would still miss the gap between the last poll and the next use.
+Everywhere else the adapter fails loud rather than pre-checking: a permission error is raised as an alert naming the missing permission and the action it blocked, and the operation retries once the permission returns. Polling for drift would mean recomputing two channels' permissions forever to catch a rare event, and would still miss the gap between the last poll and the next use.
 
 ### The first-run wizard
 
@@ -657,8 +676,11 @@ DRAFT ─► REGISTRATION_OPEN ─► REGISTRATION_CLOSED ─► CHECKIN_OPEN
 | `DRAFT → REGISTRATION_OPEN` | TO | Guild configured; format chosen; no other active tournament | `/join` starts working |
 | `→ REGISTRATION_CLOSED` | TO | — | `/join` stops working |
 | `→ CHECKIN_OPEN` | TO | — | `/checkin` starts working |
-| `→ CHECKIN_CLOSED` | TO | — | Un-checked-in entrants dropped from the roster |
+| `→ CHECKIN_CLOSED` | TO | — | Un-checked-in entrants set `NOT_CHECKED_IN` and their seeds cleared; surviving seeds renumbered from 1 in relative order; unseeded entrants appended in join order — one transaction |
 | `→ SEEDED` | TO | Every active entrant has a distinct seed, contiguous from 1 | Seeds committed |
+
+The `SEEDED` guard is an **assertion, not a gate**: normalization at check-in close already guarantees it. It stays because a violation means normalization is broken, and finding that out before a bracket is generated is much cheaper than after.
+
 | `→ RUNNING` | TO | **Discord permission preflight passes** | Bracket generated, threads provisioned, players notified |
 | `→ COMPLETE` | bot | Grand final committed | Standings posted, public archive frozen |
 
@@ -691,9 +713,11 @@ Without `MessageContent`, a message event in a guild arrives with `attachments` 
 
 Preflight computes the missing set and names it at `/setup`, again at tournament start, and once more before each round's thread burst:
 
-View Channel, Send Messages, Send Messages in Threads, Create Private Threads, Manage Threads, Attach Files, Embed Links, Read Message History — on both the matches channel and the TO alert channel.
+View Channel, Send Messages, Send Messages in Threads, Create Private Threads, Manage Threads, Attach Files, Embed Links, Read Message History — scoped per channel as set out in the `/setup` diagnostic.
 
-`Manage Threads` is the one that surprises people. The bot needs it to archive a thread on completion; the **TO role** needs it too, on the matches channel, because it is what lets referees see private threads at all — checked separately at `/setup`.
+`Manage Channels` and `Manage Roles` are **optional**, and the only optional permissions in the design. They let `/setup` create channels and repair overwrites; withheld, setup falls back to selection plus a diagnostic and nothing else changes.
+
+`Manage Threads` is the one that surprises people. The bot needs it to archive a thread on completion; **every tier role** needs it too, on the matches channel, because it is what lets referees see private threads at all — checked separately at `/setup`.
 
 ### The three-second rule
 
@@ -707,9 +731,55 @@ Button `custom_id`s encode everything the handler needs: `v1:<matchId>:<action>:
 
 ### Thread provisioning
 
-Round 1 of a 32-entrant tournament creates 16 private threads at once, each with its two competitors added. Referees are not added — the TO role's `Manage Threads` covers visibility — so a thread has exactly two members regardless of the size of the referee pool. That is still a burst against per-channel rate limits.
+Round 1 of a 32-entrant tournament creates 16 private threads at once, each with its two competitors added. Referees are not added — the tier roles' `Manage Threads` covers visibility — so a thread has exactly two members regardless of the size of the referee pool. That is still a burst against per-channel rate limits.
 
 Provisioning runs through a **serialized queue with backoff on 429**, keyed by match ID and idempotent: a match with a `threadId` is skipped. Tournament start returns as soon as the bracket is committed; threads materialize behind it, and a crash mid-burst resumes on boot by scanning for ready matches without threads. Players are notified when their own thread exists, so nobody waits on the whole batch.
+
+### Notifying players, and the channels
+
+**Match-ready lands twice: a mention in the thread, and a direct message.** Being added to a private thread already notifies, but the mention makes it unmissable and the DM reaches someone who has the server muted.
+
+**The DM is best-effort and cannot be made reliable.** Discord lets a user refuse DMs from server members; the bot cannot detect that in advance, and the send fails with `50007 Cannot send messages to this user`. That is treated as an expected outcome, not an error: logged at debug, never retried, no alert raised. **The thread mention is the notification of record** — nothing depends on the DM arriving, which is what keeps the privacy setting from becoming a support burden.
+
+**The matches channel body carries nothing.** It hosts threads and holds the permissions that make them work — the bot's send and thread permissions, and the `Manage Threads` that gives organizers visibility. No message is ever posted in it.
+
+That has a consequence worth stating, because a server will hit it: **#matches looks empty to everyone.** Private threads are invisible to non-members, and thread visibility requires `View Channel` on the parent, so the channel cannot be hidden from potential competitors — anyone may `/join`. A visible, permanently empty channel is the price of hosting threads somewhere.
+
+**Results go to their own channel, one line per finished match.** Round, both players, winner, score, and a link to the match on the public bracket. Built from `toBracketMatch`, so it structurally cannot disclose anything the public bracket does not already show.
+
+- **Byes are excluded.** A walkover with no opponent is bracket structure, not a result, and posting it would fill the channel at exactly the moment round one is busiest.
+- **Forfeits and disqualifications do post**, worded as advancement rather than as a verdict.
+
+**Each result line is then forwarded to the general channel**, using Discord's native message forward — a `message_reference` of type `FORWARD` — rather than a re-post. The forward renders with its provenance and links back, so the results channel stays the chronological record and the general channel gets visibility without becoming a second, divergent copy. If the forward fails the result still stands in the results channel, so it is logged and not retried; the record is already correct.
+
+**The duplication is the design, not redundancy to optimise away.** The two channels serve two audiences: the results channel is a conversation-free chronological log, which is what makes it readable to an organizer tracking an event in progress; the forward into the general channel is where competitors react and talk, without that traffic burying the log. Collapsing them into one costs whichever audience loses — a log nobody can skim, or a result feed nobody sees.
+
+**The forward is optional and never blocks setup.** With no general channel set, results post to the results channel and nothing is forwarded. The organizer-facing half is unaffected; competitors follow the event on the public bracket, which is the surface requirements point them at anyway. Only the general channel is skippable — the results channel holds the log, so it stays required.
+
+**Two configurations cause avoidable trouble**, and both are now handled by provisioning rather than by asking nicely:
+
+- **Public threads in the matches channel.** Referees find match threads through that channel's thread list. Public discussion threads land in the same list, cluttering the one navigation surface used during an event.
+- **Chat in the results channel.** A line appearing there is meant to mean something concluded; interleaved conversation removes the property that makes the log worth keeping. Reactions stay enabled — the discussion they might otherwise become already has a home in the general channel.
+
+### Provisioning the channels
+
+`/setup` offers, per channel, either **create it** or **point at an existing one**.
+
+**Creating is the recommended path**, because a channel the bot makes is correct by construction and the administrator never has to learn Discord's permission model:
+
+| Channel | `@everyone` | Tier roles | Bot |
+| --- | --- | --- | --- |
+| Matches | View; **deny** Send, Create Public Threads | View, Manage Threads | Full thread-capable set |
+| Organizer alerts | **deny** View | View, Read History | Send, Embed Links |
+| Results | View, Add Reactions; **deny** Send | — | Send, Embed Links |
+
+`@everyone` keeps View on the matches channel deliberately: thread visibility requires it on the parent, and anyone may `/join`. The general channel is never created — every server already has one, and making a second is not a service.
+
+**Pointing at an existing channel accepts any choice**, then computes the gap and **offers to repair it**, showing exactly which overwrites would be added before touching anything. Nothing is modified without confirmation: silently rewriting permissions on a channel a server already uses is not something a bot should do unprompted.
+
+**Two Discord rules bound what repair can achieve.** A bot cannot grant a permission it does not itself hold, so it cannot give a tier role `Manage Threads` unless it has `Manage Threads` there; and editing overwrites for a role is subject to role hierarchy, so a tier role sitting above the bot's own highest role is untouchable. Both produce the same outcome — the gap is reported rather than fixed, naming the layer that lost the permission.
+
+**Repair never blocks the selection.** An administrator who declines the fix, or hits something the bot cannot repair, still gets their configuration saved with a list of what remains outstanding. Tournament start is still the gate, for the reason it always was: a stale configuration causes harm there, not at selection time.
 
 ### Ephemerality
 
@@ -738,10 +808,10 @@ WHERE id IN (
 
 **Each timer fires at most once**, guaranteed by `firedAt` plus the unique `(matchId, kind)` — a match cannot accumulate duplicate start-window alerts. Timers are cancelled, not deleted, when the match leaves the relevant phase: the start-window timer on the first `SONG_STARTED`, the time-limit timer on the set result. Keeping cancelled rows means an alert that did not fire is still explicable afterwards.
 
-**Overdue timers at boot fire immediately.** A deploy spanning an expiry produces a late alert rather than a missing one, which is the right failure for a threshold whose purpose is to get a TO's attention.
+**Overdue timers at boot fire immediately.** A deploy spanning an expiry produces a late alert rather than a missing one, which is the right failure for a threshold whose purpose is to get an organizer's attention.
 
 
-## TO Alerts and Escalation
+## Organizer Alerts and Escalation
 
 Every stall in the system resolves here. The automation boundary guarantees the bot will wait forever rather than decide, which makes the alert channel the only thing that keeps an event moving.
 
@@ -780,7 +850,7 @@ Threshold alerts resolve on an explicit dismissal **or** when their condition cl
 
 **The database is authoritative and the message is a view of it.** The ruling commits in its transaction; the message edit happens after, like every other side effect. If the edit fails — message deleted, rate limited — the ruling still stands, and the boot reconciler that re-posts missing match threads also re-syncs open alerts to the channel.
 
-**Two TOs clicking at once is already handled.** Both interactions serialize on the match row lock; the first appends its ruling, the second fails validation against a `pendingAction` that is no longer `AWAITING_TO`, and gets an ephemeral "already resolved by @X." Alert buttons are stateless `custom_id`s like every other button, so they survive a restart and a stale one is refused cleanly rather than erroring.
+**Two referees clicking at once is already handled.** Both interactions serialize on the match row lock; the first appends its ruling, the second fails validation against a `pendingAction` that is no longer `AWAITING_TO`, and gets an ephemeral "already resolved by @X." Alert buttons are stateless `custom_id`s like every other button, so they survive a restart and a stale one is refused cleanly rather than erroring.
 
 ### Reporting a settings violation
 
@@ -788,7 +858,7 @@ Chart flags are enforced socially — the bot cannot observe a player's modifier
 
 On a chart carrying a flag, the score-verification step already prompts both players to confirm settings. It also carries a **report a settings problem** button. One click appends `SONG_ESCALATED` with reason `SETTINGS_VIOLATION`, the reporter as actor, and moves the match to `AWAITING_TO`. The alert arrives with the match, song index, chart, the flag in question, the reporter, and both submitted EX% values already attached.
 
-The TO's options are exactly the ones requirements enumerate: award the song to the player who used the correct settings, or — when both were wrong, so there is no correct-settings player — select a winner or void the song, a void behaving like a tie.
+The referee's options are exactly the ones requirements enumerate: award the song to the player who used the correct settings, or — when both were wrong, so there is no correct-settings player — select a winner or void the song, a void behaving like a tie.
 
 **The button disappears once the song commits.** Requirements permit the forced result specifically "because the song has not yet been committed," so a violation noticed after both players agreed a winner is frozen like anything else. This is worth stating because it is the natural thing for a player to try, and the refusal needs to read as a rule rather than a bug.
 
@@ -837,20 +907,20 @@ Authorization is one service, transport-independent:
 | May they run a tournament? | Tier ≥ Tournament Organizer |
 | May they reconfigure the bot here? | Tier = Server Administrator |
 | Is this user a bot administrator? | Config allowlist ∪ `Admin` table |
-| May this user act in match M? | Is one of the two players, or a TO |
-| May a TO override this song? | Not frozen — see Bracket Immutability |
+| May this user act in match M? | Is one of the two players, or holds Referee tier |
+| May a referee override this song? | Not frozen — see Bracket Immutability |
 
 Config admins are re-applied additively at boot, which is the lockout recovery path.
 
 Public bracket and match history need **no authentication** — sign-in only adds a personalized dashboard.
 
-**The override boundary is one predicate.** "TO may act here" is `!state.songs[i].result` for a song, and `state.songs.length === 0` for a Protect/Veto reset. Both transports call the same function, so an override that is illegal in the web UI is illegal from an alert-channel button.
+**The override boundary is one predicate.** "A referee may act here" is `!state.songs[i].result` for a song, and `state.songs.length === 0` for a Protect/Veto reset. Both transports call the same function, so an override that is illegal in the web UI is illegal from an alert-channel button.
 
-**Audit.** Admin promotions are logged as the requirement demands, and the same `AuditLog` covers TO role grants mirrored from `GUILD_MEMBER_UPDATE` and every TO ruling — the marginal cost is a row, and a disputed ruling after the event is exactly when you want the record. Match-affecting TO actions are *also* `MatchEvent`s, since they change match state; the audit row is the cross-tournament view of who did what.
+**Audit.** Admin promotions are logged as the requirement demands, and the same `AuditLog` covers tier role grants mirrored from `GUILD_MEMBER_UPDATE` and every referee ruling — the marginal cost is a row, and a disputed ruling after the event is exactly when you want the record. Match-affecting referee actions are *also* `MatchEvent`s, since they change match state; the audit row is the cross-tournament view of who did what.
 
 ## The Web Client
 
-Two surfaces — the desktop-first TO console and the mobile public bracket — built as one Vite app, split by route. The console's heavier dependencies (tables, drag-and-drop for seeding) load only under its routes, so a spectator on a phone never pays for them.
+Two surfaces — the desktop-first organizer console and the mobile public bracket — built as one Vite app, split by route. The console's heavier dependencies (tables, drag-and-drop for seeding) load only under its routes, so a spectator on a phone never pays for them.
 
 ### API contract: REST, with zod as the only schema
 
@@ -864,7 +934,7 @@ This is where the promise made at the top of this document is kept or quietly br
 | `GET /api/matches/:id` | Public match detail, from the projection |
 | `POST /api/tournaments/:id/charts` | Song pack import — the shared-schema endpoint |
 | `POST /api/tournaments/:id/lifecycle` | Lifecycle transitions, guarded by the state machine |
-| `POST /api/matches/:id/rulings` | TO overrides, guarded by the freeze predicate |
+| `POST /api/matches/:id/rulings` | Referee overrides, guarded by the freeze predicate |
 
 **Considered and rejected: tRPC.** It gives the strongest end-to-end typing with no hand-written client, and on a TypeScript-everywhere project that is a real pull. But authorization here is deliberately transport-independent, wired on the HTTP side through Nest guards and DI — tRPC bypasses that and needs its own middleware layer, which means two places where an authorization check can be forgotten. Public reads also stay plain cacheable GETs this way.
 
@@ -876,7 +946,7 @@ TanStack Query holds every read. The websocket connection is one subscription pe
 
 That is the resync model from Realtime, implemented rather than reinvented: `refetchOnReconnect` fetches the snapshot, frames patch it, and stale frames are idempotent. The reconnection story needs no bespoke code, which is the whole reason for the dependency.
 
-**TO mutations invalidate; they do not update optimistically.** A TO override can be refused — the freeze predicate may have closed between render and click, exactly the race described in No commit events. Optimistically painting a bracket change that the server then rejects would show an organizer a result that never happened, on the surface where being wrong matters most.
+**Override mutations invalidate; they do not update optimistically.** A referee override can be refused — the freeze predicate may have closed between render and click, exactly the race described in No commit events. Optimistically painting a bracket change that the server then rejects would show an organizer a result that never happened, on the surface where being wrong matters most.
 
 ### UI: Mantine, and only Mantine
 
@@ -899,7 +969,7 @@ The public bracket carries the formal WCAG 2.1 AA bar. Mantine covers the compon
 - **Bracket semantics.** The bracket is a graph presented visually. It needs a structure a screen reader can traverse — rounds as nested lists, each match labelled with its participants, state, and score — not absolutely positioned divs whose meaning is purely spatial.
 - **Keyboard traversal.** Moving between matches and between rounds without a pointer, with a visible focus indicator that survives the layout.
 - **Announcing pushed updates.** Requirements say real-time updates must be announced rather than silently swapped in — but the bracket repaints on every committed song, and speaking every repaint would make the page unusable for exactly the people the requirement protects. Visual update frequency and announcement frequency are separate decisions; the policy is in Rendering the bracket below.
-- **State not encoded in colour alone.** Winner, loser, in progress, and awaiting a TO each need a non-colour cue.
+- **State not encoded in colour alone.** Winner, loser, in progress, and awaiting an organizer each need a non-colour cue.
 
 This is also why the pan-and-zoom canvas approaches that most cleanly solve the mobile layout problem are hard to adopt: they tend to defeat all four.
 
@@ -936,7 +1006,7 @@ Simfiles never reach the server.
 
 1. Browser reads a `.zip` or directory (File System Access API, with a `.zip` fallback).
 2. A TypeScript `.sm`/`.ssc` parser extracts charts, resolving `titleTranslit || title` and friends at parse time.
-3. The TO reviews a **preview table** — charts found, duplicates flagged against the existing pack — and confirms.
+3. The organizer reviews a **preview table** — charts found, duplicates flagged against the existing pack — and confirms.
 4. Browser POSTs a JSON chart list.
 5. **Server re-validates against the same shared zod schema** and persists.
 
@@ -998,7 +1068,7 @@ Metrics and tracing are deferred. The trigger to add them is a second instance o
 | Public projection | Property test: no unrevealed tiebreak choice ever appears in serialized output |
 | Duration estimate | DAG walk must equal the closed form for every entrant count |
 | Services | Integration tests against a throwaway Postgres, including concurrent appends to one match |
-| Alerts | Integration test: two TOs ruling on one escalation leaves one ruling and one clean rejection |
+| Alerts | Integration test: two referees ruling on one escalation leaves one ruling and one clean rejection |
 | Transports | Thin enough to cover lightly |
 | Public bracket a11y | Automated axe checks in CI, plus a keyboard-only traversal test |
 | Simfile parser | Golden-file tests over a small corpus of real `.sm` and `.ssc` files |
@@ -1011,7 +1081,7 @@ The concurrency test is worth calling out: two simultaneous `SONG_WINNER_SELECTE
 
 Undecided. The analysis, so it does not have to be redone:
 
-The permission check happens regardless — whether a user holds the TO role is resolved on every request from the gateway's member cache, and that check is what authorizes it. So the options are not equivalent in the way they first appear:
+The permission check happens regardless — which tier a user holds is resolved on every request from the gateway's member cache, and that check is what authorizes it. So the options are not equivalent in the way they first appear:
 
 | | Queries/req | Instant revocation | Kill one session | Moving parts |
 | --- | --- | --- | --- | --- |
@@ -1021,11 +1091,11 @@ The permission check happens regardless — whether a user holds the TO role is 
 
 **A session table adds a query rather than replacing one.** It is a capability choice, not a performance one: the only thing it buys is enumerating and killing individual sessions. For a system whose privileged users are a handful of TOs per guild, that is low value, and rotating the signing secret already provides a global logout.
 
-**JWT is the one to avoid.** Requirements specify that admin promotions are logged and TO access is revocable; with roles baked into the token, a demoted TO keeps acting until it expires. Fixing that means a denylist, which is a session table with extra steps.
+**JWT is the one to avoid.** Requirements specify that admin promotions are logged and organizer access is revocable; with tiers baked into the token, someone whose role was removed keeps acting until it expires. Fixing that means a denylist, which is a session table with extra steps.
 
 Leaning **signed cookie with per-request authorization**. Adopt a session table only if per-session revocation becomes a real requirement — the authorization path does not change either way, so this is cheap to defer.
 
 ### Remaining
 
 - **Whether `Match.state` is worth caching at all** before there is a measured reason. `stateSeq` makes the cache verifiable, which lowers the risk of keeping it, but replaying a few dozen events is not obviously slower than deserializing the JSON.
-- **What happens to an in-flight match when a TO resets Protect/Veto.** The requirement permits it before song 1, and the events are appended rather than removed — but the thread already shows the old Draw and its buttons. Re-posting a fresh state message and letting the stale one be rejected by validation is the cheap answer; whether it reads clearly to players is a UX question, not a modelling one.
+- **What happens to an in-flight match when a referee resets Protect/Veto.** The requirement permits it before song 1, and the events are appended rather than removed — but the thread already shows the old Draw and its buttons. Re-posting a fresh state message and letting the stale one be rejected by validation is the cheap answer; whether it reads clearly to players is a UX question, not a modelling one.

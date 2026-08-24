@@ -123,7 +123,7 @@ model Tournament {
   guildId     String
   name        String
   formatKey   String                      // pluggable ruleset, see below
-  config      Json                        // timers, per-match allocation
+  config      Json                        // TournamentConfig, below
   state       TournamentState             // DRAFT | REGISTRATION_OPEN | ...
   entrants    Entrant[]
   charts      Chart[]                     // this tournament's song pack
@@ -239,6 +239,18 @@ model AuditLog {
   createdAt   DateTime @default(now())
 }
 ```
+
+**`Tournament.config`** is a single JSON column rather than three nullable integers, so a new format can add its own knobs without a migration:
+
+```ts
+interface TournamentConfig {
+  matchStartWindowMinutes: number;   // default 10 — alert threshold, not enforcement
+  matchTimeLimitMinutes: number;     // default 25
+  perMatchAllocationMinutes: number; // default 25 — feeds the duration estimate
+}
+```
+
+All three are alert thresholds or estimates. Nothing inside a match format is configurable, per the requirements — set length, draw size and action order are properties of the format.
 
 ### Three constraints Prisma cannot express
 
@@ -383,6 +395,27 @@ Everything specific to Bo5 — the ABBAAB sequence, the loser-goes-next preferen
 
 **All four functions are pure.** No database, no Discord, no clock. That makes the entire ruleset unit-testable by feeding it event sequences, which matters given how many edge cases the rules carry: ties awarding nothing, the play-order fall-through when a loser has neither a Protect nor the Decider left, reshuffling on an undersized song pack.
 
+The types the interface names:
+
+```ts
+type EscalationReason = 'WINNER_DISAGREEMENT' | 'SETTINGS_VIOLATION';
+
+interface MatchOutcome {
+  winner: EntrantId;
+  loser: EntrantId;
+  points: Record<EntrantId, number>;
+  by: 'AGREEMENT' | 'RULING' | 'FORFEIT' | 'DQ' | 'WALKOVER';
+}
+
+/** Match-scoped only. Bracket advancement is the service's reaction to outcome(). */
+type DomainEffect =
+  | { kind: 'SONG_COMMITTED'; songIndex: number }
+  | { kind: 'TIEBREAK_RESOLVED'; round: number }
+  | { kind: 'ESCALATION_OPENED'; songIndex: number; reason: EscalationReason }
+  | { kind: 'ESCALATION_CLOSED'; songIndex: number }
+  | { kind: 'SET_DECIDED' };
+```
+
 `PendingAction` is a discriminated union naming the actor and the legal choices:
 
 ```ts
@@ -484,15 +517,33 @@ Owned in-process. No external bracket service.
 
 **Considered and rejected: Challonge as a bracket backend.** It would supply the pairing math, but it can only hold a thin shadow of the match model — a match in Challonge is a score like `3-2`, with no Draw, Protect/Veto sequence, per-song EX%, Decider, or tiebreak rounds. Those stay in this database regardless, leaving two systems that can drift. It would also put a third-party network call on the critical path of every committed result, defeat the real-time push requirement (no inbound push, so polling), and be unable to render the public match detail the requirements call for. The pairing math is a write-once problem; the dependency would be forever.
 
-**Algorithm.** The conventional double-elimination construction:
+### The winners bracket, exactly
 
-- Pad to the next power of two; byes go to the highest seeds.
-- Winners rounds pair by standard seed distance, keeping top seeds apart as long as possible.
-- Losers rounds alternate **minor** (losers-side survivors meet) and **major** (winners-side droppers enter) rounds.
-- On each major round the drop order is transformed — alternating **reverse** and **rotate** by round — so players from the same winners-bracket region are separated.
-- Grand final, plus a reset bracket if the losers-side finalist wins the first set.
+Pad the field to `2^k`. Seed positions follow the standard recursive construction:
 
-The transformation is computed from **bracket positions alone at generation time** and never consults results.
+```
+order(1)  = [1]
+order(2n) = order(n).flatMap(s => [s, 2n + 1 - s])
+```
+
+which gives `[1, 2]`, then `[1, 4, 2, 3]`, then `[1, 8, 4, 5, 2, 7, 3, 6]`. Round 1 pairs consecutive entries, so an eight-slot bracket plays 1–8, 4–5, 2–7, 3–6. Top seeds are kept apart for as long as the structure allows, and this falls out of the construction rather than being arranged.
+
+**Byes need no special case.** Seeds above the real entrant count are byes, and because seed 1 is paired with `2^k`, seed 2 with `2^k - 1`, and so on, the byes land on the highest seeds automatically — the stated requirement, satisfied by the seeding order itself.
+
+### The losers bracket
+
+`2(k − 1)` rounds. Round 1 takes every winners round 1 loser, preserving winners-match order. After that, **even-numbered rounds are major** — winners-side droppers enter — and **odd-numbered rounds are minor**, where losers-side survivors meet.
+
+The stagger applies at each major round, mapping `m` droppers indexed by their winners-match position onto `m` receiving slots. Two transformations are in use:
+
+- **Reverse** — dropper `i` goes to slot `m − 1 − i`.
+- **Rotate by half** — dropper `i` goes to slot `(i + m/2) mod m`.
+
+**Which applies to which round is a convention, not a derivation**, and conventions differ between bracket software. Implement with *reverse* at the first major round and alternate thereafter — then let the property tests arbitrate. If an entrant count produces a rematch earlier than the structure requires, the delay property fails and the parity for that round flips. This is the one place in the design where the tests are the specification and the algorithm is a starting point; the alternative is asserting a convention here that could simply be wrong.
+
+Whatever is chosen, the transformation is computed from **bracket positions alone at generation time** and never consults results — which is the property that actually matters, and the one the requirements care about.
+
+The grand final follows, plus a reset bracket if the losers-side finalist wins the first set.
 
 **The whole bracket is materialized up front**, byes included, with `playerAId`/`playerBId` null where the occupant is not yet known. Advancement then writes a player into an existing row rather than creating matches on the fly, which keeps the public bracket renderable in full from the moment the tournament starts and makes the duration estimate a walk over real rows.
 
@@ -1438,6 +1489,26 @@ Metrics and tracing are deferred. The trigger to add them is a second instance o
 | Simfile parser | Golden-file tests over a small corpus of real `.sm` and `.ssc` files |
 
 The concurrency test is worth calling out: two simultaneous `SONG_WINNER_SELECTED` appends must produce two events with distinct seqs and one commit, and the same action submitted twice must produce one event. Both are cheap to write against a real database and impossible to check against a mock.
+
+## Build Order
+
+The dependency structure here is unusually favourable, and it is worth following rather than building outside-in.
+
+**1. Schema and migrations.** Including the three raw-SQL constraints — the partial unique index for one active tournament per guild, and the deferrable unique constraint on `(tournamentId, seed)`. Getting those in the first migration avoids retrofitting them around existing data.
+
+**2. The pure domain.** `MatchFormat` and `Bo5ProtectVetoFormat`, the draw utility, bracket generation, advancement, standings, the duration estimate. **None of this needs Discord, Postgres, or a running process** — it is pure functions over event sequences, and it is where nearly all the rules risk lives. The golden replay corpus starts here, as does every property test.
+
+This is the step to do first and to do slowly. Everything after it is plumbing; this is the part that is genuinely hard to get right, and it is verifiable in complete isolation.
+
+**3. Services and transactions.** The row lock, event append, cache and projection maintenance, the advancement cascade. Integration-tested against a throwaway Postgres, including the concurrent-append cases that cannot be checked against a mock.
+
+**4. The Discord adapter.** The ports already have fakes from step 2, so this is the first point at which a token is needed at all. Interaction handling, the state message lifecycle, thread provisioning.
+
+**5. Timers, alerts, the reconciler.** They depend on the adapter to have somewhere to post, and on the sweeper that timers introduce.
+
+**6. Web API and client.** Last, because every projection it renders already exists and is tested by then.
+
+**What this ordering buys** is that the two hardest things — the match rules and the bracket construction — are finished and property-tested before a single Discord credential is needed, and their tests keep running in milliseconds for the life of the project.
 
 ## Open Question
 

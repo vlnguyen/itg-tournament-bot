@@ -1,0 +1,131 @@
+import { ChannelType, type Client, type ThreadChannel } from 'discord.js';
+import type { PrismaClient } from '@prisma/client';
+import type { MatchChannelPort, RenderedMessage, ThreadRef } from './ports.js';
+
+const DISCORD_UNKNOWN_MESSAGE = 10008;
+
+function isUnknownMessage(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && 'code' in err && err.code === DISCORD_UNKNOWN_MESSAGE;
+}
+
+/**
+ * Discord-backed `MatchChannelPort`. Mechanics only — the thread and
+ * message lifecycle — never match rules. See DESIGN.md, "The Match
+ * Thread".
+ */
+export function createMatchChannelAdapter(
+  client: Client,
+  prisma: PrismaClient,
+  matchesChannelId: string,
+  resultsChannelId: string,
+): MatchChannelPort {
+  /**
+   * Per-match debounce for the state message: coalesces a burst of
+   * triggers (two photos landing within the same second) into one repost.
+   * Purely an optimization — unlike a button collector, losing this on a
+   * restart costs an eager repost instead of a coalesced one, never a
+   * dropped or duplicated message, which is what makes it safe to hold in
+   * memory. See DESIGN.md, "Keeping the prompt last" — "debounce" and
+   * "repost, do not duplicate."
+   */
+  const pending = new Map<string, { message: RenderedMessage; result: Promise<void> }>();
+  const DEBOUNCE_MS = 900;
+
+  async function getThread(threadId: string): Promise<ThreadChannel> {
+    const channel = await client.channels.fetch(threadId);
+    if (!channel || !channel.isThread()) {
+      throw new Error(`expected a thread channel for ${threadId}, got ${channel?.type ?? 'null'}`);
+    }
+    return channel;
+  }
+
+  /** Edits the state message in place if it's still the thread's last message; deletes and reposts otherwise. */
+  async function applyStateMessage(matchId: string, threadId: string, message: RenderedMessage): Promise<void> {
+    const thread = await getThread(threadId);
+    const match = await prisma.match.findUniqueOrThrow({ where: { id: matchId } });
+
+    if (match.stateMsgId) {
+      if (thread.lastMessageId === match.stateMsgId) {
+        try {
+          const existing = await thread.messages.fetch(match.stateMsgId);
+          // `Message#edit` leaves a field unchanged when it's omitted, not
+          // cleared — a render with no embeds/components (e.g. a plain
+          // placeholder) would otherwise leave the *previous* prompt's
+          // select menu or buttons still attached. The state message must
+          // always fully reflect the current render, never a merge with
+          // whatever was there before.
+          await existing.edit({ content: message.content ?? '', embeds: message.embeds ?? [], components: message.components ?? [] });
+          return;
+        } catch (err) {
+          // 10008: deleted from under us — a repost already in flight, or a
+          // manual deletion. Fall through and repost.
+          if (!isUnknownMessage(err)) throw err;
+        }
+      } else {
+        try {
+          await thread.messages.delete(match.stateMsgId);
+        } catch (err) {
+          if (!isUnknownMessage(err)) throw err;
+        }
+      }
+    }
+
+    const posted = await thread.send(message);
+    await prisma.match.update({ where: { id: matchId }, data: { stateMsgId: posted.id } });
+  }
+
+  return {
+    async createMatchThread({ matchId, title }): Promise<ThreadRef> {
+      const parent = await client.channels.fetch(matchesChannelId);
+      if (!parent || parent.type !== ChannelType.GuildText) {
+        throw new Error(`matches channel ${matchesChannelId} is not a text channel`);
+      }
+      const thread = await parent.threads.create({
+        name: title,
+        type: ChannelType.PrivateThread,
+        invitable: false,
+      });
+      // Competitors join via the mention in PlayerNotificationPort.matchReady,
+      // not an explicit add here — see ports.ts.
+      return { matchId, threadId: thread.id };
+    },
+
+    async postLogMessage(ref, message) {
+      const thread = await getThread(ref.threadId);
+      await thread.send(message);
+    },
+
+    async postMatchState(ref, message) {
+      const existing = pending.get(ref.matchId);
+      if (existing) {
+        existing.message = message; // latest payload wins; timer already running
+        return existing.result;
+      }
+      const entry: { message: RenderedMessage; result: Promise<void> } = {
+        message,
+        result: undefined as unknown as Promise<void>,
+      };
+      entry.result = new Promise<void>((resolve, reject) => {
+        setTimeout(() => {
+          pending.delete(ref.matchId);
+          applyStateMessage(ref.matchId, ref.threadId, entry.message).then(resolve, reject);
+        }, DEBOUNCE_MS);
+      });
+      pending.set(ref.matchId, entry);
+      return entry.result;
+    },
+
+    async archiveThread(ref) {
+      const thread = await getThread(ref.threadId);
+      await thread.setArchived(true);
+    },
+
+    async publishResult(message) {
+      const channel = await client.channels.fetch(resultsChannelId);
+      if (!channel || channel.type !== ChannelType.GuildText) {
+        throw new Error(`results channel ${resultsChannelId} is not a text channel`);
+      }
+      await channel.send(message);
+    },
+  };
+}

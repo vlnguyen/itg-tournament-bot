@@ -848,7 +848,9 @@ Two of the requirements can only be met with privileged intents, and this is wor
 | `MessageContent` | **Seeing its attachments** — the result-screen photo | **Yes** |
 | `GuildMembers` | `GuildMemberRemove` — "a competitor leaves the server mid-tournament" | **Yes** |
 
-Without `MessageContent`, a message event in a guild arrives with `attachments` empty, so the bot cannot tell that a photo was posted. Both intents are toggled in the developer portal and require verification past 100 guilds — a real deployment constraint, not a formality.
+Without `MessageContent`, a message event in a guild arrives with `content`, `embeds`, `attachments`, `components` and `poll` all empty, so the bot cannot tell that a photo was posted.
+
+**The gate is 10,000 unique users, not a guild count.** Below that, both intents are toggled in the developer portal. Above it — more than 10,000 unique users who can see the app across every server it is in — they require review, and **approved apps must reapply annually**. An older 100-server threshold is widely repeated and no longer applies. This is a real deployment constraint rather than a formality, and the annual reapplication in particular is the kind of thing that lapses quietly.
 
 **If `MessageContent` is unavailable**, the photo requirement degrades rather than breaking: `PHOTO_OBSERVED` is never emitted, the winner-selection step does not wait on it, and the thread carries a standing instruction to post the photo. The evidence still lands in the thread; the bot just cannot confirm it. This is the fallback, not the plan.
 
@@ -866,6 +868,8 @@ View Channel, Send Messages, Send Messages in Threads, Create Private Threads, M
 
 Discord kills an interaction that is not acknowledged within three seconds. Every handler therefore **defers first, works second** — `deferUpdate()` for a button that edits the match message in place, `deferReply({ ephemeral: true })` where the response is private, and the work (lock, validate, append, post) follows. This is not an optimization; a lock wait behind another player's action can easily exceed three seconds on its own.
 
+**One exception, and it matters:** a tiebreak pick must never use `deferUpdate()`, because that path edits the message every viewer sees. See The tiebreak.
+
 ### Stateless components
 
 Button `custom_id`s encode everything the handler needs: `v1:<matchId>:<action>:<arg>`. A cuid match ID is 25 characters, so this fits Discord's 100-character limit with room for chart IDs.
@@ -882,7 +886,7 @@ Provisioning runs through a **serialized queue with backoff on 429**, keyed by m
 
 **Match-ready lands twice: a mention in the thread, and a direct message.** Being added to a private thread already notifies, but the mention makes it unmissable and the DM reaches someone who has the server muted.
 
-**The DM is best-effort and cannot be made reliable.** Discord lets a user refuse DMs from server members; the bot cannot detect that in advance, and the send fails with `50007 Cannot send messages to this user`. That is treated as an expected outcome, not an error: logged at debug, never retried, no alert raised. **The thread mention is the notification of record** — nothing depends on the DM arriving, which is what keeps the privacy setting from becoming a support burden.
+**The DM is best-effort and cannot be made reliable.** Discord lets a user refuse DMs from server members; the bot cannot detect that in advance, and the send fails with `50007 Cannot send messages to this user`. A second code matters here too: **`50278`, "Cannot send messages to this user due to having no mutual guilds"**, which is what arrives when the recipient has left the server — a case this system meets routinely, since a player can leave mid-tournament. Both are treated as expected outcomes, not errors: logged at debug, never retried, no alert raised. **The thread mention is the notification of record** — nothing depends on the DM arriving, which is what keeps the privacy setting from becoming a support burden.
 
 **The matches channel body carries nothing.** It hosts threads and holds the permissions that make them work — the bot's send and thread permissions, and the `Manage Threads` that gives organizers visibility. No message is ever posted in it.
 
@@ -920,7 +924,11 @@ That has a consequence worth stating, because a server will hit it: **#matches l
 
 **Pointing at an existing channel accepts any choice**, then computes the gap and **offers to repair it**, showing exactly which overwrites would be added before touching anything. Nothing is modified without confirmation: silently rewriting permissions on a channel a server already uses is not something a bot should do unprompted.
 
-**Two Discord rules bound what repair can achieve.** A bot cannot grant a permission it does not itself hold, so it cannot give a tier role `Manage Threads` unless it has `Manage Threads` there; and editing overwrites for a role is subject to role hierarchy, so a tier role sitting above the bot's own highest role is untouchable. Both produce the same outcome — the gap is reported rather than fixed, naming the layer that lost the permission.
+**What bounds repair is narrower than it first appears.** A bot may only allow or deny permissions it holds in the guild or the parent channel — **unless it has a `Manage Roles` overwrite in that channel**, which lifts the ceiling entirely. So the practical rule is: with a channel-level `Manage Roles` overwrite the bot can grant `Manage Threads` to a tier role regardless of its own guild permissions; without one, it cannot exceed what it already has.
+
+**Role hierarchy is a different matter, and an open question.** Discord documents hierarchy as governing role grants, role edits, role sorting, and kick/ban/nickname — and states that permissions otherwise do not obey it. Channel permission overwrites are not in that list. Whether a bot can edit an overwrite targeting a role above its own is therefore **unverified in either direction**, and the Discord spike should settle it empirically before repair is built to assume one answer.
+
+Whatever cannot be repaired is reported instead, naming the layer that lost the permission.
 
 **Repair never blocks the selection.** An administrator who declines the fix, or hits something the bot cannot repair, still gets their configuration saved with a list of what remains outstanding. Tournament start is still the gate, for the reason it always was: a stale configuration causes harm there, not at selection time.
 
@@ -962,7 +970,7 @@ The competitor-facing surface. Everything the rules require a player to do happe
 
 **The name is `WR2 · Alice vs Bob`** — bracket side and round, then both competitors. It sorts sensibly, identifies a match at a glance in a list of sixteen, and gives an organizer the two things they scan for. Display names are truncated to fit Discord's 100-character limit, longest first so both stay legible.
 
-**The name is fixed at creation and never changes.** Discord rate-limits thread renames to roughly two per ten minutes, so a name carrying live state would fall behind precisely when an event is busiest — the moment it would be worth having. State belongs in the thread, the bracket, and the results feed, none of which are rate-limited.
+**The name is fixed at creation and never changes.** Renaming a thread hits a sublimit of roughly two changes per ten minutes — **undocumented, but consistently reproduced**, so the number should be read from the response headers rather than hardcoded, as Discord's rate-limit guidance instructs. A name carrying live state would therefore fall behind precisely when an event is busiest, which is the moment it would be worth having. State belongs in the thread, the bracket, and the results feed, none of which are constrained this way.
 
 A grand final reset is a separate `Match` row and therefore a separate thread, named `GF2 · Alice vs Bob`. It gets a fresh event log, so it gets a fresh place to live.
 
@@ -1046,7 +1054,21 @@ The events are appended, never removed, so the public match view shows the aband
 
 The one interaction where a leak is a rules failure rather than an annoyance.
 
-**The select menu lives on the state message; the response is ephemeral.** The component is visible to both players, but a component interaction is private to whoever used it: the opponent sees no selection, and nothing about the choice is written into the message. One tap, no extra round trip.
+**The select menu lives on the state message; the response is ephemeral.** The component is visible to both players, but a selection is private to whoever made it. The mechanism is worth knowing rather than trusting: the message object Discord stores is identical for every viewer, the only "selected" state in a select menu's payload is the developer-set `default` flag, and a user's own choice is client-local and **never persisted by Discord at all**. There is no per-viewer field that could leak.
+
+**Which makes the response type load-bearing, not a detail.** Replying with `UPDATE_MESSAGE`, or deferring with `DEFERRED_UPDATE_MESSAGE` and then editing, mutates the shared message **for everyone**. A pick must be answered with an ephemeral reply — `deferReply({ ephemeral: true })`, then edit that ephemeral — and never with `deferUpdate()`, which is the reflex for a component sitting on a message the bot owns. The shared state message is updated separately, carrying only who has acted.
+
+This is the one place the general defer-first rule has a wrong answer, and choosing it leaks a player's pick to their opponent without erroring.
+
+**Because Discord persists nothing, the bot is the only record** — which the event log already handles, and which explains a behaviour that would otherwise look merely defensive. A player who refreshes loses the visual state of their own pick and will naturally try again; the refusal tells them what they chose rather than just turning them away.
+
+**One residual, on the picker's own screen.** Their client keeps their selection highlighted in the menu until something refreshes it. Nothing about this reaches the opponent — it matters only where someone else can see the display, which means a streamed match, a screen share, or another person in the room. Narrow for a remote tournament, not empty.
+
+It probably closes itself. The state message is **already edited** after each pick, to show that a player has acted; if that edit re-sends the select component, the client should discard its local selection along with the replaced payload. That is a claim about client rendering rather than documented API behaviour, so it is **a question for the Discord spike** rather than an assumption to build on.
+
+**If it does not close itself**, the fallback is to move the picker out of the shared message: the state message carries a button, clicking it opens an ephemeral message containing the select, and the choice is made somewhere only that player can ever see. Nothing to highlight, because the shared message holds no select menu. The cost is a second interaction — which is why it is the fallback rather than the default, but the calculus changes if the highlight persists.
+
+**What neither approach closes** is the ephemeral confirmation itself, which necessarily shows a player their own pick. Unavoidable, expected, and the same class of exposure as the highlight.
 
 **The label has to say so plainly.** A picker sitting in a shared message will make people hesitate whatever the underlying behaviour, and a player who hesitates over whether their pick is about to be broadcast is a player who has been given a worse game. The prompt states that the choice is private and revealed only once both have chosen.
 
@@ -1469,6 +1491,7 @@ A substantial share of what Discord returns is not a fault but a configuration a
 | Condition | Code | Treatment |
 | --- | --- | --- |
 | Player refuses DMs | `50007` | Expected. Debug log, no retry. The thread mention is the notification of record |
+| Player has left the server | `50278` | Expected. Same handling; the departure alert covers the underlying situation |
 | Component clicked as its message is replaced | `10008` | Expected. The action is re-driven from the new state message |
 | Permission revoked mid-event | `50001`, `50013` | Alert naming the permission and the blocked action; retried when it returns |
 | Rate limited | `429` | Queue backoff. Never surfaced to a user |
@@ -1535,6 +1558,15 @@ The concurrency test is worth calling out: two simultaneous `SONG_WINNER_SELECTE
 ## Build Order
 
 The dependency structure here is unusually favourable, and it is worth following rather than building outside-in.
+
+**0. A throwaway Discord spike.** Before anything is built to depend on them, four behaviours need testing against a real server, because documentation settles only what is written down and three of these are not:
+
+1. Does a member holding `Manage Threads`, never added to a private thread, actually read it? The entire tier-based thread access model rests on yes.
+2. Can the bot edit a channel overwrite targeting a role positioned **above** its own highest role? Discord documents hierarchy as governing role grants, edits, sorting and kick/ban/nickname, and states permissions otherwise do not obey it — overwrites are not listed. Unverified in both directions, and `/setup` repair depends on the answer.
+3. After a tiebreak selection, does editing the shared state message — re-sending the select component — clear that player's locally highlighted choice? If not, the picker moves into an ephemeral message behind a button, at the cost of a second interaction.
+4. Does delete-and-repost of the state message read acceptably when a photo lands mid-cycle, and does the debounce hold?
+
+A scratch bot in a test server answers all four in an afternoon, and each one can change a decision more cheaply now than after the adapter exists.
 
 **1. Schema and migrations.** Including the three raw-SQL constraints — the partial unique index for one active tournament per guild, and the deferrable unique constraint on `(tournamentId, seed)`. Getting those in the first migration avoids retrofitting them around existing data.
 

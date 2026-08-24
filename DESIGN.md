@@ -322,8 +322,8 @@ interface MatchState {
   a?: EntrantId;                     // whoever took the first Protect
   b?: EntrantId;
   draw: ChartSnapshot[];             // 7, in draw order — see Snapshotting a chart
-  protects: { chart: ChartId; by: EntrantId }[];   // in protect order
-  vetoes:   { chart: ChartId; by: EntrantId }[];
+  protects: { drawIndex: number; by: EntrantId }[]; // in protect order
+  vetoes:   { drawIndex: number; by: EntrantId }[];
   decider?: ChartId;
   songs: SongRecord[];               // one per song started, in play order
   points: Record<EntrantId, number>;
@@ -334,7 +334,9 @@ interface MatchState {
 }
 
 interface SongRecord {
-  chart: ChartId;
+  chart: ChartSnapshot;
+  drawIndex?: number;                // which Draw position this consumed
+  tiebreakRound?: number;
   source: 'FIRST_PROTECT' | 'LOSER_PROTECT' | 'PROTECT_ORDER' | 'FORCED' | 'DECIDER' | 'TIEBREAK';
   ex: Partial<Record<EntrantId, number>>;
   photoSeen: Record<EntrantId, boolean>;
@@ -448,14 +450,33 @@ type DomainEffect =
 ```ts
 type PendingAction =
   | { kind: 'SEED_CHOICE'; actor: EntrantId }
-  | { kind: 'PROTECT' | 'VETO'; actor: EntrantId; choices: ChartId[] }
+  | { kind: 'PROTECT' | 'VETO'; actor: EntrantId; choices: number[] }
   | { kind: 'SUBMIT_SCORE'; actors: EntrantId[]; songIndex: number }
   | { kind: 'SELECT_WINNER'; actors: EntrantId[]; songIndex: number }
-  | { kind: 'TIEBREAK_PICK'; actors: EntrantId[]; round: number; choices: ChartId[] }
+  | { kind: 'TIEBREAK_PICK'; actors: EntrantId[]; round: number; choices: number[] }
+  | { kind: 'AWAITING_BOT'; directive: BotDirective }
   | { kind: 'CONFIRM_RESULT'; actors: EntrantId[] }
   | { kind: 'AWAITING_TO'; reason: EscalationReason }
   | { kind: 'DONE' };
 ```
+
+#### Draws are addressed by position, not by chart
+
+Protect and Veto carry a **`drawIndex`**, and `PendingAction.choices` is a list of positions. Chart ids cannot work: an undersized pack legitimately produces a Draw containing the same chart twice, so "protect chart X" is ambiguous at any pack size below the draw size. Tiebreak choices are indices for the same reason.
+
+#### `AWAITING_BOT` — work the bot owes the match
+
+Play order is fully determined, so the bot starts each song itself rather than prompting anyone. But starting one needs the song pack and a fresh seed, which a pure reducer cannot see. So `pendingAction` can return `AWAITING_BOT` carrying a **`BotDirective`**:
+
+```ts
+type BotDirective =
+  | { do: 'DRAW'; count: number }
+  | { do: 'DRAW_TIEBREAK'; round: number; count: number }
+  | { do: 'START_SONG'; source: SongSource; drawIndex?: number;
+      tiebreakRound?: number; chartIndex?: number };
+```
+
+The format decides *what* is due; the service supplies what the format cannot know, appends the resulting event, and folds it. The loop repeats until a person is on the clock. This is what keeps `reduce` pure while letting the format drive the parts of the set that need no human.
 
 Transports never branch on format. They ask `pendingAction()` what to render, validate the incoming action against it, and append the resulting event. **Validation is exactly this comparison** — an action is legal iff its actor and value appear in the current `PendingAction`. There is no second copy of the rules in the transport layer to fall out of step.
 
@@ -484,6 +505,26 @@ The consequence is larger than the rule: **every next-song decision in the set i
 **Case 4 has exactly one candidate — provably, and not obviously.** The requirements assert that with no own protect left and the Decider played, what remains is "necessarily the opponent's Protect, so the choice is forced." Two opponent protects remaining would break that. It cannot happen, but only because of the point structure: for two to remain, three songs must have been played and they must be the Decider plus both of the picker's own protects. Song 1 is always A's first protect, so the picker is A and the order is A1, A2, D — which requires A to have lost songs 1 and 2 (a tie routes to protect order, yielding B1, and a B loss deploys B's own protect). A is then 0–2, and losing the Decider ends the set 0–3. There is no fourth song.
 
 The conclusion holds; the reasoning is fragile enough that a future format tweak could quietly invalidate it. So it is asserted, not assumed — see the play-order property test.
+
+### The rules do not guarantee termination
+
+A tie awards nothing, and the tiebreak repeats until a player reaches three. A match in which every song ties therefore generates tiebreak rounds **forever**.
+
+This is correct rather than a defect — the bot never decides an outcome on its own, and a stalled match is resolved by a referee — but it is worth stating because it is easy to assume otherwise. A property test asserting the rules always terminate **failed**, and the property was wrong, not the rules. Two tests now pin the behaviour: one drives twenty-five consecutive tied songs and asserts no outcome exists, one has a referee end it.
+
+Anything later that reasons about match completion must not assume the set terminates on its own.
+
+### The freeze boundary is enforced by the reducer
+
+*Results freeze as they commit; nothing rewinds* is validated at the transport, where an action is legal only if it matches the current `pendingAction`. The reducer enforces it a second time:
+
+- A **ruling on a committed song** is ignored, whether the song was agreed by the players or already ruled.
+- An **escalation raised against a committed song** is ignored. Accepting one would strand the match in `AWAITING_TO` with no legal exit, since the only way out is a ruling on a song that no longer needs one — a stale *report a settings problem* button would wedge a match permanently.
+- A **second terminal event** — forfeit, DQ, walkover — cannot overturn the first.
+
+Two layers rather than one, because a corrupted log must not replay into a corrupted result. Transport validation protects the live path; reducer refusal protects replay, which is the thing the append-only design exists to guarantee.
+
+**Disagreement escalation is derived, not stored.** Two players selecting different winners is already a complete record of the dispute, so a `SONG_ESCALATED` event for that case would be a second record able to disagree with the first. The event survives only for a **settings violation**, which nothing else in the state implies.
 
 ### Format versioning and golden replay
 

@@ -5,7 +5,7 @@ CREATE SCHEMA IF NOT EXISTS "public";
 CREATE TYPE "TournamentState" AS ENUM ('DRAFT', 'REGISTRATION_OPEN', 'REGISTRATION_CLOSED', 'CHECKIN_OPEN', 'CHECKIN_CLOSED', 'RUNNING', 'COMPLETE', 'CANCELLED');
 
 -- CreateEnum
-CREATE TYPE "EntrantStatus" AS ENUM ('ACTIVE', 'NOT_CHECKED_IN', 'WITHDRAWN');
+CREATE TYPE "EntrantStatus" AS ENUM ('ACTIVE', 'WITHDRAWN');
 
 -- CreateEnum
 CREATE TYPE "PlayStyle" AS ENUM ('SINGLE', 'DOUBLE');
@@ -192,7 +192,7 @@ CREATE TABLE "AuditLog" (
 CREATE INDEX "Tournament_guildId_state_idx" ON "Tournament"("guildId", "state");
 
 -- CreateIndex
-CREATE INDEX "Entrant_tournamentId_status_idx" ON "Entrant"("tournamentId", "status");
+CREATE INDEX "Entrant_tournamentId_status_checkedIn_idx" ON "Entrant"("tournamentId", "status", "checkedIn");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Entrant_tournamentId_discordUserId_key" ON "Entrant"("tournamentId", "discordUserId");

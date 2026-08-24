@@ -24,7 +24,12 @@ export const TournamentState = z.enum([
 ]);
 export type TournamentState = z.infer<typeof TournamentState>;
 
-export const EntrantStatus = z.enum(['ACTIVE', 'NOT_CHECKED_IN', 'WITHDRAWN']);
+/**
+ * Whether an entrant has been removed from the tournament, and nothing else.
+ * Attendance lives on `checkedIn`; "dropped for not checking in" is derived,
+ * never stored. See DESIGN.md, "Who is on the roster".
+ */
+export const EntrantStatus = z.enum(['ACTIVE', 'WITHDRAWN']);
 export type EntrantStatus = z.infer<typeof EntrantStatus>;
 
 export const BracketSide = z.enum(['WINNERS', 'LOSERS', 'GRAND_FINAL']);

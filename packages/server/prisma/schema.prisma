@@ -26,9 +26,11 @@ enum TournamentState {
   CANCELLED
 }
 
+// Whether an entrant has been removed from the tournament, and nothing else.
+// "Dropped for not checking in" is NOT a status: it is `checkedIn = false` once
+// the tournament is past CHECKIN_CLOSED. See DESIGN.md, "Who is on the roster".
 enum EntrantStatus {
   ACTIVE
-  NOT_CHECKED_IN
   WITHDRAWN
 }
 
@@ -111,7 +113,7 @@ model Entrant {
   discordUserId String // identity — never changes
   displayName   String? // snapshot taken at tournament start
   seed          Int?
-  checkedIn     Boolean       @default(false)
+  checkedIn     Boolean       @default(false) // single source of truth for attendance
   status        EntrantStatus @default(ACTIVE)
   joinedAt      DateTime      @default(now()) // orders unseeded entrants at check-in close
 
@@ -122,7 +124,7 @@ model Entrant {
   @@unique([tournamentId, discordUserId])
   // (tournamentId, seed) uniqueness is added in the initial migration as a
   // DEFERRABLE constraint; Prisma can only emit a non-deferrable index.
-  @@index([tournamentId, status])
+  @@index([tournamentId, status, checkedIn])
 }
 
 model Chart {

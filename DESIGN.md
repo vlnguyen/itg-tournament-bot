@@ -153,7 +153,7 @@ model Entrant {
   displayName   String?                   // snapshot taken at tournament start
   seed          Int?
   checkedIn     Boolean @default(false)
-  status        EntrantStatus             // ACTIVE | NOT_CHECKED_IN | WITHDRAWN
+  status        EntrantStatus             // ACTIVE | WITHDRAWN
   @@unique([tournamentId, discordUserId])
   @@unique([tournamentId, seed])
 }
@@ -817,6 +817,27 @@ All three are usable from any channel and answer **ephemerally**, so a hundred p
 
 "Already in that state" confirming rather than erroring is deliberate. A player who is not sure whether their `/join` landed will run it again, and an error is a worse answer than "you are in, seed 12."
 
+### Who is on the roster
+
+Two fields could have carried attendance, and only one does.
+
+**`Entrant.checkedIn` is the single source of truth.** `EntrantStatus` is `ACTIVE | WITHDRAWN` — whether someone was *removed* from the tournament, and nothing else. There is no `NOT_CHECKED_IN` status.
+
+The roster that plays is one predicate, valid at any point after check-in closes:
+
+```sql
+status = 'ACTIVE' AND "checkedIn"
+```
+
+An earlier draft stored both, flipping un-checked-in entrants to a `NOT_CHECKED_IN` status when the window closed. That is a second record of a fact `checkedIn` already carries, and **a second record is something that can disagree with the first** — the same objection that removed commit events from the match log. Nothing enforced the agreement, so a write path touching one field and forgetting the other would have produced an entrant who was simultaneously dropped and not dropped, with the answer depending on which field the reader consulted.
+
+Deriving it removes the failure rather than testing for it. Two smaller consequences follow:
+
+- **Closing check-in changes no statuses.** It clears seeds and renumbers, and that is all — the drop is already recorded by the `checkedIn` the player did or did not set.
+- **Re-checking someone in after the window is one field flip.** The organizer path that had to set `checkedIn` true *and* revert the status now just sets `checkedIn`. Fewer moving parts on the recovery path, which is where consistency bugs are least welcome.
+
+**What `status` still distinguishes is withdrawal**, which `checkedIn` cannot express: a player who confirmed attendance and later left is `checkedIn = true, status = WITHDRAWN`, and both facts survive.
+
 ### Leaving
 
 `/leave` works from the moment registration opens until the tournament starts, and its consequences depend on when it lands.
@@ -878,7 +899,7 @@ DRAFT ─► REGISTRATION_OPEN ─► REGISTRATION_CLOSED ─► CHECKIN_OPEN
 | `DRAFT → REGISTRATION_OPEN` | TO | Guild configured; format chosen; no other active tournament | `/join` starts working |
 | `→ REGISTRATION_CLOSED` | TO | — | `/join` stops working |
 | `→ CHECKIN_OPEN` | TO | — | `/checkin` starts working |
-| `→ CHECKIN_CLOSED` | TO | — | Un-checked-in entrants set `NOT_CHECKED_IN` and their seeds cleared; surviving seeds renumbered from 1 in relative order; unseeded entrants appended in join order — one transaction |
+| `→ CHECKIN_CLOSED` | TO | — | Un-checked-in entrants have their seeds cleared; surviving seeds renumbered from 1 in relative order; unseeded entrants appended in join order — one transaction. No status changes: `checkedIn` already records who was dropped |
 | `→ RUNNING` | TO | Every active entrant has a distinct seed, contiguous from 1; **Discord permission preflight passes** | Seeds fixed, bracket generated, threads provisioned, players notified |
 | `→ COMPLETE` | bot | Grand final committed | Standings posted, public archive frozen |
 

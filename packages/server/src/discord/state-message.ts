@@ -10,8 +10,9 @@ import type { EntrantId, MatchState, PendingAction } from '../domain/types.js';
 import { Action } from './actions.js';
 import { encodeCustomId } from './custom-id.js';
 import type { RenderedMessage } from './ports.js';
-import { selectOptionDescription, selectOptionLabel } from './render/chart.js';
+import { fullChartDescription, selectOptionDescription, selectOptionLabel } from './render/chart.js';
 import { buildDrawStatusLines } from './render/draw-status.js';
+import { buildScoreTicksLines } from './render/score-ticks.js';
 
 /**
  * `MatchState` addresses players by `EntrantId` (the `Entrant` row's id),
@@ -53,6 +54,8 @@ export function renderStateMessage(
     case 'PROTECT':
     case 'VETO':
       return renderProtectVeto(matchId, pending.kind, pending.actor, pending.choices, state, players);
+    case 'SUBMIT_SCORE':
+      return renderSubmitScore(matchId, pending.songIndex, state, players);
     default:
       // Built incrementally alongside the interaction handlers that need
       // each kind — see Phase 4's build order in the plan. A placeholder
@@ -120,5 +123,32 @@ function renderProtectVeto(
     );
 
   const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
+  return { embeds: [embed], components: [row] };
+}
+
+function renderSubmitScore(
+  matchId: string,
+  songIndex: number,
+  state: MatchState,
+  players: PlayerDirectory,
+): RenderedMessage {
+  const song = state.songs[songIndex]!;
+  const participantIds = state.participants.map((p) => p.entrantId);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`Song ${songIndex + 1}`)
+    .setDescription(fullChartDescription(song.chart))
+    .addFields({
+      name: 'Status',
+      value: buildScoreTicksLines(song, participantIds, (id) => displayName(players, id)),
+    });
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(encodeCustomId({ matchId, action: Action.SCORE, arg: String(songIndex) }))
+      .setLabel('Submit score')
+      .setStyle(ButtonStyle.Primary),
+  );
+
   return { embeds: [embed], components: [row] };
 }

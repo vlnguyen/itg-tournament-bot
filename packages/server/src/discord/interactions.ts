@@ -1,15 +1,27 @@
-import { Events, type ButtonInteraction, type Client, type Interaction, type StringSelectMenuInteraction } from 'discord.js';
+import {
+  ActionRowBuilder,
+  Events,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  type ButtonInteraction,
+  type Client,
+  type Interaction,
+  type ModalSubmitInteraction,
+  type StringSelectMenuInteraction,
+} from 'discord.js';
 import type { PrismaClient } from '@prisma/client';
 import type { MatchEvent, MatchFormat, MatchState, PendingAction } from '../domain/types.js';
 import { requireFormat } from '../services/engine.js';
 import { appendMatchEvent, IllegalActionError, type AppendResult } from '../services/match-service.js';
 import type { RandomPort } from '../services/ports.js';
-import { Action } from './actions.js';
-import { decodeCustomId, type CustomId } from './custom-id.js';
+import { Action, SCORE_MODAL_EX_FIELD } from './actions.js';
+import { decodeCustomId, encodeCustomId, type CustomId } from './custom-id.js';
 import { renderProtectVetoLog, renderSeedChoiceLog } from './log-messages.js';
 import { buildPlayerDirectory, loadMatch, type MatchWithParticipants } from './match-lookup.js';
 import type { MatchChannelPort, RenderedMessage, ThreadRef } from './ports.js';
 import { buildMatchSongsEmbed } from './render/match-songs.js';
+import { parseExPercent } from './validate-ex.js';
 import { displayName, renderStateMessage, type PlayerDirectory } from './state-message.js';
 
 /**
@@ -19,12 +31,9 @@ import { displayName, renderStateMessage, type PlayerDirectory } from './state-m
  * call path a test drives directly. See DESIGN.md, "The three-second
  * rule" and "Stateless components".
  *
- * `deferUpdate()` first, always: it's the cheapest possible response and
- * satisfies the three-second budget before anything that touches the
- * database. A rejected action (`IllegalActionError`, or the clicker not
- * being a participant) is reported with `followUp({ ephemeral: true })`
- * afterward, leaving the shared message untouched — nothing happened, so
- * nothing about it should change.
+ * `deferUpdate()` first, always — with one exception: a "Submit score"
+ * button must respond with `showModal()` as its *first* response instead,
+ * since deferring and showing a modal are mutually exclusive.
  */
 export function registerInteractionHandlers(
   client: Client,
@@ -45,10 +54,22 @@ async function handle(
   random: RandomPort,
   matchChannel: MatchChannelPort,
 ): Promise<void> {
+  if (interaction.isModalSubmit()) {
+    const decoded = decodeCustomId(interaction.customId);
+    if (!decoded || decoded.action !== Action.SCORE) return;
+    await handleScoreModalSubmit(interaction, decoded, prisma, random, matchChannel);
+    return;
+  }
+
   if (!interaction.isButton() && !interaction.isStringSelectMenu()) return;
 
   const decoded = decodeCustomId(interaction.customId);
   if (!decoded) return; // not one of ours
+
+  if (interaction.isButton() && decoded.action === Action.SCORE) {
+    await interaction.showModal(buildScoreModal(decoded));
+    return;
+  }
 
   await interaction.deferUpdate();
 
@@ -76,6 +97,78 @@ async function handle(
     await interaction.followUp({ ephemeral: true, content: 'Unrecognized action.' });
     return;
   }
+
+  try {
+    const result = await appendMatchEvent(prisma, random, match.id, event, interaction.id);
+    await applyAppendResult(matchChannel, match, format, event, result);
+  } catch (err) {
+    if (err instanceof IllegalActionError) {
+      await interaction.followUp({
+        ephemeral: true,
+        content: `That's not available anymore — ${describeStale(err)}.`,
+      });
+      return;
+    }
+    throw err;
+  }
+}
+
+function buildScoreModal(decoded: CustomId): ModalBuilder {
+  // `arg` (the song index) is always set when the state message's button
+  // encoded this id in the first place — see renderSubmitScore.
+  return new ModalBuilder()
+    .setCustomId(encodeCustomId({ matchId: decoded.matchId, action: Action.SCORE, arg: decoded.arg! }))
+    .setTitle('Submit your EX%')
+    .addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId(SCORE_MODAL_EX_FIELD)
+          .setLabel('EX% (0.00–100.00)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('e.g. 97.32')
+          .setRequired(true)
+          .setMaxLength(6),
+      ),
+    );
+}
+
+async function handleScoreModalSubmit(
+  interaction: ModalSubmitInteraction,
+  decoded: CustomId,
+  prisma: PrismaClient,
+  random: RandomPort,
+  matchChannel: MatchChannelPort,
+): Promise<void> {
+  const raw = interaction.fields.getTextInputValue(SCORE_MODAL_EX_FIELD);
+  const ex = parseExPercent(raw);
+  if (ex === null) {
+    await interaction.reply({
+      ephemeral: true,
+      content: 'EX% must be a number between 0.00 and 100.00, with at most two decimal places.',
+    });
+    return;
+  }
+
+  await interaction.deferUpdate();
+
+  const match = await loadMatch(prisma, decoded.matchId);
+  if (!match) {
+    await interaction.followUp({ ephemeral: true, content: 'This match no longer exists.' });
+    return;
+  }
+  const me = match.participants.find((p) => p.entrant.discordUserId === interaction.user.id);
+  if (!me) {
+    await interaction.followUp({ ephemeral: true, content: "You're not a participant in this match." });
+    return;
+  }
+
+  const songIndex = Number(decoded.arg);
+  const event: Omit<MatchEvent, 'seq'> = {
+    actorId: me.entrantId,
+    type: 'SCORE_SUBMITTED',
+    payload: { songIndex, by: me.entrantId, ex },
+  };
+  const format = requireFormat(match.formatKey);
 
   try {
     const result = await appendMatchEvent(prisma, random, match.id, event, interaction.id);

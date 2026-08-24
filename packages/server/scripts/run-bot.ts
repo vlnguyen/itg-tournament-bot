@@ -16,6 +16,7 @@ import { PrismaClient } from '@prisma/client';
 import { createDiscordClient, loginDiscordClient } from '../src/discord/client.js';
 import { registerInteractionHandlers } from '../src/discord/interactions.js';
 import { createMatchChannelAdapter } from '../src/discord/match-channel-adapter.js';
+import { registerMessageListener } from '../src/discord/message-listener.js';
 import { cryptoRandomPort } from '../src/services/ports.js';
 
 process.loadEnvFile(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../.env'));
@@ -44,6 +45,7 @@ async function main(): Promise<void> {
 
   const matchChannel = createMatchChannelAdapter(client, prisma, guild.matchesChannelId, guild.alertChannelId);
   registerInteractionHandlers(client, prisma, cryptoRandomPort, matchChannel);
+  registerMessageListener(client, prisma, cryptoRandomPort, matchChannel);
 
   console.log('Listening for interactions. Ctrl-C to stop.');
 

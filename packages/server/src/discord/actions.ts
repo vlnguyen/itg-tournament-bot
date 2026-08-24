@@ -6,6 +6,10 @@
 export const Action = {
   SEED_CHOICE: 'SEED',
   PROTECT_VETO: 'PV',
+  SCORE: 'SCORE',
 } as const;
+
+/** The `customId` a "Submit score" text input carries within its modal. */
+export const SCORE_MODAL_EX_FIELD = 'ex';
 
 export type Action = (typeof Action)[keyof typeof Action];

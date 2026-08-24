@@ -178,10 +178,14 @@ model Match {
   threadId     String?                   // Discord thread
   state        Json                      // cached reduction, see below
   stateSeq     Int     @default(0)       // event seq the cache reflects
-  awaitingTo   Boolean @default(false)   // cached: pendingAction is AWAITING_TO
   alertMsgId   String?                   // open escalation message, for edit-in-place
+  // --- projection columns: derived on write, for many-match queries ---
   status       MatchStatus               // PENDING | IN_PROGRESS | COMPLETE
   winnerId     String?
+  awaitingTo   Boolean @default(false)   // pendingAction is AWAITING_TO
+  pointsA      Int     @default(0)
+  pointsB      Int     @default(0)
+  currentChartId String?                 // chart being played, if any
   events       MatchEvent[]
   @@unique([tournamentId, bracket, round, slot])
 }
@@ -1437,4 +1441,23 @@ The concurrency test is worth calling out: two simultaneous `SONG_WINNER_SELECTE
 
 ## Open Question
 
-**Whether `Match.state` is worth caching at all** before there is a measured reason. `stateSeq` makes the cache verifiable, which lowers the risk of keeping it, but replaying a few dozen events is not obviously slower than deserializing the JSON. Deliberately left open until there is code to measure — the cache is easy to remove and hard to justify adding back on a guess.
+**Whether the `Match.state` JSON is worth keeping**, now that the projection columns exist.
+
+Three things want match state, and they want different amounts of it:
+
+| Need | Shape | Volume |
+| --- | --- | --- |
+| Validate an append | Full `MatchState` | One match, on the write path, under the row lock |
+| Render one match — thread, match detail | Full `MatchState` | One match |
+| Render many matches — bracket, run view, inbox | A few scalars | ~62 matches for a 32-entrant field |
+
+**The projection columns are not optional.** The alert inbox filters on `awaitingTo`, and filtering an indexed boolean is not something a JSON column does well without an expression index nobody wants to maintain. The bracket and run view read six scalars per match; serving them from `state` means shipping and deserialising a multi-kilobyte blob per match to extract a handful of numbers. `awaitingTo` was added for exactly this reason — the others follow the same logic and should have arrived with it.
+
+**The JSON blob is the genuinely optional part**, and its case rests on one thing: **avoiding a replay inside the transaction, while holding the row lock.** Every append must reduce current state to validate the action against `pendingAction`. With the cache that is one row read; without it, a replay of the match's fifty-odd events, on the hot write path, with the lock held. Single-match rendering could replay quite happily — it is the write path that makes the cache attractive.
+
+Two things count against it:
+
+- **It serialises a format-private structure.** `MatchState` belongs to `Bo5ProtectVetoFormat`. Renaming or adding a field is routine refactoring, and it invalidates every cached row — a change the golden replay corpus will not catch, because behaviour has not changed, only shape. The mitigation is to treat the column as **disposable**: null it on deploy and let it rebuild lazily on first touch. That removes the migration burden entirely, and is worth doing whether or not the column survives.
+- **Verification is not free.** Checking `stateSeq` against the match's highest event `seq` is itself a query, so per-read verification gives back what the cache bought. In practice it is trusted — the row lock makes divergence impossible within a transaction — and the reconciler catches drift.
+
+**Still deferred, and now for a specific measurement:** how long a replay-under-lock actually takes for a full match. If it is negligible, the blob is removable and the projection columns carry everything. Removing a cache is easy; adding one back on a guess is how caches become permanent without ever being justified.

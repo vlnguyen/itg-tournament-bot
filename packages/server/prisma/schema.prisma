@@ -116,9 +116,8 @@ model Entrant {
   joinedAt      DateTime      @default(now()) // orders unseeded entrants at check-in close
 
   tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  matchesAsA   Match[]    @relation("MatchPlayerA")
-  matchesAsB   Match[]    @relation("MatchPlayerB")
-  matchesWon   Match[]    @relation("MatchWinner")
+  participations MatchParticipant[]
+  matchesWon     Match[]           @relation("MatchWinner")
 
   @@unique([tournamentId, discordUserId])
   // (tournamentId, seed) uniqueness is added in the initial migration as a
@@ -161,8 +160,6 @@ model Match {
   round        Int
   formatKey    String // the ruleset this match ran under; stamped at generation
   slot         Int // position within the round
-  playerAId    String?
-  playerBId    String?
   threadId     String? // Discord thread
   stateMsgId   String? // the single live prompt, for repositioning
   alertMsgId   String? // open escalation message, for edit-in-place
@@ -171,17 +168,14 @@ model Match {
 
   // Projection columns: derived on write, for many-match queries.
   status         MatchStatus @default(PENDING)
-  winnerId       String?
+  winnerId       String? // cache of the participant with place 1
   awaitingTo     Boolean     @default(false)
-  pointsA        Int         @default(0)
-  pointsB        Int         @default(0)
   currentChartId String?
 
-  tournament   Tournament   @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  playerA      Entrant?     @relation("MatchPlayerA", fields: [playerAId], references: [id])
-  playerB      Entrant?     @relation("MatchPlayerB", fields: [playerBId], references: [id])
-  winner       Entrant?     @relation("MatchWinner", fields: [winnerId], references: [id])
-  currentChart Chart?       @relation("MatchCurrentChart", fields: [currentChartId], references: [id])
+  tournament   Tournament         @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  participants MatchParticipant[]
+  winner       Entrant?           @relation("MatchWinner", fields: [winnerId], references: [id])
+  currentChart Chart?             @relation("MatchCurrentChart", fields: [currentChartId], references: [id])
   events       MatchEvent[]
   timers       Timer[]
   alerts       Alert[]
@@ -189,6 +183,24 @@ model Match {
   @@unique([tournamentId, bracket, round, slot])
   @@index([tournamentId, status])
   @@index([tournamentId, awaitingTo])
+}
+
+// Who is in a match, and how they finished. A join table rather than columns on
+// Match: it removes positional player labelling entirely, and it is what lets a
+// future format seat more than two. A 1v1 is the case where there are two rows.
+model MatchParticipant {
+  matchId   String
+  entrantId String
+  slot      Int // position within the match, from bracket structure — 0 and 1 for a 1v1
+  points    Int  @default(0)
+  place     Int? // finish within this match; 1 is the winner, ties share a place
+
+  match   Match   @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  entrant Entrant @relation(fields: [entrantId], references: [id])
+
+  @@id([matchId, entrantId])
+  @@unique([matchId, slot])
+  @@index([entrantId])
 }
 
 model MatchEvent {

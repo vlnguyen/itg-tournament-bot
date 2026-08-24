@@ -183,21 +183,27 @@ model Match {
   round        Int
   formatKey    String                    // the ruleset this match ran under
   slot         Int                       // position within the round
-  playerAId    String?
-  playerBId    String?
   threadId     String?                   // Discord thread
   state        Json                      // cached reduction, see below
   stateSeq     Int     @default(0)       // event seq the cache reflects
   alertMsgId   String?                   // open escalation message, for edit-in-place
   // --- projection columns: derived on write, for many-match queries ---
   status       MatchStatus               // PENDING | IN_PROGRESS | COMPLETE
-  winnerId     String?
+  winnerId     String?                   // cache of the participant with place 1
   awaitingTo   Boolean @default(false)   // pendingAction is AWAITING_TO
-  pointsA      Int     @default(0)
-  pointsB      Int     @default(0)
   currentChartId String?                 // chart being played, if any
   events       MatchEvent[]
   @@unique([tournamentId, bracket, round, slot])
+}
+
+model MatchParticipant {
+  matchId   String
+  entrantId String
+  slot      Int                          // position within the match
+  points    Int     @default(0)
+  place     Int?                         // 1 is the winner; ties share a place
+  @@id([matchId, entrantId])
+  @@unique([matchId, slot])
 }
 
 model MatchEvent {
@@ -423,9 +429,8 @@ The types the interface names:
 type EscalationReason = 'WINNER_DISAGREEMENT' | 'SETTINGS_VIOLATION';
 
 interface MatchOutcome {
-  winner: EntrantId;
-  loser: EntrantId;
-  points: Record<EntrantId, number>;
+  /** Every participant, ordered by finish. Ties share a place, competition-style. */
+  placements: { entrantId: EntrantId; place: number; points: number }[];
   by: 'AGREEMENT' | 'RULING' | 'FORFEIT' | 'DQ' | 'WALKOVER';
 }
 
@@ -591,7 +596,7 @@ Whatever is chosen, the transformation is computed from **bracket positions alon
 
 The grand final follows, plus a reset bracket if the losers-side finalist wins the first set.
 
-**The whole bracket is materialized up front**, byes included, with `playerAId`/`playerBId` null where the occupant is not yet known. Advancement then writes a player into an existing row rather than creating matches on the fly, which keeps the public bracket renderable in full from the moment the tournament starts and makes the duration estimate a walk over real rows.
+**The whole bracket is materialized up front**, byes included. A match whose occupants are not yet known simply has no `MatchParticipant` rows — advancement inserts one as each becomes known, rather than creating matches on the fly. That keeps the public bracket renderable in full from the moment the tournament starts, makes the duration estimate a walk over real rows, and means an unfilled slot is an absent row rather than a null column.
 
 **Properties are asserted, not assumed.** The implementation is verified by property tests rather than trusted:
 
@@ -611,7 +616,9 @@ Bracket generation is one problem; moving players through it is another, and it 
 
 **Advancement runs in the same transaction as the event that decides the set.** With no `SET_COMMITTED` event to react to, the transaction that appends the second `SET_RESULT_CONFIRMED` sees `outcome()` turn non-null and advances before it commits — so "set decided ⟹ bracket advanced" is an invariant of the database rather than of a background job. The row count is small even for the withdrawal cascade below; a 64-entrant bracket holds 126 matches in total. Thread provisioning stays outside the transaction, because it is a network call, and is covered by the boot-time reconciler.
 
-**Advancement is a bracket-side operation triggered by a committed set result.** The winner is written into the successor winners-side slot; the loser into the successor losers-side slot, or eliminated if they were already in the losers bracket. When both slots of a downstream match are filled, that match becomes ready and the thread is provisioned.
+**Advancement is a bracket-side operation triggered by a committed set result**, and it routes by **placement** rather than by winner and loser. Place 1 is inserted into the successor winners-side match; place 2 into the successor losers-side match, or eliminated if they were already in the losers bracket. When a downstream match has all its participants, it becomes ready and the thread is provisioned.
+
+Double elimination is therefore the two-participant case of a general rule — *place 1 advances, place 2 drops* — rather than a shape the routing is written around. See Seating more than two players.
 
 **A bye is a walkover, not a match.** Round 1 matches with one null occupant are settled by a `WALKOVER` event at generation time — the requirement's stated exemption from the automation boundary. No thread is created.
 
@@ -622,6 +629,36 @@ The one case needing care: if their *current, in-progress* match is mid-set, tha
 **Grand final reset is a distinct match row, not a rerun.** It exists in the generated bracket from the start with `bracket = GRAND_FINAL, round = 2`, and is skipped by advancement when the winners-side finalist takes the first set. Because it is a separate row it gets a fresh event log, hence a fresh Draw and a full ABBAAB — which is exactly what the requirement asks for. Seed advantage reads from `Entrant.seed`, not from anything about the first set, so the winners-bracket finalist keeps the first-or-second Protect choice in both.
 
 **Standings are derived, never stored.** Placement follows elimination depth: the grand final decides 1st and 2nd, the last losers round decides 3rd, and players eliminated in the same losers round share a placement (4th, then 5–6, 7–8, and so on). A query over `Match` grouped by the round in which each entrant took their second loss produces this directly; withdrawn entrants place by where their withdrawal landed them. Deriving rather than storing means a late referee ruling that changes a match also changes the standings, with nothing to invalidate.
+
+### Seating more than two players
+
+**Every match that ships is 1v1**, and the bracket generator, advancement routing and the Bo5 format all assume exactly two. What changed is only how participation is *stored*: a match holds participants, not a player A and a player B. `MatchParticipant` carries the entrant, a `slot` from the bracket structure, running `points`, and a `place` once the match resolves; `MatchOutcome` is an ordered list of placements. Nothing in the match model, the event log, or the format interface counts to two.
+
+That was not free generality — it removed a real defect. Points were previously `pointsA`/`pointsB` on `Match`, the only place in the schema identifying a player by position rather than by ID, and nothing stated whether that `A` meant the bracket slot or the format role a player takes at `SEED_CHOICE_MADE`. Those two disagree in about half of matches. The join table removes the ambiguity by removing the concept.
+
+**What it does not buy is a format seating more than two.** A six-player gauntlet — everyone plays the same six songs, a point per opponent beaten or tied on each — is not a double-elimination match. It is a pool, and pools need tournament topology this design does not have:
+
+- **Phases.** A tournament is currently one bracket. Pools feeding a bracket means a phase model, phase transitions, and a lifecycle that spans them.
+- **Advancement routing beyond two.** "Top 2 of 6 advance" is a property of the phase, not of the match format, and there is nowhere to express it.
+- **Bracket generation.** The winners construction pairs seeds; seating pools of *n* from a seeded field is a different algorithm.
+- **The duration estimate.** Bracket depth times one per-match allocation already breaks once rounds differ in length, and pools break it further.
+
+#### What blocks pools, and why deferring is safe
+
+Four things stand between here and a pool phase:
+
+| Blocker | What it is |
+| --- | --- |
+| Match addressing | `@@unique([tournamentId, bracket, round, slot])`, where `bracket` is `WINNERS \| LOSERS \| GRAND_FINAL`. A pool match has no bracket side |
+| No phase concept | A tournament is one bracket, generated at start. Pools feeding a bracket means generating the bracket *after* pools resolve, seeded from their results |
+| Advancement routing | Placement-based, but hardcoded to one winners successor and one losers successor |
+| Standings | Derived from elimination depth; placement within a pool is a record within a group |
+
+**Every one of them is additive.** A `Phase` model, a nullable `Match.phaseId`, and a `POOL` value on the enum are add-table, add-column, add-enum-value, with a backfill that assigns existing matches to one implicit bracket phase. Standings are derived, so changing them is code with no migration at all.
+
+That is the whole argument for deferring. Compare it with the change that was **not** additive: participation moved from `playerAId`/`playerBId` to `MatchParticipant`, which altered how a row identifies its players and cannot be backfilled without interpreting existing data. That one had to happen before any tournament history existed, and it has. What remains can wait for a format that is actually specified rather than described in a sentence.
+
+**Two different things get called pools, and they cost differently.** A *round-robin* pool — every pair in a group playing a 1v1 — needs the phase model and gains nothing from the participation work. A *gauntlet* pool — six players in one match at once — needs both, and the participation half is done.
 
 ## Duration Estimate
 

@@ -387,7 +387,8 @@ Note that the three server tiers are **bound to** Discord roles but are not the 
 
 ### Bracket format
 
-- **Double elimination only.**
+- **Double elimination only**, and **every match is 1v1**. Two competitors, one advances and one drops. This is the whole of what ships.
+- The data model records a match's *participants* rather than a fixed pair, so a format seating more than two is a structural addition later rather than a rewrite. Nothing supports one today, and no surface offers it.
 - **Byes.** The bracket is padded to the next power of two and the **highest seeds receive round 1 byes**.
 - **Losers bracket routing.** Losers drop into the losers bracket using the **standard predetermined stagger**: the order of players dropping out of a winners round is transformed (reversed or rotated) relative to the losers-bracket positions receiving them, so players from the same region of the winners bracket are separated.
 
@@ -617,6 +618,7 @@ The public tournament view carries a **tab showing that tournament's song pack**
 Explicitly out of scope:
 
 - **Automatic score capture.** Scores are always self-reported; no GrooveStats or cabinet integration is planned.
-- **Team tournaments.** Only 1v1 brackets. (Doubles *charts* are supported — doubles is a chart type, not a team format.)
+- **Team tournaments.** Competitors are always individuals. (Doubles *charts* are supported — doubles is a chart type, not a team format.)
+- **Formats seating more than two players in one match**, and the pool or phase structures they would need. Every match is currently between two competitors. The data model records participants rather than a fixed pair, so this is a structural addition rather than a rewrite, but nothing supports it today.
 - **Streaming and casting tools.** No overlays, commentator views, or broadcast integrations.
 - **Payments, prizes, or entry fees.** The system handles no money.

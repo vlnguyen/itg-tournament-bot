@@ -108,8 +108,6 @@ CREATE TABLE "Match" (
     "round" INTEGER NOT NULL,
     "formatKey" TEXT NOT NULL,
     "slot" INTEGER NOT NULL,
-    "playerAId" TEXT,
-    "playerBId" TEXT,
     "threadId" TEXT,
     "stateMsgId" TEXT,
     "alertMsgId" TEXT,
@@ -118,11 +116,20 @@ CREATE TABLE "Match" (
     "status" "MatchStatus" NOT NULL DEFAULT 'PENDING',
     "winnerId" TEXT,
     "awaitingTo" BOOLEAN NOT NULL DEFAULT false,
-    "pointsA" INTEGER NOT NULL DEFAULT 0,
-    "pointsB" INTEGER NOT NULL DEFAULT 0,
     "currentChartId" TEXT,
 
     CONSTRAINT "Match_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "MatchParticipant" (
+    "matchId" TEXT NOT NULL,
+    "entrantId" TEXT NOT NULL,
+    "slot" INTEGER NOT NULL,
+    "points" INTEGER NOT NULL DEFAULT 0,
+    "place" INTEGER,
+
+    CONSTRAINT "MatchParticipant_pkey" PRIMARY KEY ("matchId","entrantId")
 );
 
 -- CreateTable
@@ -203,6 +210,12 @@ CREATE INDEX "Match_tournamentId_awaitingTo_idx" ON "Match"("tournamentId", "awa
 CREATE UNIQUE INDEX "Match_tournamentId_bracket_round_slot_key" ON "Match"("tournamentId", "bracket", "round", "slot");
 
 -- CreateIndex
+CREATE INDEX "MatchParticipant_entrantId_idx" ON "MatchParticipant"("entrantId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "MatchParticipant_matchId_slot_key" ON "MatchParticipant"("matchId", "slot");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "MatchEvent_matchId_seq_key" ON "MatchEvent"("matchId", "seq");
 
 -- CreateIndex
@@ -239,16 +252,16 @@ ALTER TABLE "Chart" ADD CONSTRAINT "Chart_tournamentId_fkey" FOREIGN KEY ("tourn
 ALTER TABLE "Match" ADD CONSTRAINT "Match_tournamentId_fkey" FOREIGN KEY ("tournamentId") REFERENCES "Tournament"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Match" ADD CONSTRAINT "Match_playerAId_fkey" FOREIGN KEY ("playerAId") REFERENCES "Entrant"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Match" ADD CONSTRAINT "Match_playerBId_fkey" FOREIGN KEY ("playerBId") REFERENCES "Entrant"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE "Match" ADD CONSTRAINT "Match_winnerId_fkey" FOREIGN KEY ("winnerId") REFERENCES "Entrant"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Match" ADD CONSTRAINT "Match_currentChartId_fkey" FOREIGN KEY ("currentChartId") REFERENCES "Chart"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "MatchParticipant" ADD CONSTRAINT "MatchParticipant_matchId_fkey" FOREIGN KEY ("matchId") REFERENCES "Match"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "MatchParticipant" ADD CONSTRAINT "MatchParticipant_entrantId_fkey" FOREIGN KEY ("entrantId") REFERENCES "Entrant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "MatchEvent" ADD CONSTRAINT "MatchEvent_matchId_fkey" FOREIGN KEY ("matchId") REFERENCES "Match"("id") ON DELETE CASCADE ON UPDATE CASCADE;

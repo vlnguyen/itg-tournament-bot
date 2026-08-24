@@ -1153,6 +1153,44 @@ Everything repaints; almost nothing interrupts.
 
 The reasoning worth keeping: a strict reading of "all updates are announced" would fire dozens of interruptions a minute during a busy round, and the realistic outcome is the user muting the page or leaving. Collecting everything in a log satisfies the intent — nothing changes silently and unrecoverably — while reserving interruption for the events that change the tournament rather than the scoreline.
 
+## Results, Standings, and History
+
+### Standings
+
+Derived from elimination depth, never stored — see Advancement, Walkovers, and Standings. What remains is how they are presented.
+
+**Tied players share a placement, and the next placement skips** — standard competition ranking. A sixteen-player field finishes 1, 2, 3, 4, 5, 5, 7, 7, 9, 9, 9, 9, 13, 13, 13, 13. Two players eliminated in the same losers round have identical claims on the bracket, and inventing a tiebreak to separate them would assert something it never determined.
+
+This falls out of the derivation rather than being applied on top of it: a placement is one plus the number of entrants eliminated strictly later, which *is* competition ranking. There is no separate tie-handling step to get wrong.
+
+**The Discord post mirrors the match result feed** — full placement order to the results channel, forwarded to the general channel. The results channel then reads as a complete record of the event from first result to final standings, and the general channel gets the moment.
+
+### Permanent URLs
+
+`/t/:tournamentId` is the archive and never changes or gets reused. A server's landing page redirects to whichever tournament is currently active, or to the most recent one when nothing is running — so "the bracket" is always reachable without knowing an ID, while every past event keeps a stable address that a Discord message from a year ago still resolves.
+
+Nothing is deleted at the end of an event. A finished tournament is a `COMPLETE` row that no longer occupies the guild's active slot, and its pages render from the same projections as when it was live.
+
+### Player pages
+
+`/g/:guildId/players/:discordUserId` — **keyed on the user ID, scoped to the server**, matching the requirement that history belongs to the server it happened in.
+
+Keying on the ID rather than a name is what makes rename-safety work in practice: the page's own heading shows the player's *current* name from the `User` cache, while every row shows the name they competed under in that tournament, from `Entrant.displayName`. Someone who renamed mid-career sees one page, correctly labelled, with historical rows that still match the brackets they appear in.
+
+The page carries their matches — opponent, round, score, link to the detail — and their win-loss record for that server. Nothing further: chart-level statistics are genuinely interesting for a rhythm game community and every one of them is a query and a surface to maintain, so they wait for someone to ask.
+
+**Player pages are served `noindex`; brackets and match pages are not.** An event is worth finding by search. A permanent page that ranks for a person's name and enumerates every match they lost is a different proposition, and entering a tournament is not consent to it — the page stays fully public and linkable, it simply is not surfaced by a name search. The `X-Robots-Tag` header carries this rather than a meta tag alone, so it holds for any non-HTML representation too.
+
+This is worth stating as a deliberate position rather than a default, because the natural implementation indexes everything and nobody notices until a competitor finds themselves in someone's search results.
+
+### The dashboard
+
+Signing in adds a single page: a link straight into your live match thread, your standing in the running tournament, and your past events in this server.
+
+**Sign-in adds convenience and never capability.** Everything on the dashboard is reachable without an account — it is an assembled view of public pages, not a private one. That keeps the promise that nothing requires signing in, and it means the dashboard can never become the place a feature quietly lives.
+
+It stays **scoped to one server**. A cross-server view is the one thing sign-in could offer that public pages cannot, and it is declined on purpose: history is scoped to the server it happened in, and joining across servers for a signed-in user would break a boundary the rest of the design maintains carefully.
+
 ## Client-Side Song Pack Parsing
 
 Simfiles never reach the server.

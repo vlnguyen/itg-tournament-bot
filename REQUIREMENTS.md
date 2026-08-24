@@ -544,10 +544,11 @@ The public bracket updates by **real-time push** — bracket state and in-progre
 
 ## Results and History
 
-- On completion the bot posts **final standings** in Discord — the winner and the full placement order.
-- The **public results page persists** after the event as a permanent archive.
-- **Match history is public.** Any visitor can browse any player's past matches and scores on that server without signing in.
-- Players may sign in with **Discord OAuth** to get a personalized dashboard, but sign-in is never required to view history.
+- On completion the bot posts **final standings** in Discord — the winner and the full placement order. Players the bracket cannot separate **share a placement**, and the next placement skips accordingly — 5th, 5th, 7th, 7th. It goes to the results channel and is forwarded to the general channel, exactly as each match result was.
+- The **public results page persists** after the event as a permanent archive at a URL that never changes and is never reused.
+- **Match history is public.** Any visitor can browse any player's past matches and scores on that server without signing in. A player page shows their matches — opponent, round, score, link to the detail — and their win-loss record for that server.
+- **Player pages are excluded from search engine indexing.** Brackets and match pages are indexed, because an event is a public thing worth finding. A permanent page ranking for a person's name and listing every match they lost is not the same thing, and entering a tournament is not consent to it. Player pages stay fully browsable by link.
+- Players may sign in with **Discord OAuth** to get a personalized dashboard: a link into their live match, their standing in the running tournament, and their past events in that server. **Sign-in adds convenience and never capability** — nothing it shows is unavailable without it.
 
 ## State, Persistence, and Multi-Tenancy
 

@@ -317,7 +317,7 @@ Tiers are cumulative, so each action below lists the **minimum** tier required. 
 | Build, edit, import, or copy a song pack | Tournament Organizer |
 | Open and close the registration window | Tournament Organizer |
 | Open and close the check-in window | Tournament Organizer |
-| Remove an entrant from the roster before the bracket is generated | Tournament Organizer |
+| Add, check in, un-check-in or remove any entrant, on their behalf, before the bracket is generated | Tournament Organizer |
 | Seed entrants, at any point from the first `/join` onward | Tournament Organizer |
 | Commit the final seed order | Tournament Organizer |
 | Start the tournament | Tournament Organizer |
@@ -356,6 +356,8 @@ Tiers are cumulative, so each action below lists the **minimum** tier required. 
 
 - A **configuration allowlist** of Discord user IDs is applied at every boot. It is **additive** — the bot ensures those users are administrators and never removes anyone.
 - Existing administrators can **promote others through the web UI**. Promotions are stored in the database, survive restarts and redeploys, and are **logged by the application**.
+
+**What gets logged, generally.** The application's audit log records **every action a tier permitted** — rulings, roster changes made on someone else's behalf, chart edits, tier grants, administrator promotions. It does not record self-service acts available to any member, such as a player's own `/join` or `/checkin`, which are evidenced by their own effect. The distinction is whether privilege was used, because that is the question anyone reviewing the log afterwards is asking.
 - The config allowlist is therefore the **lockout recovery path**: if the database is lost or every administrator is removed, editing the config and redeploying restores access.
 
 ### Competitor is not a role
@@ -382,6 +384,7 @@ Individual match rules are in **Match Flow**.
 
 - Competitors register with `/join`.
 - The registration window is explicitly opened and closed by the TO. `/join` only works while the window is open.
+- **Anything a player can do for themselves, a Tournament Organizer can do for them** — add someone who missed registration, check in a player who is present but unreachable, un-check-in, or remove. Available from both the console roster and slash commands, at any point until the tournament starts. This is a superset of the player's own window: a TO can add an entrant after registration has closed, which `/join` will not do.
 - **Competitors may withdraw themselves with `/leave`** at any point before the tournament starts — during registration, during check-in, and after seeds have been committed. Once the tournament starts, leaving requires a referee, because there is a bracket to repair.
 - A withdrawal after check-in has closed **alerts the organizers**, because seeding is settled by then and the field has changed under them. A withdrawal before that is routine and silent.
 - **No roster size cap.**
@@ -450,6 +453,7 @@ The web backend remains the system of record for structured data — every chart
 | `/checkin` | A registered entrant | Confirm attendance during the check-in window |
 | `/leave` | An entrant | Withdraw from the tournament, any time before it starts |
 | `/pack` | Any server member | Get a link to the current tournament's song pack |
+| `/roster` | Tournament Organizer | Add, check in, un-check-in or remove an entrant on their behalf |
 | `/setup` | Server Administrator, or anyone with Discord's Manage Guild | Server setup — point the bot at the matches, organizer alert, results and general channels, and the Discord role for each tier. Re-runnable |
 | `/setup status` | Server Administrator | Re-run the configuration and permission diagnostic without changing anything |
 | `/dq` | Referee | Disqualify a player, choosing whether it applies to this match only or withdraws them from the tournament |
@@ -534,8 +538,10 @@ Each item names the **minimum** tier required; higher tiers have it too.
 
 - Tournament setup and registration management *(TO)* — create a tournament, **choose its match format**, set timer durations and the per-match time allocation, open and close the registration and check-in windows, manage the roster.
 - Song pack management *(TO)* — build and edit the song pack for each tournament.
-- **Manual seeding** interface *(TO)*.
+- **Manual seeding** interface *(TO)* — reorder by dragging, or type a seed number directly to move someone a long way in a large field. Both write the same order.
+- **Run view** *(Referee)* — the screen an organizer sits on during an event. Two panes: the **alert queue**, showing everything awaiting a human, and a **live match list**, one row per in-progress match with its round, players, current song and running score. The bracket tree is available but is not this screen; a tree explains structure, a list answers which matches are slow.
 - **Live bracket view** *(Referee)* — real-time match states, current song, and running scores.
+- **Match detail** *(Referee)* — one page per match, reachable from an alert, from the bracket, and from the match list. Every override happens here, so a referee who notices a problem the bot has not flagged has somewhere to act.
 - **Match intervention / overrides** *(Referee)* — see Bracket Immutability for the boundary. A referee may act on the **song currently in progress**, reset a Protect/Veto **before song 1 has been played**, force a result on an escalated song, disqualify a player, and apply forfeits.
 
 ## Public Web View

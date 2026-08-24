@@ -691,6 +691,16 @@ That difference is the cost of allowing `/leave` throughout, and it is worth pay
 
 **A player may re-join only while registration is open.** After that, `/join` is closed to everyone including someone who left, so a change of heart during check-in needs an organizer.
 
+### Acting on a player's behalf
+
+**A Tournament Organizer can do anything a player can do for themselves**, to any entrant, until the tournament starts — add, check in, un-check-in, remove. Both from the console roster and from `/roster`, since organizers work from whichever surface is in front of them.
+
+It is a **superset of the player's own window**, which is the point. `/join` closes when registration closes; a TO can still add someone who missed it, right up until the bracket is generated. Requirements only forbid adding entrants once the tournament has *started*.
+
+**Tier is Tournament Organizer, not Referee.** Roster composition is tournament management rather than unblocking a match, and it sits with the tier that opens and closes the windows in the first place.
+
+**Late additions re-run normalization**, exactly as late withdrawals do — a player added after check-in closed is appended unseeded, and committing seeds renumbers. They raise **no alert**, unlike a player's own `/leave`: the organizer performing the action already knows it happened, and an alert telling them what they just did is noise. That asymmetry is the whole reason the withdrawal alert exists — it reports a change the organizers did not make.
+
 ### Snapshotting the display name
 
 `Entrant.displayName` is **null until the tournament starts**. Every surface before that — the roster, the seeding interface — reads the current name from the gateway member cache, which is exactly what the `User` table is for.
@@ -1073,7 +1083,11 @@ Public bracket and match history need **no authentication** — sign-in only add
 
 **The override boundary is one predicate.** "A referee may act here" is `!state.songs[i].result` for a song, and `state.songs.length === 0` for a Protect/Veto reset. Both transports call the same function, so an override that is illegal in the web UI is illegal from an alert-channel button.
 
-**Audit.** Admin promotions are logged as the requirement demands, and the same `AuditLog` covers tier role grants mirrored from `GUILD_MEMBER_UPDATE` and every referee ruling — the marginal cost is a row, and a disputed ruling after the event is exactly when you want the record. Match-affecting referee actions are *also* `MatchEvent`s, since they change match state; the audit row is the cross-tournament view of who did what.
+**Audit.** The rule is one line: **`AuditLog` records every action a tier permitted.** Referee rulings, roster changes made on a player's behalf, chart edits, tier role grants mirrored from `GUILD_MEMBER_UPDATE`, administrator promotions.
+
+It does **not** record self-service acts any member could perform — a player's own `/join`, `/checkin` or `/leave`. Those are evidenced by their own effect, and logging them would bury the entries that matter under routine traffic. The test is whether privilege was used, because that is the question someone reviewing the log afterwards is actually asking.
+
+Match-affecting referee actions are *also* `MatchEvent`s, since they change match state. The audit row is the cross-tournament, actor-oriented view of the same act — "what has Casey done today" rather than "what happened in this match".
 
 ## The Web Client
 
@@ -1156,6 +1170,44 @@ Everything repaints; almost nothing interrupts.
 - **A three-way verbosity control** — all updates / results only / off — is persisted in `localStorage`, wrapped in try/catch and defaulting to *results only* when storage is unavailable or empty.
 
 The reasoning worth keeping: a strict reading of "all updates are announced" would fire dozens of interruptions a minute during a busy round, and the realistic outcome is the user muting the page or leaving. Collecting everything in a log satisfies the intent — nothing changes silently and unrecoverably — while reserving interruption for the events that change the tournament rather than the scoreline.
+
+## The Organizer Console
+
+Desktop-first, best-effort accessibility, and used by all three tiers — what a person sees is filtered by `tierOf`, not by which console they opened.
+
+### The run view
+
+The screen an organizer keeps open for three hours. Two panes.
+
+**The alert queue** is the union described in Organizer Alerts and Escalation: matches whose cached `awaitingTo` is set, plus unresolved `Alert` rows. Ordered oldest-first, because the thing waiting longest is the thing holding up a round. Each entry carries the same actions as its Discord counterpart and resolves the same way, so a referee working from the browser and one working from the alert channel are operating one queue, not two.
+
+**The live match list** is one row per in-progress match: round, both players, current chart, running score, and how long it has been going. Deliberately **not** the bracket tree — a tree explains structure, which nobody needs mid-round, whereas a list answers *which match is dragging* and *what is happening right now*. On a 32-entrant bracket the sixteen live matches are scattered across a wide tree and impossible to scan; as a list they sort by elapsed time and the slow one is at the top.
+
+Both panes are fed by the same websocket subscription as the public bracket, patched by `seq`. The queue is the one place the console shows something the public projection does not — an escalation's reason, and who has claimed it.
+
+### Match detail
+
+One page per match, reachable from an alert, from the bracket, and from the match list. **Every override lives here.**
+
+That is the point of having it: the freeze predicate is consulted in one place, so a ruling illegal from an alert-channel button is illegal here too, and a referee who spots a problem the bot never flagged has a path to act on it. The automation boundary guarantees the bot often *will not* flag anything — a match can sit silent indefinitely — so alert-only intervention would leave the most common failure unaddressable.
+
+The page shows the full event log rendered, the current `pendingAction`, and the override controls the current state actually permits. Controls for frozen actions are not disabled-but-present; they are absent, because a greyed-out *award song* button on a committed song invites a support question about why it does not work.
+
+### Seeding
+
+The roster is the seeding interface — one ordered list, with each entrant's check-in state and whether their check-in DM was deliverable.
+
+**Two ways to move someone, one underlying operation.** Dragging handles small adjustments; typing a seed number directly handles moving someone from 40 to 2, where dragging against a scrolling list is miserable. Both submit the same reorder, which writes the whole normalized order in one statement — which is what the deferred unique constraint exists for.
+
+Unseeded entrants sit in a separate group below the ordered list, in join order, showing where they would land if seeding were committed as-is.
+
+### Everything else
+
+**Tournament configuration** is the lifecycle state machine rendered: current state, the transitions currently legal, and each one's guard shown as a checklist so a TO can see what is blocking a start before pressing it.
+
+**Song pack management** is the pack tab's table with editing — the same filtering, plus inline edit, flag toggles, removal, and the import flow from Client-Side Song Pack Parsing.
+
+**Bot administrators** get one extra surface: a list of every server the bot is in with its tournaments, and nothing else. It is read-only by construction — a Bot Administrator holds no tier in a server they have not been given a role in, so the console shows them the same match pages with no override controls.
 
 ## Results, Standings, and History
 

@@ -192,9 +192,18 @@ The bot **always warns** when the song pack is below the recommended minimum of 
 TOs can populate a song pack by:
 
 - **Importing a source pack** — a StepMania `.zip` or folder. The source pack is **parsed entirely client-side**; the simfiles themselves are never uploaded. The browser produces a JSON chart list which is what gets sent to the server.
-- **Bulk paste or file import** of a chart list.
-- **Adding charts individually** through the web UI.
+- **Editing the resulting charts** individually through the web UI — correcting metadata, setting flags, removing charts.
 - **Copying a song pack from a previous tournament** on the same server.
+
+**Bulk paste and file import of a chart list are deferred.** Importing a source pack and editing afterwards covers how a pack actually gets built; pasting a list is a convenience that can be added once the rest is in use.
+
+### Editing a pack during a tournament
+
+Charts may be corrected at any time, including while a tournament is running — a wrong rating or a mistyped title found during play should be fixable.
+
+**Corrections never alter what already happened.** Every chart the bot draws is recorded with the metadata it had at the moment it was drawn, so past matches always render as they were played. An edit changes the pack, and every draw from then on; it does not reach backwards.
+
+A TO may also **remove** a chart, and removing one that has already been played does not damage the record — past matches still render it as it was. This is unrelated to charts never being removed *by the system* once played, which is a statement about how draws work rather than about editing (see **How the bot draws charts**).
 
 ## Configurability
 
@@ -440,6 +449,7 @@ The web backend remains the system of record for structured data — every chart
 | `/join` | Any server member | Enter the open tournament. Works only while the registration window is open |
 | `/checkin` | A registered entrant | Confirm attendance during the check-in window |
 | `/leave` | An entrant | Withdraw from the tournament, any time before it starts |
+| `/pack` | Any server member | Get a link to the current tournament's song pack |
 | `/setup` | Server Administrator, or anyone with Discord's Manage Guild | Server setup — point the bot at the matches, organizer alert, results and general channels, and the Discord role for each tier. Re-runnable |
 | `/setup status` | Server Administrator | Re-run the configuration and permission diagnostic without changing anything |
 | `/dq` | Referee | Disqualify a player, choosing whether it applies to this match only or withdraws them from the tournament |
@@ -541,6 +551,17 @@ Competitors and spectators have access to a public bracket page. Clicking a matc
 The public bracket is **fully mobile-usable** — spectators are assumed to be on phones. The organizer web UI is **desktop-first**; organizers are assumed to have a laptop at the event.
 
 The public bracket updates by **real-time push** — bracket state and in-progress match state change without the viewer refreshing.
+
+### The pack tab
+
+The public tournament view carries a **tab showing that tournament's song pack**, so competitors can see and prepare against exactly what may be drawn.
+
+- Every chart, with its playstyle prefix, rating, stepartist, source pack and any flags.
+- A **text search** that matches across title, subtitle, artist, source pack and stepartist together, tolerant of partial and out-of-order words. It filters as you type, on a short debounce, with no button to press.
+- Filters for **difficulty slot** and **rating**, plus **playstyle** — which is hidden when the pack contains only one, since a filter with a single option is noise.
+- A **`noCmod` checkbox**. It is the only flag that exists; if others are added this becomes a general flag filter.
+
+`/pack` returns a link to this tab for the server's current tournament, and tells the player if there is not one.
 
 ## Results and History
 

@@ -152,7 +152,7 @@ A song pack entry is a **chart**, not a song — the same song may appear as sev
 | Difficulty rating | Block rating |
 | Stepartist | Displayed when available |
 | Source pack | Which StepMania pack the chart came from |
-| Song length | Also feeds the duration estimate |
+| Song length | Optional. Recorded when the parser supplies it, shown in the pack view. Nothing depends on it — the duration estimate is bracket depth times the per-match allocation, and never reads it |
 | Flags | Optional list. Currently the only flag is **`noCmod`** — players may not use a C-Mod speed modifier on that chart |
 
 **Playstyle prefix.** Whenever chart info is displayed, it carries a two-letter code combining playstyle and difficulty slot — `SX` (Single Expert), `DX` (Double Expert), `SH`/`DH` (Hard), and so on across `N`/`E`/`M`/`H`/`X`.
@@ -193,6 +193,12 @@ TOs can populate a song pack by:
 
 - **Importing a source pack** — a StepMania `.zip` or folder. The source pack is **parsed entirely client-side**; the simfiles themselves are never uploaded. The browser produces a JSON chart list which is what gets sent to the server.
 - **Editing the resulting charts** individually through the web UI — correcting metadata, setting flags, removing charts.
+
+  Two fields are imperfect by nature and expected to be cleaned up here:
+
+  - **Stepartist** is read from the chart's `#DESCRIPTION` field, which is where it conventionally lives but is not filled in consistently. Missing ones are left blank for an organizer to complete.
+  - **The `noCmod` flag** is set automatically when a case-insensitive search for "no cmod" matches the title or subtitle, which is how packs actually mark it. An organizer can set or clear the flag on any chart afterwards.
+
 - **Copying a song pack from a previous tournament** on the same server.
 
 **Bulk paste and file import of a chart list are deferred.** Importing a source pack and editing afterwards covers how a pack actually gets built; pasting a list is a convenience that can be added once the rest is in use.

@@ -1409,7 +1409,17 @@ The parser is shared code, but step 5 is not optional — the client fully contr
 
 **Parsing runs in a Web Worker.** A full StepMania pack is hundreds of simfiles; parsing on the main thread freezes the tab for long enough to look broken.
 
-**Format details that will bite.** `.sm` charts are `#NOTES` blocks with colon-separated fields; `.ssc` uses `#NOTEDATA` sections with named tags, and the two coexist in the same pack — often the same song. Prefer `.ssc` where both exist for a song, since it is the newer authored form. Song length is derived from chart timing (last note against the BPM and stop map) rather than the audio file, so packs whose audio is absent or oddly encoded still yield an estimate.
+**The parser is `simfile-parser` from npm, not written here.** It handles the grammar — `.sm` `#NOTES` blocks with colon-separated fields, `.ssc` `#NOTEDATA` sections with named tags — and the two coexist in a pack, often for the same song, so `.ssc` is preferred where both exist as the newer authored form.
+
+The constraint to check it against is that **it must run in the browser**. Parsing is client-side in a Web Worker over an in-memory zip; a parser that assumes `fs` and directory walking needs its I/O layer wrapped rather than used directly.
+
+**Three import rules sit on top of it:**
+
+- **Transliteration priority** — `titleTranslit || title`, and the same for subtitle and artist, resolved at parse time so nothing downstream has to remember.
+- **`noCmod` is inferred from the title.** A case-insensitive search for `no cmod` across title and subtitle sets the flag, which is how packs actually mark the restriction. An organizer can set or clear it on any chart afterwards, so a miss is a correction rather than a failure.
+- **Stepartist comes from `#DESCRIPTION`**, conventionally but not reliably. Blanks are left blank; the editor is where they get filled in, which is a large part of why import-then-edit is the MVP flow rather than import alone.
+
+**Song length is not derived from chart timing.** An earlier draft reconstructed it from the last note against the BPM and stop map; nothing needs it. The duration estimate is bracket depth times the per-match allocation and never reads a song length, and no player-facing surface during a match shows one. It is recorded when the parser supplies it and shown in the pack view, and that is all.
 
 **Import is additive**, with client-side dedupe against the current pack keyed on title, subtitle, playstyle, difficulty slot, and rating. Charts are never removed once played, per the requirements, so the pack only grows during an event.
 

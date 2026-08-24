@@ -534,12 +534,36 @@ which gives `[1, 2]`, then `[1, 4, 2, 3]`, then `[1, 8, 4, 5, 2, 7, 3, 6]`. Roun
 
 `2(k − 1)` rounds. Round 1 takes every winners round 1 loser, preserving winners-match order. After that, **even-numbered rounds are major** — winners-side droppers enter — and **odd-numbered rounds are minor**, where losers-side survivors meet.
 
-The stagger applies at each major round, mapping `m` droppers indexed by their winners-match position onto `m` receiving slots. Two transformations are in use:
+#### Why a stagger is needed at all
 
-- **Reverse** — dropper `i` goes to slot `m − 1 − i`.
+Without one, an immediate rematch is not bad luck — it is structural. Take eight slots, winners order `[1, 8, 4, 5, 2, 7, 3, 6]`, higher seed winning throughout:
+
+| | |
+| --- | --- |
+| WR1 | `M0 = 1v8`, `M1 = 4v5`, `M2 = 2v7`, `M3 = 3v6` — so 8, 5, 7, 6 drop |
+| LR1 | `LM0 = 8v5`, `LM1 = 7v6` — say 5 and 6 survive |
+| WR2 | `M4 = 1v4`, `M5 = 2v3` — say 4 and 3 drop |
+
+Map the droppers straight down and `M4`'s loser meets `LM0`'s survivor: **4 versus 5, who played each other in WR1**. The reason is general rather than particular to this example — a winners round 2 dropper and the losers round 1 survivors from the same half of the bracket are *exactly* the players they just beat.
+
+Reverse the mapping and `M4`'s loser meets `LM1`'s survivor instead: 4 versus 6, who have never played.
+
+#### The transformations
+
+Each major round maps `m` droppers, indexed by winners-match position, onto `m` receiving slots:
+
+- **Reverse** — dropper `i` goes to slot `m − 1 − i`. Sends droppers to the far end of the losers bracket, maximally distant from the region that produced them.
 - **Rotate by half** — dropper `i` goes to slot `(i + m/2) mod m`.
 
+**Alternating them matters because both are involutions.** `reverse ∘ reverse` is the identity, and so is `rotate ∘ rotate`; applying the same transformation at consecutive major rounds hands back the separation the previous one bought, and players drift toward the region they came from. Alternating composes to something non-trivial — over four regions `reverse ∘ rotate` gives `[1, 0, 3, 2]`.
+
+That argument is reasoning rather than provenance, and it is weaker than it looks at small sizes: with `m = 2` the two transformations are the same permutation, and with `m = 1` both are the identity. It only bites in the earlier major rounds of a large bracket.
+
 **Which applies to which round is a convention, not a derivation**, and conventions differ between bracket software. Implement with *reverse* at the first major round and alternate thereafter — then let the property tests arbitrate. If an entrant count produces a rematch earlier than the structure requires, the delay property fails and the parity for that round flips. This is the one place in the design where the tests are the specification and the algorithm is a starting point; the alternative is asserting a convention here that could simply be wrong.
+
+**If matching an existing platform matters** — and it may, since players arrive with expectations from brackets elsewhere — Challonge is the practical oracle. Its API exposes each match's `player1_prereq_match_id` and `player2_prereq_match_id` along with whether the feed is a winner or a loser, so the whole match graph comes out as data rather than something to read off a rendered image. Generate at 8, 16, 11 and 13 participants — the non-powers of two matter most, since that is where byes interact with the stagger — set grand finals to the two-match form to match this design, and commit the result as a fixture the generator must reproduce.
+
+Using Challonge this way contradicts nothing above: it was rejected as a **runtime dependency**, and that rejection explicitly conceded it would supply the pairing math. An offline fixture costs nothing on the critical path.
 
 Whatever is chosen, the transformation is computed from **bracket positions alone at generation time** and never consults results — which is the property that actually matters, and the one the requirements care about.
 

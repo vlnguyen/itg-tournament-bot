@@ -176,8 +176,15 @@ model Match {
 
   tournament   Tournament         @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   participants MatchParticipant[]
-  winner       Entrant?           @relation("MatchWinner", fields: [winnerId], references: [id])
-  currentChart Chart?             @relation("MatchCurrentChart", fields: [currentChartId], references: [id])
+  // Cache columns, not ownership — SetNull rather than Cascade, so deleting
+  // the winning entrant or the in-play chart never deletes the match row
+  // itself. Same reasoning that made MatchParticipant.entrant need a
+  // cascade clause applies here: Tournament deletion cascades to Match,
+  // Entrant, and Chart independently and simultaneously, and without this
+  // Postgres can try to delete an Entrant/Chart row this Match still
+  // references before the Match row is gone.
+  winner       Entrant?           @relation("MatchWinner", fields: [winnerId], references: [id], onDelete: SetNull)
+  currentChart Chart?             @relation("MatchCurrentChart", fields: [currentChartId], references: [id], onDelete: SetNull)
   events       MatchEvent[]
   timers       Timer[]
   alerts       Alert[]
@@ -198,7 +205,12 @@ model MatchParticipant {
   place     Int? // finish within this match; 1 is the winner, ties share a place
 
   match   Match   @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  entrant Entrant @relation(fields: [entrantId], references: [id])
+  // Cascades for the same reason `match` does: deleting a Tournament cascades
+  // to both Entrant and Match independently, and without this, Postgres can
+  // try to delete an Entrant row a still-cascading MatchParticipant row
+  // references, failing the whole delete on
+  // `MatchParticipant_entrantId_fkey`.
+  entrant Entrant @relation(fields: [entrantId], references: [id], onDelete: Cascade)
 
   @@id([matchId, entrantId])
   @@unique([matchId, slot])

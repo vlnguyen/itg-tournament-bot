@@ -409,9 +409,10 @@ Seeding is not a step in this sequence — it runs alongside from the moment the
 
 ## Discord Surface
 
-- The bot uses **slash commands with interactive buttons** throughout. There are no prefix (`!`) commands. Protect/Veto actions, winner selection, and tiebreak song selection are all button-driven.
+- The bot uses **slash commands with interactive components** throughout. There are no prefix (`!`) commands. Protect/Veto actions, winner selection, and tiebreak song selection are all component-driven — buttons where the choice is a small fixed set, and a **select menu** where the choice is one chart out of several, so each option can carry its rating, stepartist and flags alongside its title.
 - Matches take place in **threads under a single matches channel**, not in dedicated channels.
 - A match thread is **private to the two competitors and anyone holding a server tier role**. Spectators do not have read access.
+- The bot keeps **exactly one live prompt** in each thread, always as the most recent message, so a player never scrolls past their own result photos to find what they must do next. Everything else the bot posts — the Draw, each committed song result, the final summary — is permanent and never changes.
 - On creating a thread the bot adds **only the two competitors** as members. Organizers see match threads through Discord's **Manage Threads** permission on the matches channel, which every tier role must hold — so a thread has two members however large the referee pool is, and someone granted a tier mid-tournament can immediately read every open match.
 - Each player may only submit **their own** score and **their own** Protect/Veto actions.
 - On match completion the bot **posts a result summary** — songs played, per-song scores and winners, any tiebreak songs, and the final result — as the last message in the thread.
@@ -438,7 +439,17 @@ The web backend remains the system of record for structured data — every chart
 
 `/setup` accepts Manage Guild as well as the Server Administrator tier because the tier is *configured by* `/setup` — a freshly-invited server has no administrator role yet, and Manage Guild remains the recovery path if the roles are later deleted or misconfigured.
 
-Match play itself uses **buttons, not commands** — Protect, Veto, score submission, winner selection, and tiebreak song selection are all button interactions inside the match thread. Where a button needs a typed value, it opens a **modal** rather than asking for a chat message; EX% entry is the only such case.
+Match play itself uses **components, not commands** — Protect, Veto, score submission, winner selection, and tiebreak song selection all happen inside the match thread. Where a component needs a typed value, it opens a **modal** rather than asking for a chat message; EX% entry is the only such case.
+
+| Step | Component |
+| --- | --- |
+| Choose first or second Protect | Two buttons |
+| Protect, Veto | Select menu over the eligible charts |
+| Submit score | Button, opening a modal |
+| Select the song winner | Three buttons — each player, or tie |
+| Tiebreak selection | Select menu over the three drawn charts |
+| Confirm the set result | Button |
+| Report a settings problem | Button |
 
 The one thing players post as an ordinary message is the **result-screen photo**.
 

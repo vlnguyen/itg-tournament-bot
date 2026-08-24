@@ -811,6 +811,114 @@ WHERE id IN (
 **Overdue timers at boot fire immediately.** A deploy spanning an expiry produces a late alert rather than a missing one, which is the right failure for a threshold whose purpose is to get an organizer's attention.
 
 
+## The Match Thread
+
+The competitor-facing surface. Everything the rules require a player to do happens here, in a private thread holding two people and whatever the bot has posted.
+
+### Creating the thread
+
+**The name is `WR2 · Alice vs Bob`** — bracket side and round, then both competitors. It sorts sensibly, identifies a match at a glance in a list of sixteen, and gives an organizer the two things they scan for. Display names are truncated to fit Discord's 100-character limit, longest first so both stay legible.
+
+**The name is fixed at creation and never changes.** Discord rate-limits thread renames to roughly two per ten minutes, so a name carrying live state would fall behind precisely when an event is busiest — the moment it would be worth having. State belongs in the thread, the bracket, and the results feed, none of which are rate-limited.
+
+A grand final reset is a separate `Match` row and therefore a separate thread, named `GF2 · Alice vs Bob`. It gets a fresh event log, so it gets a fresh place to live.
+
+### Two kinds of bot message
+
+**Log messages are permanent.** The Draw, each committed song result, each tiebreak reveal, the final summary. Posted once, never edited, never deleted — they are the thread's readable spine, and the reason someone scrolling back can reconstruct the match without opening the web app.
+
+**The state message is singular and disposable.** Exactly one exists per thread at any moment. It carries the current prompt and the only live components in the thread, and it is replaced rather than accumulated.
+
+The split matters because the two have opposite requirements: history wants messages to stay put, and a prompt wants to be where the player is looking. Trying to satisfy both with one message is what buries prompts.
+
+### Keeping the prompt last
+
+**Discord cannot move a message** — position follows the snowflake, and editing does not change it. Keeping a prompt at the bottom therefore means deleting it and posting it again. A bot may delete its own messages without `Manage Messages`, so this needs no extra permission.
+
+The bot reposts when the state message is no longer the last message in the thread — which in practice means whenever a player posts a result photo — and edits in place when it still is. Editing is far cheaper and does not mark the thread unread, so the common case of a state change with nothing posted after it stays a single API call.
+
+Four things this needs to get right:
+
+- **Ignore its own messages.** A repost is a message create in the same thread; without a self-check the bot reposts in response to its own repost, forever.
+- **Debounce.** Two photos landing together should produce one repost, not two. A short coalescing window — a second or so — collapses the burst.
+- **Tolerate the click-during-delete race.** A player can press a component on a message that is being replaced; the interaction then fails as `10008 Unknown Message`. Expected, not an error: the action is re-driven from the new state message, and because components are stateless `custom_id`s the player loses nothing but a tap.
+- **Repost, do not duplicate.** The thread must never hold two state messages. The message ID is tracked on `Match` alongside `threadId`, and delete-then-post runs as one guarded step so a crash between them is repaired by the boot reconciler rather than leaving an orphan.
+
+**Nothing is lost by deleting prompts.** The event log is the system of record, the log messages carry the narrative, the photos are the players' own messages, and the result summary closes the thread. A deleted "your turn to Protect" prompt is not evidence of anything.
+
+### Opening the match
+
+The order matters and follows the requirements exactly: **the Draw is revealed before the higher seed chooses.** Whether to take the first or second Protect is a judgement about *these seven charts* — a Draw containing one dominant pick argues for going first — so choosing blind would remove the only content from the decision.
+
+So a new thread produces, in order: both competitors added and mentioned; the Draw as a log message; then the first state message, holding two buttons for the higher seed. The lower seed sees who is deciding and waits.
+
+There is no timer on the choice, as there is no timer on any player action. A seed who never picks stalls the match until the start-window threshold alerts the organizers.
+
+### Presenting a chart
+
+A chart carries more than fits on one line of a phone: playstyle prefix, title, subtitle, artist, rating, stepartist, source pack, length, flags. Two canonical forms, used everywhere:
+
+- **Compact** — `SX 12 · Vertex^` — for select-menu labels, inline references, and the results feed.
+- **Full** — compact, plus stepartist, source pack, length and any flags — for embed fields and the Draw.
+
+The playstyle prefix is always present and always leads, because it is the fastest way to tell a Singles chart from a Doubles one in a pack that may hold both.
+
+### The Draw and Protect/Veto
+
+The Draw posts as an **embed** — seven charts in full form, numbered, with the colour bar keyed to match state. It is a log message: posted once, never edited, still readable at the end of the match.
+
+Selection uses a **string select menu**, not seven buttons. Discord allows five buttons per row, so seven charts means two ragged rows of labels capped at eighty characters — no room for rating, stepartist or flags, exactly the information that should inform a Veto. A select menu holds twenty-five options, each with a label and a description line, so the metadata sits with the choice rather than being cross-referenced by eye against the embed above. It is also one tap target rather than seven, which matters on the surface most of this happens on.
+
+The menu is rebuilt at each step over only the **currently eligible** charts, so a chart already protected or vetoed cannot be picked. That is the same `PendingAction.choices` the format returns — the menu is a rendering of it, never a second copy of the rules.
+
+**Flags surface at all three points requirements demand**: in the Draw embed against the chart, in the log message when that chart comes up to be played, and in the winner-selection prompt, where a flagged chart adds the settings-confirmation line and the *report a settings problem* button.
+
+### Scoring a song
+
+The state message for a song shows both players, the chart in full form, and per-player ticks for what has landed — EX% submitted, photo seen. *Submit score* is a button opening a modal with a single EX% field, validated to two decimals in `0.00`–`100.00` before it reaches the thread.
+
+**Photo attribution is deliberately forgiving.** The first message from a player carrying an image attachment satisfies their photo requirement for the current song. Extras are ignored, images posted when nothing is outstanding are ignored, and the order against the EX% submission does not matter — a player standing at the results screen photographs first and types second, and a rule that discarded that photo would be fighting the only natural sequence.
+
+Three details it needs: the attachment must be an **image** by content type, not merely any file; the check is per player, so one competitor cannot satisfy the other's requirement; and it depends on the `MessageContent` intent, without which the requirement degrades as described under Privileged intents.
+
+If a photo never arrives the match simply waits. That is the automation boundary working as specified — the match-time-limit timer eventually raises an alert, and an organizer decides.
+
+Winner selection appears only once both players have submitted and both photos have been observed. Three buttons: each player, or tie. The bot displays the comparison its own numbers imply but does not preselect — the committing fact is agreement, not arithmetic, for the reasons in the event catalog.
+
+Disagreement escalates immediately. The state message becomes *awaiting an organizer*, its components are removed, and the thread waits — no retry, no timer, matching the automation boundary exactly.
+
+**A ruling posts to the thread as a log message**, carrying the outcome, the referee's note if they left one, and **the referee's name**. The thread's audience is two competitors and the referee pool, so attribution there is accountability owed to people already in the room.
+
+**The public match view says only "resolved by an organizer."** Naming a volunteer on a permanent public page beside a contested call is a deterrent to refereeing at all, and the accountability that matters — who ruled, when, with what note — is in `AuditLog` for anyone with cause to look. This is the one place the thread deliberately shows more than the public projection, and `toPublicMatch` is where the name is dropped.
+
+### Resetting Protect/Veto
+
+A referee may reset the sequence until song 1 has been played. **The Draw is unchanged; the protects and vetoes are cleared.** The requirement permits resetting *the sequence*, and the sequence is the picking — re-drawing would replace the seven charts both players had already read, which is a far larger intervention than the misclick that usually prompts a reset.
+
+In the thread this is now unremarkable, because of the message split. The Draw was a log message and stays exactly where it is, still accurate. The old prompt was the state message, so it is replaced rather than lingering with stale components — the problem this once posed disappeared when prompts became singular and disposable. A log message records that a referee reset the sequence and that the Draw stands, and a fresh state message asks the higher seed to choose again.
+
+The events are appended, never removed, so the public match view shows the abandoned picks followed by the reset and the real ones. Nothing rewinds, including this.
+
+### The tiebreak
+
+The one interaction where a leak is a rules failure rather than an annoyance.
+
+**The select menu lives on the state message; the response is ephemeral.** The component is visible to both players, but a component interaction is private to whoever used it: the opponent sees no selection, and nothing about the choice is written into the message. One tap, no extra round trip.
+
+**The label has to say so plainly.** A picker sitting in a shared message will make people hesitate whatever the underlying behaviour, and a player who hesitates over whether their pick is about to be broadcast is a player who has been given a worse game. The prompt states that the choice is private and revealed only once both have chosen.
+
+**The state message shows who has acted, never what they picked** — the projection rule from Public Projections and Hidden State, rendered. It edits as each pick lands, which reposts it if a photo has arrived since.
+
+**Selections are final.** A second interaction from a player who has already chosen is refused ephemerally, saying what they picked so they are not left guessing. This is validation against `PendingAction` like everything else: once their choice is in the log, they are no longer an eligible actor for that round.
+
+**The reveal is a log message**, posted once both picks exist: both selections, the rule applied — same chart plays, different charts means the unselected one plays — and the chart that results. Permanent, because by then it is history and the whole point of the mechanism is that it can be audited afterwards.
+
+### Ending the match
+
+The result summary is a log message and the last thing the bot posts: songs in play order with both EX% values and the winner of each, tiebreak rounds if any, and the final score. The thread archives immediately afterward.
+
+It is rendered from the same projection as the public match view, so the thread and the web page cannot disagree about what happened.
+
 ## Organizer Alerts and Escalation
 
 Every stall in the system resolves here. The automation boundary guarantees the bot will wait forever rather than decide, which makes the alert channel the only thing that keeps an event moving.
@@ -1098,4 +1206,3 @@ Leaning **signed cookie with per-request authorization**. Adopt a session table 
 ### Remaining
 
 - **Whether `Match.state` is worth caching at all** before there is a measured reason. `stateSeq` makes the cache verifiable, which lowers the risk of keeping it, but replaying a few dozen events is not obviously slower than deserializing the JSON.
-- **What happens to an in-flight match when a referee resets Protect/Veto.** The requirement permits it before song 1, and the events are appended rather than removed — but the thread already shows the old Draw and its buttons. Re-posting a fresh state message and letting the stale one be rejected by validation is the cheap answer; whether it reads clearly to players is a UX question, not a modelling one.

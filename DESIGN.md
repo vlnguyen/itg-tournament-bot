@@ -1081,6 +1081,14 @@ Config admins are re-applied additively at boot, which is the lockout recovery p
 
 Public bracket and match history need **no authentication** — sign-in only adds a personalized dashboard.
 
+**Sessions are a signed cookie carrying the Discord user ID**, and nothing else. There is no session table.
+
+The reasoning shifted once tiers moved to Discord roles: authorization now reads tier from the gateway member cache, so a request costs **zero database queries** to authorize. A session table would therefore *add* a query rather than replace one, plus a table and an expiry sweep, to serve a handful of privileged users per server.
+
+Revocation is already instant without it — removing someone's role locks them out on their next click, because nothing about their authority is stored in the cookie. Rotating `SESSION_SECRET` is a global logout. The one capability given up is killing a single session while leaving others alive, which is worth a table only if it becomes a real need rather than a hypothetical one; the authorization path does not change either way, so adopting one later is cheap.
+
+**JWTs with embedded tiers were rejected outright.** Baking authority into a bearer token means a demoted referee keeps ruling until it expires, and the fix is a denylist — a session table with extra steps and worse ergonomics.
+
 **The override boundary is one predicate.** "A referee may act here" is `!state.songs[i].result` for a song, and `state.songs.length === 0` for a Protect/Veto reset. Both transports call the same function, so an override that is illegal in the web UI is illegal from an alert-channel button.
 
 **Audit.** The rule is one line: **`AuditLog` records every action a tier permitted.** Referee rulings, roster changes made on a player's behalf, chart edits, tier role grants mirrored from `GUILD_MEMBER_UPDATE`, administrator promotions.
@@ -1344,6 +1352,58 @@ Config is validated at boot against a schema and the process refuses to start on
 
 Prisma migrations run on deploy. Backups are `pg_dump` on a schedule — self-hosted Postgres means this is yours to own. **Test the restore before the first real event**, not after.
 
+## Failure Handling
+
+Individual failures are handled where they arise, throughout this document. They all follow one rule, which is worth stating once because it is what makes them tractable.
+
+### The database commits first; Discord is a projection of it
+
+Every state change commits in its transaction, and **every side effect happens after** — posting to a thread, editing an alert, sending a DM. That ordering is chosen in Concurrency for a different reason, but it is also what bounds every failure in the system:
+
+- **The record cannot be wrong.** A transaction commits or it does not. No Discord outcome can produce a state that did not happen.
+- **The view can be stale**, and a stale view is always repairable, because the database can recompute what Discord ought to show.
+
+**This is why there are no retry queues.** Durable retries exist to make an unreliable side effect eventually happen; reconciliation makes it eventually *correct*, which is strictly better and needs no queue, no dead-letter handling, and no ordering guarantees. It is also the second reason a job runner was not adopted, alongside the one in Timers.
+
+### Expected failures are states, not errors
+
+A substantial share of what Discord returns is not a fault but a configuration a user is entitled to choose. Treating these as errors produces alert noise that trains organizers to ignore alerts.
+
+| Condition | Code | Treatment |
+| --- | --- | --- |
+| Player refuses DMs | `50007` | Expected. Debug log, no retry. The thread mention is the notification of record |
+| Component clicked as its message is replaced | `10008` | Expected. The action is re-driven from the new state message |
+| Permission revoked mid-event | `50001`, `50013` | Alert naming the permission and the blocked action; retried when it returns |
+| Rate limited | `429` | Queue backoff. Never surfaced to a user |
+| Forward to the general channel fails | any | Logged. The record in the results channel is already correct |
+| Thread or message deleted by a human | `10003`, `10008` | Reconciled if it should exist; accepted if it should not |
+
+Everything else logs at error with the route and code, and is a bug until shown otherwise.
+
+### The reconciler
+
+Referenced in several places above; defined here. It answers one question — *does Discord match the database?* — and repairs the difference.
+
+It runs **at boot**, and **every minute on the sweeper that already drives timers**. Boot alone would leave a failed thread creation missing until the next restart, which during a live event is the worst moment to need a deploy.
+
+Each pass is a handful of indexed queries over the active tournament:
+
+| Drift | Repair |
+| --- | --- |
+| Match ready, `threadId` null | Provision the thread |
+| `awaitingTo` set, no open alert message | Post the alert |
+| Alert resolved in the database, message still showing buttons | Edit the message |
+| `pendingAction` live, state message missing or deleted | Repost it |
+| `stateSeq` behind the match's highest event `seq` | Replay and repair the cache |
+
+**Every repair is idempotent**, because each is phrased as *make Discord match the database* rather than *do the thing that failed*. Running twice is harmless, which is what allows it to run unsupervised on a timer.
+
+**A crash between commit and side effect is exactly this case**, and needs no special handling: the transaction is durable, the side effect did not happen, and the next pass performs it.
+
+**Batches are capped** so a pathological state — a tournament whose every thread is missing — produces steady progress and backoff rather than a burst against the global rate limit.
+
+**What is not reconciled** is anything the database is not authoritative for. Result-screen photos live only in Discord; a deleted thread takes them with it. That risk is accepted in the requirements, and no amount of reconciliation touches it.
+
 ## Observability
 
 Small, because the deployment is small — but a live tournament is the wrong time to be reading raw logs.
@@ -1375,26 +1435,6 @@ Metrics and tracing are deferred. The trigger to add them is a second instance o
 
 The concurrency test is worth calling out: two simultaneous `SONG_WINNER_SELECTED` appends must produce two events with distinct seqs and one commit, and the same action submitted twice must produce one event. Both are cheap to write against a real database and impossible to check against a mock.
 
-## Open Questions
+## Open Question
 
-### Session storage
-
-Undecided. The analysis, so it does not have to be redone:
-
-The permission check happens regardless — which tier a user holds is resolved on every request from the gateway's member cache, and that check is what authorizes it. So the options are not equivalent in the way they first appear:
-
-| | Queries/req | Instant revocation | Kill one session | Moving parts |
-| --- | --- | --- | --- | --- |
-| Signed cookie (user ID only) | 1 | Yes | No — secret rotation logs out everyone | None |
-| Session table | 2 | Yes | Yes | Table + expiry cleanup |
-| JWT with embedded roles | 0 | **No** | No — needs a denylist | Token infra |
-
-**A session table adds a query rather than replacing one.** It is a capability choice, not a performance one: the only thing it buys is enumerating and killing individual sessions. For a system whose privileged users are a handful of TOs per guild, that is low value, and rotating the signing secret already provides a global logout.
-
-**JWT is the one to avoid.** Requirements specify that admin promotions are logged and organizer access is revocable; with tiers baked into the token, someone whose role was removed keeps acting until it expires. Fixing that means a denylist, which is a session table with extra steps.
-
-Leaning **signed cookie with per-request authorization**. Adopt a session table only if per-session revocation becomes a real requirement — the authorization path does not change either way, so this is cheap to defer.
-
-### Remaining
-
-- **Whether `Match.state` is worth caching at all** before there is a measured reason. `stateSeq` makes the cache verifiable, which lowers the risk of keeping it, but replaying a few dozen events is not obviously slower than deserializing the JSON.
+**Whether `Match.state` is worth caching at all** before there is a measured reason. `stateSeq` makes the cache verifiable, which lowers the risk of keeping it, but replaying a few dozen events is not obviously slower than deserializing the JSON. Deliberately left open until there is code to measure — the cache is easy to remove and hard to justify adding back on a guess.

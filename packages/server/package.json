@@ -1,0 +1,13 @@
+{
+  "name": "@itg/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@itg/shared": "*",
+    "@prisma/client": "^6.1.0"
+  }
+}

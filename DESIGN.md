@@ -122,7 +122,7 @@ model Tournament {
   id          String   @id @default(cuid())
   guildId     String
   name        String
-  formatKey   String                      // pluggable ruleset, see below
+  defaultFormatKey String                 // stamped onto every match generated
   config      Json                        // TournamentConfig, below
   state       TournamentState             // DRAFT | REGISTRATION_OPEN | ...
   entrants    Entrant[]
@@ -161,16 +161,19 @@ model Entrant {
 model Chart {
   id             String  @id @default(cuid())
   tournamentId   String
-  title          String                   // titleTranslit || title, resolved at import
-  subtitle       String?
-  artist         String?
-  playStyle      PlayStyle                // SINGLE | DOUBLE
-  difficultySlot DifficultySlot           // NOVICE..EXPERT
-  rating         Int
-  stepartist     String?
-  sourcePack     String?
-  lengthSeconds  Int?
-  flags          String[]                 // ["noCmod"]
+  title            String                 // both forms stored; display resolves
+  titleTranslit    String?
+  subtitle         String?
+  subtitleTranslit String?
+  artist           String?
+  artistTranslit   String?
+  playStyle        PlayStyle              // SINGLE | DOUBLE
+  difficulty       DifficultySlot         // the named slot, NOVICE..EXPERT
+  meter            Int                    // the numeric block rating
+  stepartist       String?                // #CREDIT
+  description      String?                // #DESCRIPTION — free-text chart label
+  sourcePack       String?
+  flags            String[]               // ["noCmod"]
 }
 
 model Match {
@@ -178,6 +181,7 @@ model Match {
   tournamentId String
   bracket      BracketSide               // WINNERS | LOSERS | GRAND_FINAL
   round        Int
+  formatKey    String                    // the ruleset this match ran under
   slot         Int                       // position within the round
   playerAId    String?
   playerBId    String?
@@ -380,6 +384,8 @@ Requirements demand additional formats be addable without rework, while only Bo5
 interface MatchFormat {
   readonly key: string;              // "bo5-protect-veto"
   readonly drawSize: number;         // 7
+  /** Charts a pack should hold for this format to behave well. */
+  readonly recommendedPackSize: number;  // 10 — a Draw plus one clean tiebreak round
 
   /** Fold one event into state. Pure. */
   reduce(state: MatchState, event: MatchEvent): MatchState;
@@ -396,6 +402,16 @@ interface MatchFormat {
 ```
 
 Everything specific to Bo5 — the ABBAAB sequence, the loser-goes-next preference order, the tie fall-through to protect order, the Decider, reaching 3 points, the prisoner's dilemma loop — lives behind this interface in `Bo5ProtectVetoFormat`.
+
+### The format belongs to the match
+
+`Match.formatKey` is the ruleset a match ran under. `Tournament.defaultFormatKey` is what gets stamped onto every match at generation, and **for now that is the whole story** — every match in a tournament shares one format.
+
+Storing it per match anyway is not speculation, it is the same rule the rest of this design follows: **capture what applied at the moment it mattered, rather than inferring it later from a parent that can change.** Chart metadata is snapshotted into draw events for that reason; the display name is snapshotted at start for that reason. A match's rules are the same kind of fact, and reading them off the tournament would mean a format change mid-event silently rewrites how a finished match is interpreted.
+
+It also makes a known future feature a config change rather than a migration. Events where machines are scarce commonly run Bo3 until Winners Finals, Losers Finals and the Grand Finals, which are Bo5. Under this shape that is a rule for choosing which key to stamp during generation — the reducer, the event log, replay, and every projection already work per match. Under a tournament-level key it would be a schema change to a table holding live tournaments.
+
+**What will need revisiting when exceptions ship** is the duration estimate. It currently multiplies bracket depth by one `perMatchAllocationMinutes`, which stops being right the moment a Bo3 round and a Bo5 round take visibly different times. That is a config shape question — an allocation per format — and it is noted here so it is found by reading rather than by a schedule that runs long.
 
 `effects` exists because of the derived commit. Something has to notice that song 3 just became final so the thread gets a summary and the match time-limit timer is cancelled, and with no commit event to subscribe to, the alternative is the service comparing `before` and `after` itself — which means a service reasoning about format-specific state shape, exactly the coupling the plugin boundary exists to prevent. Returning a *description* of what to do keeps it pure and testable: `SongCommitted`, `TiebreakResolved`, `EscalationOpened`, `SetDecided`. The service interprets them after the transaction commits. Effects are match-scoped only — bracket advancement is the service's reaction to `outcome() !== null`, because a format has no business knowing brackets exist.
 
@@ -468,7 +484,7 @@ The conclusion holds; the reasoning is fragile enough that a future format tweak
 
 Because commits are derived, an archived match's outcome is a function of its events **and** the reducer that reads them. A reducer edit could silently change what a finished tournament decided.
 
-`formatKey` is stored on the tournament and replay always uses the format that ran the match, so a genuine rules change ships as a new key — `bo5-protect-veto-v2` — and leaves old matches reading the old rules.
+**`formatKey` lives on the match, not the tournament.** Replay reads the match's own key, so a genuine rules change ships as a new key — `bo5-protect-veto-v2` — and leaves finished matches reading the rules they actually ran under, even within a tournament that spans the change.
 
 That only helps if rules changes are *distinguishable* from bug fixes, which they are not by inspection. So the boundary is enforced mechanically: **a corpus of archived event logs is replayed in CI, and every committed song result, set result, and final placement must come out identical.** A change that breaks the corpus is a rules change by definition and needs a new key; a change that does not is a bug fix and may ship in place. The corpus starts with hand-written sequences covering the edge cases and grows with every real tournament.
 
@@ -784,7 +800,13 @@ It is a **superset of the player's own window**, which is the point. `/join` clo
 
 **Tier is Tournament Organizer, not Referee.** Roster composition is tournament management rather than unblocking a match, and it sits with the tier that opens and closes the windows in the first place.
 
-**Late additions re-run normalization**, exactly as late withdrawals do — a player added after check-in closed is appended unseeded, and committing seeds renumbers. They raise **no alert**, unlike a player's own `/leave`: the organizer performing the action already knows it happened, and an alert telling them what they just did is noise. That asymmetry is the whole reason the withdrawal alert exists — it reports a change the organizers did not make.
+**On-behalf actions are indistinguishable in the data.** Checking a player in as an organizer writes exactly what `/checkin` writes; removing them writes exactly what `/leave` writes. Two things differ and neither is domain state: an `AuditLog` row, and the absence of a notification where the organizer acting *is* the person the notification would reach.
+
+That is worth stating as a rule because the alternative is tempting and wrong. A separate "checked in by an organizer" flag, or a distinct status, would fork every downstream query — normalization, standings, the roster view — on a distinction that matters only for provenance. Provenance is what the audit log is for.
+
+**Its useful consequence is the one case with no self-service equivalent.** A player cannot check themselves in after check-in closes, so what should an organizer doing it produce? The rule answers it: **the state that would have existed had the player checked in during the window.** `checkedIn` true, status back to `ACTIVE`, and appended unseeded in join order so the next normalization folds them into the order — which is exactly the late-addition path, arrived at without needing a special "un-drop" operation. It is the recovery path when check-in is closed a minute early.
+
+**Late additions and re-check-ins re-run normalization**, exactly as late withdrawals do. They raise **no alert**, unlike a player's own `/leave`: the organizer already knows what they just did, and an alert reporting it is noise. That asymmetry is the whole reason the withdrawal alert exists — it reports a change the organizers did *not* make.
 
 ### Snapshotting the display name
 
@@ -811,7 +833,7 @@ DRAFT ─► REGISTRATION_OPEN ─► REGISTRATION_CLOSED ─► CHECKIN_OPEN
                                                           │
                         ┌─────────────────────────────────┘
                         ▼
-                  CHECKIN_CLOSED ─► SEEDED ─► RUNNING ─► COMPLETE
+                  CHECKIN_CLOSED ─► RUNNING ─► COMPLETE
 ```
 
 | Transition | Actor | Guard | Effect |
@@ -820,16 +842,18 @@ DRAFT ─► REGISTRATION_OPEN ─► REGISTRATION_CLOSED ─► CHECKIN_OPEN
 | `→ REGISTRATION_CLOSED` | TO | — | `/join` stops working |
 | `→ CHECKIN_OPEN` | TO | — | `/checkin` starts working |
 | `→ CHECKIN_CLOSED` | TO | — | Un-checked-in entrants set `NOT_CHECKED_IN` and their seeds cleared; surviving seeds renumbered from 1 in relative order; unseeded entrants appended in join order — one transaction |
-| `→ SEEDED` | TO | Every active entrant has a distinct seed, contiguous from 1 | Seeds committed |
-
-The `SEEDED` guard is an **assertion, not a gate**: normalization at check-in close already guarantees it. It stays because a violation means normalization is broken, and finding that out before a bracket is generated is much cheaper than after.
-
-| `→ RUNNING` | TO | **Discord permission preflight passes** | Bracket generated, threads provisioned, players notified |
+| `→ RUNNING` | TO | Every active entrant has a distinct seed, contiguous from 1; **Discord permission preflight passes** | Seeds fixed, bracket generated, threads provisioned, players notified |
 | `→ COMPLETE` | bot | Grand final committed | Standings posted, public archive frozen |
+
+**There is no separate `SEEDED` state, deliberately.** An earlier draft had one, recording that a TO had reviewed and committed the seed order before starting. It gated nothing and froze nothing — `/leave` works until the tournament starts, so a player could withdraw after the commit, renumbering the field while the tournament still claimed the order was confirmed. A state asserting a fact that can quietly stop being true is worse than no state.
+
+Starting *is* the confirmation: the start action shows the final order for review, and generating the bracket fixes it. The seed guard moved onto `→ RUNNING`, where it is still an **assertion rather than a gate** — normalization at check-in close already guarantees it — kept because a violation means normalization is broken, and learning that before a bracket exists is much cheaper than after.
 
 `CANCELLED` is reachable from any pre-`RUNNING` state at Tournament Organizer tier, and frees the guild's active slot.
 
-**Two things happen at the start transition and only one of them can block.** Permissions are re-checked and a missing one blocks with the exact list. A song pack below 10 charts warns, names the recommended size, and proceeds — the requirement is explicit that the warning never blocks.
+**Two things happen at the start transition and only one of them can block.** Permissions are re-checked and a missing one blocks with the exact list. A song pack below the recommended size warns and proceeds — the requirement is explicit that the warning never blocks. The threshold is **`recommendedPackSize` from the format**, not a constant: Bo5 asks for 10, and a format with a different draw asks for whatever it needs. Once a tournament can mix formats, the threshold is the maximum across those in use.
+
+The start also asserts that **every generated match's `formatKey` resolves to a registered format**. It cannot fail today, since all matches are stamped from one default — but it is the check that turns a typo in a future per-round override into a refused start rather than a match that cannot be played.
 
 **Bracket immutability is enforced by the state, not by convention.** Once `RUNNING`, the entrant and seed mutations are rejected at the service layer by a single guard reading `tournament.state`, so there is one place to be right rather than one per endpoint.
 
@@ -957,7 +981,18 @@ WHERE id IN (
 
 **Considered and rejected: BullMQ.** It is the standard answer and it needs Redis, which this design argues against elsewhere for the same reason. Two timer kinds at tens-of-rows scale do not justify a second service in Compose and a second failure mode during a live event.
 
+**Both timers are created when the thread exists and both players have been notified** — specifically, once the in-thread mention has posted. Not when the bracket materializes its rows, which for a round-five match would set a 25-minute clock hours before anyone could play, and not at thread creation alone: a player cannot be held to a window nobody has told them about.
+
+Two details make that anchor the right one. Thread provisioning runs through a **serialized queue**, so at round start sixteen threads appear over some seconds — pinning each clock to its own notification rather than to the round beginning keeps the allocation equal per match. And the **thread mention is the notification of record**, not the DM, which is best-effort and may fail entirely: a clock must not depend on a delivery the design already treats as optional.
+
+Starting the time limit at readiness rather than at first song means it covers getting started as well as playing. That is deliberate: it is the schedule allocation for the match's slot, which is also why it matches the per-match figure the duration estimate multiplies.
+
 **Each timer fires at most once**, guaranteed by `firedAt` plus the unique `(matchId, kind)` — a match cannot accumulate duplicate start-window alerts. Timers are cancelled, not deleted, when the match leaves the relevant phase: the start-window timer on the first `SONG_STARTED`, the time-limit timer on the set result. Keeping cancelled rows means an alert that did not fire is still explicable afterwards.
+
+**A timer flags a potential delay to whoever can act on it. It does nothing else, and two consequences are intended rather than overlooked:**
+
+- **The clock does not pause while an organizer deliberates.** An escalation waiting eight minutes on a referee still counts against the match. The timer measures elapsed time against a schedule, not fault — the round is late either way, and the person who needs to know is the same person.
+- **A match at fifty minutes is as quiet as one at twenty-six.** The threshold fires once and the organizer owns it from there. A second nag would be the bot chasing a human who has already been told, which is the same thing the automation boundary forbids it doing to players.
 
 **Overdue timers at boot fire immediately.** A deploy spanning an expiry produces a late alert rather than a missing one, which is the right failure for a threshold whose purpose is to get an organizer's attention.
 
@@ -1007,7 +1042,11 @@ There is no timer on the choice, as there is no timer on any player action. A se
 
 ### Presenting a chart
 
-A chart carries more than fits on one line of a phone: playstyle prefix, title, subtitle, artist, rating, stepartist, source pack, length, flags. Two canonical forms, used everywhere:
+A chart carries more than fits on one line of a phone: playstyle prefix, title, subtitle, artist, meter, stepartist, description, source pack, flags. Two canonical forms, used everywhere:
+
+**Transliteration resolves at display, not at import.** Both `title` and `titleTranslit` are stored, and `displayTitle()` in the shared package applies the `titleTranslit || title` precedence — one function, so no surface reimplements it. Keeping the original is what lets a search match either form, and it means the precedence stays a rendering decision rather than something baked irreversibly into the row at import.
+
+**`difficulty` and `meter` are different things.** `difficulty` is the named slot — Expert. `meter` is the number — 12. The earlier names (`difficultySlot`, `rating`) made them look like two views of one value; they are independent, and both appear in the compact form as `SX 12`.
 
 - **Compact** — `SX 12 · Vertex^` — for select-menu labels, inline references, and the results feed.
 - **Full** — compact, plus stepartist, source pack, length and any flags — for embed fields and the Draw.
@@ -1018,7 +1057,7 @@ The playstyle prefix is always present and always leads, because it is the faste
 
 The Draw posts as an **embed** — seven charts in full form, numbered, with the colour bar keyed to match state. It is a log message: posted once, never edited, still readable at the end of the match.
 
-Selection uses a **string select menu**, not seven buttons. Discord allows five buttons per row, so seven charts means two ragged rows of labels capped at eighty characters — no room for rating, stepartist or flags, exactly the information that should inform a Veto. A select menu holds twenty-five options, each with a label and a description line, so the metadata sits with the choice rather than being cross-referenced by eye against the embed above. It is also one tap target rather than seven, which matters on the surface most of this happens on.
+Selection uses a **string select menu**, not seven buttons. Discord allows five buttons per row, so seven charts means two ragged rows of labels capped at eighty characters — no room for meter, stepartist or flags, exactly the information that should inform a Veto. A select menu holds twenty-five options, each with a label and a description line, so the metadata sits with the choice rather than being cross-referenced by eye against the embed above. It is also one tap target rather than seven, which matters on the surface most of this happens on.
 
 The menu is rebuilt at each step over only the **currently eligible** charts, so a chart already protected or vetoed cannot be picked. That is the same `PendingAction.choices` the format returns — the menu is a rendering of it, never a second copy of the rules.
 
@@ -1368,9 +1407,9 @@ It stays **scoped to one server**. A cross-server view is the one thing sign-in 
 
 ### Snapshotting a chart
 
-**A draw records the chart's metadata, not just its ID.** `DRAW_MADE` and `TIEBREAK_DRAWN` carry a `ChartSnapshot` per chart — the chart ID plus everything needed to render it in full form: title, subtitle, artist, playstyle, difficulty slot, rating, stepartist, source pack, length, flags.
+**A draw records the chart's metadata, not just its ID.** `DRAW_MADE` and `TIEBREAK_DRAWN` carry a `ChartSnapshot` per chart — the chart ID plus everything needed to render it in full form: both text forms of title, subtitle and artist, playstyle, difficulty, meter, stepartist, description, source pack, flags.
 
-This exists because charts stay editable while a tournament runs. A wrong rating or a mistyped title discovered during play should be fixable, and a `Chart` row is referenced by ID from every event that touched it — so without a snapshot, correcting a row silently rewrites how every past match renders. Snapshotting separates the two concerns cleanly:
+This exists because charts stay editable while a tournament runs. A wrong meter or a mistyped title discovered during play should be fixable, and a `Chart` row is referenced by ID from every event that touched it — so without a snapshot, correcting a row silently rewrites how every past match renders. Snapshotting separates the two concerns cleanly:
 
 | Reads from | |
 | --- | --- |
@@ -1391,7 +1430,7 @@ A tab on the public tournament view, at `/t/:tournamentId/pack`, carrying the sa
 
 **The whole pack loads once and filters client-side.** Even a large pack is a few hundred rows of small objects, so there is no reason to round-trip a query per keystroke. The debounce is a render guard rather than a network one, which is why filtering feels instant.
 
-**Search is one field across many.** It matches title, `titleTranslit`, subtitle, artist, source pack and stepartist together — a player searching *vertex sanxion* is combining a title and a stepartist and should get the chart. Matching normalises case, diacritics and punctuation, then requires every typed token to appear somewhere in the chart's combined text, in any order. That covers partial and out-of-order words without the cost or the false positives of true edit-distance matching; typo tolerance can come later if anyone misses it.
+**Search is one field across many.** It matches every text field a chart has, **original and transliterated alike** — a player searching *vertex sanxion* is combining a title and a stepartist and should get the chart, and one who types the romanised form of a Japanese title should get it as readily as one who pastes the original. `searchableText()` in the shared package assembles the haystack, so the search surface cannot drift from the fields a chart actually carries. Matching normalises case, diacritics and punctuation, then requires every typed token to appear somewhere in the chart's combined text, in any order. That covers partial and out-of-order words without the cost or the false positives of true edit-distance matching; typo tolerance can come later if anyone misses it.
 
 **Filters adapt to the pack.**
 
@@ -1437,11 +1476,12 @@ The constraint to check it against is that **it must run in the browser**. Parsi
 
 **Three import rules sit on top of it:**
 
-- **Transliteration priority** — `titleTranslit || title`, and the same for subtitle and artist, resolved at parse time so nothing downstream has to remember.
+- **Both text forms are imported.** The parser yields `title` and `titleTranslit` separately and both are stored; resolution happens at display. An earlier draft resolved at parse time, which threw away the original and left search unable to match it.
 - **`noCmod` is inferred from the title.** A case-insensitive search for `no cmod` across title and subtitle sets the flag, which is how packs actually mark the restriction. An organizer can set or clear it on any chart afterwards, so a miss is a correction rather than a failure.
-- **Stepartist comes from `#DESCRIPTION`**, conventionally but not reliably. Blanks are left blank; the editor is where they get filled in, which is a large part of why import-then-edit is the MVP flow rather than import alone.
+- **Stepartist comes from `#CREDIT`, description from `#DESCRIPTION`.** They are distinct tags in `.ssc` and neither is reliably populated. A `.sm` chart has only the one field: it becomes the **stepartist**, and description is left empty. Since `.ssc` wins wherever both exist for a song, most charts in a modern pack take the two-tag path and `.sm`-only songs take the single one. Blanks stay blank; the editor is where they get filled in, which is a large part of why import-then-edit is the MVP flow rather than import alone.
+- **Description is display-only and is not searchable.** It carries variant labels rather than anything a player looks a chart up by, and including it would return results for reasons invisible in the row that matched.
 
-**Song length is not derived from chart timing.** An earlier draft reconstructed it from the last note against the BPM and stop map; nothing needs it. The duration estimate is bracket depth times the per-match allocation and never reads a song length, and no player-facing surface during a match shows one. It is recorded when the parser supplies it and shown in the pack view, and that is all.
+**Song length is not stored at all.** An earlier draft reconstructed it from the last note against the BPM and stop map, then kept it as optional metadata. Neither survives: nothing consumes it. The duration estimate is bracket depth times the per-match allocation and never reads a song length, and no player-facing surface shows one. A field with no reader is a field that drifts.
 
 **Import is additive**, with client-side dedupe against the current pack keyed on title, subtitle, playstyle, difficulty slot, and rating. Charts are never removed once played, per the requirements, so the pack only grows during an event.
 

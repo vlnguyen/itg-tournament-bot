@@ -143,19 +143,23 @@ A song pack entry is a **chart**, not a song — the same song may appear as sev
 
 | Field | Notes |
 | --- | --- |
-| Title | Transliterated field takes priority: `titleTranslit \|\| title` |
-| Subtitle | Transliterated field takes priority: `subtitleTranslit \|\| subtitle` |
-| Artist | Transliterated field takes priority: `artistTranslit \|\| artist` |
+| Title | Both forms stored: `title` and `titleTranslit`. Display resolves `titleTranslit \|\| title` |
+| Subtitle | Both forms stored. Display resolves `subtitleTranslit \|\| subtitle` |
+| Artist | Both forms stored. Display resolves `artistTranslit \|\| artist` |
 | Chart type | Single or double |
-| Difficulty slot | Novice / Easy / Medium / Hard / Expert |
+| Difficulty | The named slot: Novice / Easy / Medium / Hard / Expert |
 | Playstyle prefix | Derived display code, see below |
-| Difficulty rating | Block rating |
-| Stepartist | Displayed when available |
+| Meter | The numeric block rating |
+| Stepartist | From `#CREDIT`. Displayed when available |
+| Description | From `#DESCRIPTION`. A free-text chart label, often a variant name. Displayed when available; **not searchable** |
 | Source pack | Which StepMania pack the chart came from |
-| Song length | Optional. Recorded when the parser supplies it, shown in the pack view. Nothing depends on it — the duration estimate is bracket depth times the per-match allocation, and never reads it |
 | Flags | Optional list. Currently the only flag is **`noCmod`** — players may not use a C-Mod speed modifier on that chart |
 
-**Playstyle prefix.** Whenever chart info is displayed, it carries a two-letter code combining playstyle and difficulty slot — `SX` (Single Expert), `DX` (Double Expert), `SH`/`DH` (Hard), and so on across `N`/`E`/`M`/`H`/`X`.
+**Both text forms are kept rather than resolved away at import.** The original survives, so a chart search matches whichever form a player types — the Japanese title or its romanisation — and the display precedence stays a rendering decision rather than something baked irreversibly into the stored row.
+
+**Song length is not stored.** Nothing consumes it: the duration estimate is bracket depth times the per-match allocation, and no player-facing surface shows one.
+
+**Playstyle prefix.** Whenever chart info is displayed, it carries a two-letter code combining playstyle and difficulty — `SX` (Single Expert), `DX` (Double Expert), `SH`/`DH` (Hard), and so on across `N`/`E`/`M`/`H`/`X`.
 
 A tournament will normally use one playstyle or the other, but **nothing prevents a TO from including both Singles and Doubles charts in the same song pack.**
 
@@ -185,7 +189,7 @@ There is **no hard minimum**. A TO may start a tournament with a song pack of an
 
 Small song packs produce visibly repetitive behaviour: charts recur across matches, and below 7 a single Draw can contain the same chart more than once. This is permitted on the assumption a TO doing it is doing it deliberately.
 
-The bot **always warns** when the song pack is below the recommended minimum of **10 charts** — 7 for a Draw plus 3 for one tiebreak round with no repeats — naming the recommended size and what the TO should expect. The warning never blocks the start.
+The bot **always warns** when the song pack is below the size the tournament's ruleset recommends, naming that size and what the TO should expect. For the Bo5 ruleset it is **10 charts** — 7 for a Draw plus 3 for one tiebreak round with no repeats. Another ruleset with a different draw recommends whatever it needs. The warning never blocks the start.
 
 ### Building a song pack
 
@@ -196,7 +200,8 @@ TOs can populate a song pack by:
 
   Two fields are imperfect by nature and expected to be cleaned up here:
 
-  - **Stepartist** is read from the chart's `#DESCRIPTION` field, which is where it conventionally lives but is not filled in consistently. Missing ones are left blank for an organizer to complete.
+  - **Stepartist** is read from `#CREDIT` and **description** from `#DESCRIPTION`. Neither is filled in consistently across packs. Missing ones are left blank for an organizer to complete.
+  - `.sm` files carry only one such field rather than two. It becomes the **stepartist**, and the description is left empty.
   - **The `noCmod` flag** is set automatically when a case-insensitive search for "no cmod" matches the title or subtitle, which is how packs actually mark it. An organizer can set or clear the flag on any chart afterwards.
 
 - **Copying a song pack from a previous tournament** on the same server.
@@ -205,7 +210,7 @@ TOs can populate a song pack by:
 
 ### Editing a pack during a tournament
 
-Charts may be corrected at any time, including while a tournament is running — a wrong rating or a mistyped title found during play should be fixable.
+Charts may be corrected at any time, including while a tournament is running — a wrong meter or a mistyped title found during play should be fixable.
 
 **Corrections never alter what already happened.** Every chart the bot draws is recorded with the metadata it had at the moment it was drawn, so past matches always render as they were played. An edit changes the pack, and every draw from then on; it does not reach backwards.
 
@@ -213,9 +218,11 @@ A TO may also **remove** a chart, and removing one that has already been played 
 
 ## Configurability
 
-A TO configures a tournament by **choosing its match format** and **setting timer durations**. Nothing inside a format is adjustable — set length, Draw size, and action order are properties of the format itself, not knobs.
+A TO configures a tournament by **choosing its default match ruleset** and **setting timer durations**. Nothing inside a ruleset is adjustable — set length, Draw size, and action order are properties of the ruleset itself, not knobs.
 
-The match format is a **pluggable ruleset** rather than hardcoded logic, so further formats — Bo3, prisoner's-dilemma-only, fixed song list, and others — can be added without reworking the system. **Only the Bo5 ruleset specified in this document ships initially**, so the format picker offers a single option at launch; it exists so that adding the second format requires no change to the TO's workflow.
+**A ruleset belongs to a match, not to a tournament.** Every match records the ruleset it ran under, and for now every match in a tournament is stamped with the tournament's default. The distinction exists because it will not always be so: events short on machines commonly play Bo3 through the early rounds and Bo5 for Winners Finals, Losers Finals, the Grand Finals and its reset. When that ships, a TO defines per-round exceptions to the default — and nothing about how matches are stored, replayed or displayed has to change.
+
+The match ruleset is **pluggable** rather than hardcoded logic, so further rulesets — Bo3, prisoner's-dilemma-only, fixed song list, and others — can be added without reworking the system. **Only the Bo5 ruleset specified in this document ships initially**, so the picker offers a single option at launch; it exists so that adding the second requires no change to the TO's workflow.
 
 ## Automation Boundary
 
@@ -240,6 +247,10 @@ Timers are **alert thresholds, not enforcement**. Each is configurable by a Tour
 
 - **Match start window** — default **10 minutes**. Players are expected to start their match within this window; if they have not, the organizers are alerted.
 - **Overall match time limit** — default **25 minutes**, matching the duration-estimate allocation. Exceeding it alerts the organizers so the event stays on schedule.
+
+**Both clocks start when the thread is created and both players have been notified their match is ready** — not when the bracket is generated, and not merely when the thread exists. A player cannot be held to a window they have not been told about. The 25 minutes therefore covers getting started as well as playing, which is correct: it is the schedule allocation for the match's slot, not a play clock.
+
+**A timer flags a potential delay to the people who can act on it, and that is all it does.** Two things follow, both intended. It does not measure fault, so the clock does not pause while an organizer is deliberating on an escalation — a delay is a delay regardless of cause, and the schedule does not care whose it is. And it does not nag: each threshold alerts once, after which an organizer knows and owns it.
 
 Score reporting is deliberately **not** on a timer.
 
@@ -318,14 +329,14 @@ Tiers are cumulative, so each action below lists the **minimum** tier required. 
 
 | Action | Minimum |
 | --- | --- |
-| Create a tournament and choose its match format | Tournament Organizer |
+| Create a tournament and choose its default ruleset | Tournament Organizer |
 | Set timer durations and the per-match time allocation | Tournament Organizer |
 | Build, edit, import, or copy a song pack | Tournament Organizer |
 | Open and close the registration window | Tournament Organizer |
 | Open and close the check-in window | Tournament Organizer |
 | Add, check in, un-check-in or remove any entrant, on their behalf, before the bracket is generated | Tournament Organizer |
 | Seed entrants, at any point from the first `/join` onward | Tournament Organizer |
-| Commit the final seed order | Tournament Organizer |
+| Review the final seed order and start the tournament | Tournament Organizer |
 | Start the tournament | Tournament Organizer |
 | Cancel a tournament that has not started | Tournament Organizer |
 
@@ -391,6 +402,7 @@ Individual match rules are in **Match Flow**.
 - Competitors register with `/join`.
 - The registration window is explicitly opened and closed by the TO. `/join` only works while the window is open.
 - **Anything a player can do for themselves, a Tournament Organizer can do for them** — add someone who missed registration, check in a player who is present but unreachable, un-check-in, or remove. Available from both the console roster and slash commands, at any point until the tournament starts. This is a superset of the player's own window: a TO can add an entrant after registration has closed, which `/join` will not do.
+- **An action taken on a player's behalf leaves the roster in exactly the state the player's own action would have.** The only additions are the audit record, and the absence of a notification where the organizer performing the action would have been the one notified. There is no second code path and no "added by an organizer" variant of an entrant.
 - **Competitors may withdraw themselves with `/leave`** at any point before the tournament starts — during registration, during check-in, and after seeds have been committed. Once the tournament starts, leaving requires a referee, because there is a bracket to repair.
 - A withdrawal after check-in has closed **alerts the organizers**, because seeding is settled by then and the field has changed under them. A withdrawal before that is routine and silent.
 - **No roster size cap.**
@@ -414,7 +426,7 @@ This feature exists specifically to support **remote tournaments**, where every 
 - Dropping those players leaves gaps, so when check-in closes **their seeds are cleared** and the surviving seeds are **renumbered from 1 with their relative order preserved**. If seeds 1, 2, 3 and 4 were assigned and seed 3 never checked in, seed 3 is released and the remaining three become 1, 2 and 3 in the same order.
 - A dropped player keeps their roster entry, recorded as having not checked in. They simply hold no seed, since they never competed.
 - Any entrant still unseeded when check-in closes is **appended in the order they joined**, so a TO who seeds only the top of the field gets a complete, valid ordering without further work.
-- The TO reviews that final ordering and **commits it**. The bracket is generated from the committed seeds.
+- The TO reviews that final ordering **as part of starting the tournament** — the start action shows it for confirmation, and generating the bracket is what fixes it. There is no separate commit step, because until the bracket exists a withdrawal can still change the field.
 
 ### Starting the tournament
 
@@ -425,8 +437,7 @@ Seeding is not a step in this sequence — it runs alongside from the moment the
 1. TO **closes registration**.
 2. TO **opens check-in**. Check-in has **no duration** — it stays open until closed.
 3. TO **closes check-in**. Players who did not confirm are dropped from the roster, and the surviving seeds are renumbered from 1 in their existing relative order, with any unseeded entrant appended in join order.
-4. TO **reviews the final seed order** in the web UI and commits it.
-5. TO **starts the tournament**. At this moment the bot:
+4. TO **starts the tournament**, confirming the final seed order shown to them as they do. At this moment the bot:
    - snapshots each remaining entrant's display name as shown in the server;
    - re-checks that all required Discord permissions are still granted, **blocking the start** if any are missing;
    - warns if the song pack is below the recommended minimum, **without** blocking;
@@ -434,7 +445,7 @@ Seeding is not a step in this sequence — it runs alongside from the moment the
 
 ## Discord Surface
 
-- The bot uses **slash commands with interactive components** throughout. There are no prefix (`!`) commands. Protect/Veto actions, winner selection, and tiebreak song selection are all component-driven — buttons where the choice is a small fixed set, and a **select menu** where the choice is one chart out of several, so each option can carry its rating, stepartist and flags alongside its title.
+- The bot uses **slash commands with interactive components** throughout. There are no prefix (`!`) commands. Protect/Veto actions, winner selection, and tiebreak song selection are all component-driven — buttons where the choice is a small fixed set, and a **select menu** where the choice is one chart out of several, so each option can carry its meter, stepartist and flags alongside its title.
 - Matches take place in **threads under a single matches channel**, not in dedicated channels.
 - A match thread is **private to the two competitors and anyone holding a server tier role**. Spectators do not have read access.
 - The bot keeps **exactly one live prompt** in each thread, always as the most recent message, so a player never scrolls past their own result photos to find what they must do next. Everything else the bot posts — the Draw, each committed song result, the final summary — is permanent and never changes.
@@ -542,7 +553,7 @@ The bot does **not** ping a player to prompt a pending action (see Automation Bo
 
 Each item names the **minimum** tier required; higher tiers have it too.
 
-- Tournament setup and registration management *(TO)* — create a tournament, **choose its match format**, set timer durations and the per-match time allocation, open and close the registration and check-in windows, manage the roster.
+- Tournament setup and registration management *(TO)* — create a tournament, **choose its default ruleset**, set timer durations and the per-match time allocation, open and close the registration and check-in windows, manage the roster.
 - Song pack management *(TO)* — build and edit the song pack for each tournament.
 - **Manual seeding** interface *(TO)* — reorder by dragging, or type a seed number directly to move someone a long way in a large field. Both write the same order.
 - **Run view** *(Referee)* — the screen an organizer sits on during an event. Two panes: the **alert queue**, showing everything awaiting a human, and a **live match list**, one row per in-progress match with its round, players, current song and running score. The bracket tree is available but is not this screen; a tree explains structure, a list answers which matches are slow.
@@ -568,9 +579,9 @@ The public bracket updates by **real-time push** — bracket state and in-progre
 
 The public tournament view carries a **tab showing that tournament's song pack**, so competitors can see and prepare against exactly what may be drawn.
 
-- Every chart, with its playstyle prefix, rating, stepartist, source pack and any flags.
-- A **text search** that matches across title, subtitle, artist, source pack and stepartist together, tolerant of partial and out-of-order words. It filters as you type, on a short debounce, with no button to press.
-- Filters for **difficulty slot** and **rating**, plus **playstyle** — which is hidden when the pack contains only one, since a filter with a single option is noise.
+- Every chart, with its playstyle prefix, meter, stepartist, source pack and any flags.
+- A **text search** that matches across title, subtitle, artist, source pack and stepartist together — in both their original and transliterated forms, tolerant of partial and out-of-order words. It filters as you type, on a short debounce, with no button to press.
+- Filters for **difficulty** and **meter**, plus **playstyle** — which is hidden when the pack contains only one, since a filter with a single option is noise.
 - A **`noCmod` checkbox**. It is the only flag that exists; if others are added this becomes a general flag filter.
 
 `/pack` returns a link to this tab for the server's current tournament, and tells the player if there is not one.

@@ -1,0 +1,256 @@
+// Data model for the ITG Tournament Bot.
+//
+// Two constraints this file cannot express are added by hand in the initial
+// migration: the partial unique index enforcing one active tournament per
+// guild, and the DEFERRABLE unique constraint on (tournamentId, seed) that
+// lets a whole seed reorder land as one statement. See DESIGN.md,
+// "Three constraints Prisma cannot express".
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TournamentState {
+  DRAFT
+  REGISTRATION_OPEN
+  REGISTRATION_CLOSED
+  CHECKIN_OPEN
+  CHECKIN_CLOSED
+  RUNNING
+  COMPLETE
+  CANCELLED
+}
+
+enum EntrantStatus {
+  ACTIVE
+  NOT_CHECKED_IN
+  WITHDRAWN
+}
+
+enum PlayStyle {
+  SINGLE
+  DOUBLE
+}
+
+enum DifficultySlot {
+  NOVICE
+  EASY
+  MEDIUM
+  HARD
+  EXPERT
+}
+
+enum BracketSide {
+  WINNERS
+  LOSERS
+  GRAND_FINAL
+}
+
+enum MatchStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETE
+}
+
+model Guild {
+  id               String  @id // Discord guild ID
+  matchesChannelId String? // hosts threads; no bot messages in its body
+  alertChannelId   String?
+  resultsChannelId String?
+  generalChannelId String? // optional forward target — where competitors discuss
+  adminRoleId      String? // tier 3 — may reconfigure the bot here
+  toRoleId         String? // tier 2 — may run tournaments
+  refereeRoleId    String? // tier 1 — may rule on matches
+
+  tournaments Tournament[]
+}
+
+model Tournament {
+  id        String          @id @default(cuid())
+  guildId   String
+  name      String
+  defaultFormatKey String // stamped onto every match this tournament generates
+  config    Json // TournamentConfig
+  state     TournamentState @default(DRAFT)
+  createdAt DateTime        @default(now())
+
+  guild    Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  entrants Entrant[]
+  charts   Chart[]
+  matches  Match[]
+  timers   Timer[]
+  alerts   Alert[]
+
+  @@index([guildId, state])
+}
+
+model User {
+  discordUserId String    @id // identity, never changes
+  displayName   String? // CURRENT name — never for historical rendering
+  avatarHash    String?
+  lastSignInAt  DateTime?
+}
+
+// No Organizer table — authority is Discord role membership, resolved to a
+// tier. See DESIGN.md, "Three tiers of privilege".
+
+model Admin {
+  discordUserId String   @id // deployment-scoped; not a Discord role
+  addedByUserId String? // null when applied from the config allowlist
+  createdAt     DateTime @default(now())
+}
+
+model Entrant {
+  id            String        @id @default(cuid())
+  tournamentId  String
+  discordUserId String // identity — never changes
+  displayName   String? // snapshot taken at tournament start
+  seed          Int?
+  checkedIn     Boolean       @default(false)
+  status        EntrantStatus @default(ACTIVE)
+  joinedAt      DateTime      @default(now()) // orders unseeded entrants at check-in close
+
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  matchesAsA   Match[]    @relation("MatchPlayerA")
+  matchesAsB   Match[]    @relation("MatchPlayerB")
+  matchesWon   Match[]    @relation("MatchWinner")
+
+  @@unique([tournamentId, discordUserId])
+  // (tournamentId, seed) uniqueness is added in the initial migration as a
+  // DEFERRABLE constraint; Prisma can only emit a non-deferrable index.
+  @@index([tournamentId, status])
+}
+
+model Chart {
+  id           String @id @default(cuid())
+  tournamentId String
+
+  // Both forms are stored. Display resolves `titleTranslit || title` at render
+  // time rather than at import, so the original survives and search can match
+  // either. See DESIGN.md, "Presenting a chart".
+  title          String
+  titleTranslit  String?
+  subtitle       String?
+  subtitleTranslit String?
+  artist         String?
+  artistTranslit String?
+
+  playStyle   PlayStyle
+  difficulty  DifficultySlot // the named slot: NOVICE..EXPERT
+  meter       Int // the numeric block rating
+  stepartist  String? // #CREDIT
+  description String? // #DESCRIPTION — free-text chart label, often a variant name
+  sourcePack  String?
+  flags      String[] // ["noCmod"]
+
+  tournament    Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  currentInMatches Match[] @relation("MatchCurrentChart")
+
+  @@index([tournamentId])
+}
+
+model Match {
+  id           String  @id @default(cuid())
+  tournamentId String
+  bracket      BracketSide
+  round        Int
+  formatKey    String // the ruleset this match ran under; stamped at generation
+  slot         Int // position within the round
+  playerAId    String?
+  playerBId    String?
+  threadId     String? // Discord thread
+  stateMsgId   String? // the single live prompt, for repositioning
+  alertMsgId   String? // open escalation message, for edit-in-place
+  state        Json? // cached reduction; disposable, may be rebuilt
+  stateSeq     Int     @default(0) // event seq the cache reflects
+
+  // Projection columns: derived on write, for many-match queries.
+  status         MatchStatus @default(PENDING)
+  winnerId       String?
+  awaitingTo     Boolean     @default(false)
+  pointsA        Int         @default(0)
+  pointsB        Int         @default(0)
+  currentChartId String?
+
+  tournament   Tournament   @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  playerA      Entrant?     @relation("MatchPlayerA", fields: [playerAId], references: [id])
+  playerB      Entrant?     @relation("MatchPlayerB", fields: [playerBId], references: [id])
+  winner       Entrant?     @relation("MatchWinner", fields: [winnerId], references: [id])
+  currentChart Chart?       @relation("MatchCurrentChart", fields: [currentChartId], references: [id])
+  events       MatchEvent[]
+  timers       Timer[]
+  alerts       Alert[]
+
+  @@unique([tournamentId, bracket, round, slot])
+  @@index([tournamentId, status])
+  @@index([tournamentId, awaitingTo])
+}
+
+model MatchEvent {
+  id        String   @id @default(cuid())
+  matchId   String
+  seq       Int // monotonic per match
+  type      String // see event catalog
+  payload   Json
+  actorId   String? // discord user, or null for bot
+  dedupeKey String? // originating interaction ID
+  createdAt DateTime @default(now())
+
+  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, seq])
+  @@unique([matchId, dedupeKey])
+}
+
+model Timer {
+  id           String    @id @default(cuid())
+  tournamentId String
+  matchId      String?
+  kind         String // MATCH_START_WINDOW | MATCH_TIME_LIMIT
+  fireAt       DateTime
+  firedAt      DateTime?
+  cancelledAt  DateTime?
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  match      Match?     @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, kind])
+  @@index([fireAt])
+}
+
+model Alert {
+  id           String    @id @default(cuid())
+  tournamentId String
+  matchId      String?
+  kind         String // MATCH_START_OVERDUE | MATCH_TIME_EXCEEDED | PLAYER_LEFT_GUILD | PERMISSION_MISSING | LATE_WITHDRAWAL
+  payload      Json
+  dedupeKey    String // e.g. "start-overdue:<matchId>"
+  messageId    String? // posted alert, for edit-in-place
+  resolvedBy   String?
+  resolvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  match      Match?     @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, dedupeKey])
+  @@index([tournamentId, resolvedAt])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String
+  action      String // ADMIN_PROMOTED | TIER_GRANTED | SONG_RULED | ...
+  targetType  String
+  targetId    String
+  payload     Json
+  createdAt   DateTime @default(now())
+
+  @@index([actorUserId, createdAt])
+  @@index([targetType, targetId])
+}

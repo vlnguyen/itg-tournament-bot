@@ -1559,14 +1559,23 @@ The concurrency test is worth calling out: two simultaneous `SONG_WINNER_SELECTE
 
 The dependency structure here is unusually favourable, and it is worth following rather than building outside-in.
 
-**0. A throwaway Discord spike.** Before anything is built to depend on them, four behaviours need testing against a real server, because documentation settles only what is written down and three of these are not:
+**0. A throwaway Discord spike.** Documentation settles what is written down; a scratch bot in a test server settles the rest. Five behaviours, an afternoon.
 
-1. Does a member holding `Manage Threads`, never added to a private thread, actually read it? The entire tier-based thread access model rests on yes.
-2. Can the bot edit a channel overwrite targeting a role positioned **above** its own highest role? Discord documents hierarchy as governing role grants, edits, sorting and kick/ban/nickname, and states permissions otherwise do not obey it — overwrites are not listed. Unverified in both directions, and `/setup` repair depends on the answer.
-3. After a tiebreak selection, does editing the shared state message — re-sending the select component — clear that player's locally highlighted choice? If not, the picker moves into an ephemeral message behind a button, at the cost of a second interaction.
-4. Does delete-and-repost of the state message read acceptably when a photo lands mid-cycle, and does the debounce hold?
+| | Question | If the answer is not what we expect |
+| --- | --- | --- |
+| 1 | Does a tier role holding `Manage Threads` in the matches channel, never added to a thread, actually read a private thread there? | **Real rework.** Restore per-thread member adds, backfill on grant, and membership reconciliation — the subsystem the role decision deleted |
+| 2 | Can the bot edit a channel overwrite targeting a role positioned **above** its own highest role? | Nothing breaks. Repair reports what it cannot fix, and is already optional |
+| 3 | After a tiebreak pick, does editing the shared state message clear that player's locally highlighted selection? | Nothing breaks. The picker moves behind a button into an ephemeral message, costing one interaction |
+| 4 | Does delete-and-repost read acceptably when a photo lands mid-cycle, and does the debounce hold? | Nothing breaks. Repost on state change only, or accept burial with a jump link |
+| 5 | Can the bot natively forward its own message, given forwarding requires the ability to read the source's content? | Nothing breaks. Post a copy in the general channel; loses provenance rendering, keeps the two-audience split |
 
-A scratch bot in a test server answers all four in an afternoon, and each one can change a decision more cheaply now than after the adapter exists.
+**Only the first can force rework, and it is the one best supported by documentation** — the permission table and the threads topic both state it in as many words. Items 2 and 3 are genuinely unknown; the others are behaviour no documentation could settle.
+
+**So this step is de-risking, not a prerequisite.** Four of the five have a fallback already written into this document, which is less luck than it looks: expected failures are treated as states rather than errors, and self-provisioning is optional with a documented degradation path. Both were decided for other reasons.
+
+**What argues for doing it early is the cost curve, not the risk.** Item 1 wrong before the adapter exists is an edit to this document. Item 1 wrong after means restoring a deleted subsystem across thread creation, grants and reconciliation, with adapter code and tests already written against the wrong assumption. Low probability, large downside, trivially cheap test.
+
+**Nothing is blocked by deferring it.** Step 2 needs no Discord at all. This must happen before step 4; doing it before step 2 buys peace of mind rather than unblocking anything.
 
 **1. Schema and migrations.** Including the three raw-SQL constraints — the partial unique index for one active tournament per guild, and the deferrable unique constraint on `(tournamentId, seed)`. Getting those in the first migration avoids retrofitting them around existing data.
 

@@ -144,7 +144,7 @@ model Entrant {
   id            String  @id @default(cuid())
   tournamentId  String
   discordUserId String                    // identity — never changes
-  displayName   String                    // snapshot at registration
+  displayName   String?                   // snapshot taken at tournament start
   seed          Int?
   checkedIn     Boolean @default(false)
   status        EntrantStatus             // ACTIVE | NOT_CHECKED_IN | WITHDRAWN
@@ -659,6 +659,50 @@ Requirements call for a guided wizard walking a new server through configuration
 
 **It is a view over real records, not its own state machine.** Server configuration is the `Guild` row; the first tournament is a `Tournament` in `DRAFT`, which the lifecycle already defines and which explicitly does not occupy the server's active slot. A half-finished setup is therefore just a draft, resumable by construction — closing the tab loses nothing, and there is no wizard-progress table to keep in step with the records it describes.
 
+## Registration and Check-in
+
+### The commands
+
+All three are usable from any channel and answer **ephemerally**, so a hundred people joining produces no channel traffic at all.
+
+| Situation | `/join` | `/checkin` | `/leave` |
+| --- | --- | --- | --- |
+| No tournament accepting entrants | Rejected | Rejected | Rejected |
+| Window closed for that action | Rejected, naming the current phase | Rejected | — |
+| Already in that state | Confirms, does not error | Confirms | — |
+| Not on the roster | — | Rejected: never registered | Rejected |
+| Tournament running | Rejected | Rejected | Rejected — see a referee |
+
+"Already in that state" confirming rather than erroring is deliberate. A player who is not sure whether their `/join` landed will run it again, and an error is a worse answer than "you are in, seed 12."
+
+### Leaving
+
+`/leave` works from the moment registration opens until the tournament starts, and its consequences depend on when it lands.
+
+**Before check-in closes** the roster is still fluid, so a withdrawal is silent: the entrant is marked `WITHDRAWN`, their seed cleared, and nothing else happens. Seed gaps do not matter yet — the normalization at check-in close will close them.
+
+**After check-in closes** the field is settled and an organizer has been seeding against it. A withdrawal there **re-runs the normalization immediately** — clear the seed, renumber the survivors from 1 preserving order — and **raises an organizer alert**, because a TO who committed a seed order deserves to be told it changed rather than discovering it at bracket generation.
+
+That difference is the cost of allowing `/leave` throughout, and it is worth paying explicitly rather than pretending the two cases are the same.
+
+**A player may re-join only while registration is open.** After that, `/join` is closed to everyone including someone who left, so a change of heart during check-in needs an organizer.
+
+### Snapshotting the display name
+
+`Entrant.displayName` is **null until the tournament starts**. Every surface before that — the roster, the seeding interface — reads the current name from the gateway member cache, which is exactly what the `User` table is for.
+
+At start, the bot resolves each remaining entrant's name as Discord shows it — **server nickname, else global display name, else username** — and writes it into `Entrant`. From that moment it never changes, and every bracket, match record and history page renders from it.
+
+If a member cannot be fetched at start, the last known name from `User` is used. That case means they have left the server, which the departure alert already handles; a missing name should not be the thing that blocks a tournament from starting.
+
+### Calling check-in
+
+Opening check-in posts an **announcement in the general channel with no mentions**, and **direct messages every registered player**.
+
+This is the second and last use of direct messages, on the same rationale as match-ready: a window has opened that the player cannot otherwise discover, and missing it costs them the tournament. It is not a nudge about a pending action — the bot never sends a second one, and never chases anyone who has not checked in.
+
+**The gap this leaves is real and is handled by a human.** With no mentions in the channel and a DM that may fail, a player who has DMs closed and is not watching the server will miss the window. So the roster view marks each entrant with two things: **checked in**, and **DM undeliverable**. An organizer can see at a glance who was never reached and chase them directly. That is the correct division — the bot does not nudge, and a person who wants to is given the information to.
+
 ## Tournament Lifecycle
 
 Every transition is an explicit action by someone at Tournament Organizer tier or above. Nothing is on a timer, and the state machine is the guard. Referees hold none of these — they rule on matches inside a running tournament, they do not move it between states.
@@ -942,6 +986,7 @@ The organizer inbox is therefore a union of two queries. That is the cost of the
 | Match start overdue | Start-window timer | Row | Forfeit A · Forfeit B · Open in web UI · Dismiss |
 | Match time exceeded | Time-limit timer | Row | Open in web UI · Dismiss |
 | Player left the server | `GuildMemberRemove` | Row | DQ this match · Withdraw from tournament · Dismiss |
+| Late withdrawal | `/leave` after check-in closed | Row | Open roster · Dismiss |
 | Permission missing | An action failed on a revoked permission | Row | Open in web UI · Dismiss |
 
 **Escalations mention every distinct role configured at Referee tier or above; threshold alerts post silently.** Deduplicated, so a server that has collapsed its tiers onto one role produces one mention. This reaches exactly the set of people entitled to act, which is what makes the mention correct rather than merely convenient.

@@ -251,9 +251,13 @@ A committed song result is permanent, whether it was reached by mutual player ag
 
 Competitors are identified by their **Discord account only**. There is no separate player profile, tag, or external profile link.
 
-**Identity vs. display.** The **Discord user ID** is the identity — it is unique, never changes, and is what every roster entry, match record, and history lookup is keyed on. The **display name as shown in the server** is captured as a **snapshot at registration** and stored with that tournament.
+**Identity vs. display.** The **Discord user ID** is the identity — it is unique, never changes, and is what every roster entry, match record, and history lookup is keyed on. The **display name as shown in the server** is captured as a **snapshot when the tournament starts** and stored with that tournament.
 
-A player who later renames themselves keeps all their history, because the ID never moved. Past brackets continue to show the name they competed under; a new tournament picks up their new name at registration.
+The snapshot is taken at the start rather than at registration because the goal is that past brackets show the name someone **competed under**. Registration can be a week before play, and a player who renames in between competed under the new name. Only the final roster is snapshotted, so nobody who never played leaves a name behind.
+
+The name taken is the one the server shows: **server nickname if set, otherwise global display name, otherwise username.**
+
+A player who later renames themselves keeps all their history, because the ID never moved. Past brackets continue to show the name they competed under; a new tournament picks up their current name when it starts.
 
 ### Granted roles
 
@@ -369,6 +373,8 @@ Individual match rules are in **Match Flow**.
 
 - Competitors register with `/join`.
 - The registration window is explicitly opened and closed by the TO. `/join` only works while the window is open.
+- **Competitors may withdraw themselves with `/leave`** at any point before the tournament starts — during registration, during check-in, and after seeds have been committed. Once the tournament starts, leaving requires a referee, because there is a bracket to repair.
+- A withdrawal after check-in has closed **alerts the organizers**, because seeding is settled by then and the field has changed under them. A withdrawal before that is routine and silent.
 - **No roster size cap.**
 - After registration closes there is a **separate check-in window**. Registered players must confirm attendance; no-shows are dropped from the roster before seeding.
 
@@ -403,6 +409,7 @@ Seeding is not a step in this sequence — it runs alongside from the moment the
 3. TO **closes check-in**. Players who did not confirm are dropped from the roster, and the surviving seeds are renumbered from 1 in their existing relative order, with any unseeded entrant appended in join order.
 4. TO **reviews the final seed order** in the web UI and commits it.
 5. TO **starts the tournament**. At this moment the bot:
+   - snapshots each remaining entrant's display name as shown in the server;
    - re-checks that all required Discord permissions are still granted, **blocking the start** if any are missing;
    - warns if the song pack is below the recommended minimum, **without** blocking;
    - generates the bracket, creates the round 1 match threads, and notifies players.
@@ -432,6 +439,7 @@ The web backend remains the system of record for structured data — every chart
 | --- | --- | --- |
 | `/join` | Any server member | Enter the open tournament. Works only while the registration window is open |
 | `/checkin` | A registered entrant | Confirm attendance during the check-in window |
+| `/leave` | An entrant | Withdraw from the tournament, any time before it starts |
 | `/setup` | Server Administrator, or anyone with Discord's Manage Guild | Server setup — point the bot at the matches, organizer alert, results and general channels, and the Discord role for each tier. Re-runnable |
 | `/setup status` | Server Administrator | Re-run the configuration and permission diagnostic without changing anything |
 | `/dq` | Referee | Disqualify a player, choosing whether it applies to this match only or withdraws them from the tournament |
@@ -469,12 +477,15 @@ Buttons remain *visible* to anyone who can read the channel; enforcement happens
 
 ## Notifications
 
+- The bot **announces when check-in opens**, in the general channel, and **direct messages every registered player**. The channel post carries no mentions. Missing check-in means missing the tournament, so this is the one lifecycle event a player cannot be expected to discover on their own.
 - The bot **notifies both players when a new match is ready** — that is, when their next-round opponent is determined and the thread has been created. It does this **twice**: by mentioning them in the thread, and by **direct message**.
 - A separate **organizer alert channel** receives escalations, timer alerts, and disputes.
 
 **The direct message is best-effort.** Discord lets a user refuse DMs from server members, and a bot cannot override that or detect it in advance — the send simply fails. The thread mention is therefore the notification of record, and a failed DM is logged and never retried. A player who has DMs closed loses nothing but the second nudge.
 
-Direct messages are used **only** for this. They are never used to prompt a pending action, deliver results, or carry anything a player must act on — every interaction stays in the match thread where both players and the organizers can see it.
+Direct messages are used for **exactly two things**: check-in opening, and a match becoming ready. Both share a rationale — something now needs the player's attention that they cannot otherwise discover. They are never used to prompt a pending action, deliver results, or carry anything a player must act on; every interaction stays in the match thread where both players and the organizers can see it.
+
+Because both are best-effort, the organizer roster view shows **who could not be reached**, so a player with DMs closed can be chased by a human rather than silently dropped.
 
 The bot does **not** ping a player to prompt a pending action (see Automation Boundary).
 

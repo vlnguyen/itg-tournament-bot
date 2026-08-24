@@ -1,0 +1,1224 @@
+{
+  "name": "tiebreak-round",
+  "formatKey": "bo5-protect-veto",
+  "events": [
+    {
+      "actorId": null,
+      "type": "MATCH_CREATED",
+      "payload": {
+        "participants": [
+          {
+            "entrantId": "alice",
+            "seed": 1
+          },
+          {
+            "entrantId": "bob",
+            "seed": 2
+          }
+        ]
+      },
+      "seq": 1
+    },
+    {
+      "seq": 2,
+      "actorId": null,
+      "type": "DRAW_MADE",
+      "payload": {
+        "seed": "draw-2",
+        "charts": [
+          {
+            "chartId": "chart-7",
+            "title": "Song 7",
+            "titleTranslit": null,
+            "subtitle": null,
+            "subtitleTranslit": null,
+            "artist": null,
+            "artistTranslit": null,
+            "playStyle": "SINGLE",
+            "difficulty": "EXPERT",
+            "meter": 12,
+            "stepartist": null,
+            "description": null,
+            "sourcePack": null,
+            "flags": []
+          },
+          {
+            "chartId": "chart-9",
+            "title": "Song 9",
+            "titleTranslit": null,
+            "subtitle": null,
+            "subtitleTranslit": null,
+            "artist": null,
+            "artistTranslit": null,
+            "playStyle": "SINGLE",
+            "difficulty": "EXPERT",
+            "meter": 14,
+            "stepartist": null,
+            "description": null,
+            "sourcePack": null,
+            "flags": []
+          },
+          {
+            "chartId": "chart-15",
+            "title": "Song 15",
+            "titleTranslit": null,
+            "subtitle": null,
+            "subtitleTranslit": null,
+            "artist": null,
+            "artistTranslit": null,
+            "playStyle": "SINGLE",
+            "difficulty": "EXPERT",
+            "meter": 10,
+            "stepartist": null,
+            "description": null,
+            "sourcePack": null,
+            "flags": []
+          },
+          {
+            "chartId": "chart-1",
+            "title": "Song 1",
+            "titleTranslit": null,
+            "subtitle": null,
+            "subtitleTranslit": null,
+            "artist": null,
+            "artistTranslit": null,
+            "playStyle": "SINGLE",
+            "difficulty": "EXPERT",
+            "meter": 11,
+            "stepartist": null,
+            "description": null,
+            "sourcePack": null,
+            "flags": []
+          },
+          {
+            "chartId": "chart-8",
+            "title": "Song 8",
+            "titleTranslit": null,
+            "subtitle": null,
+            "subtitleTranslit": null,
+            "artist": null,
+            "artistTranslit": null,
+            "playStyle": "SINGLE",
+            "difficulty": "EXPERT",
+            "meter": 13,
+            "stepartist": null,
+            "description": null,
+            "sourcePack": null,
+            "flags": []
+          },
+          {
+            "chartId": "chart-10",
+            "title": "Song 10",
+            "titleTranslit": null,
+            "subtitle": null,
+            "subtitleTranslit": null,
+            "artist": null,
+            "artistTranslit": null,
+            "playStyle": "SINGLE",
+            "difficulty": "EXPERT",
+            "meter": 10,
+            "stepartist": null,
+            "description": null,
+            "sourcePack": null,
+            "flags": []
+          },
+          {
+            "chartId": "chart-6",
+            "title": "Song 6",
+            "titleTranslit": null,
+            "subtitle": null,
+            "subtitleTranslit": null,
+            "artist": null,
+            "artistTranslit": null,
+            "playStyle": "SINGLE",
+            "difficulty": "EXPERT",
+            "meter": 11,
+            "stepartist": null,
+            "description": null,
+            "sourcePack": null,
+            "flags": []
+          }
+        ]
+      }
+    },
+    {
+      "actorId": "alice",
+      "type": "SEED_CHOICE_MADE",
+      "payload": {
+        "by": "alice",
+        "order": "FIRST"
+      },
+      "seq": 3
+    },
+    {
+      "actorId": "alice",
+      "type": "CHART_PROTECTED",
+      "payload": {
+        "by": "alice",
+        "drawIndex": 0
+      },
+      "seq": 4
+    },
+    {
+      "actorId": "bob",
+      "type": "CHART_PROTECTED",
+      "payload": {
+        "by": "bob",
+        "drawIndex": 1
+      },
+      "seq": 5
+    },
+    {
+      "actorId": "bob",
+      "type": "CHART_VETOED",
+      "payload": {
+        "by": "bob",
+        "drawIndex": 2
+      },
+      "seq": 6
+    },
+    {
+      "actorId": "alice",
+      "type": "CHART_VETOED",
+      "payload": {
+        "by": "alice",
+        "drawIndex": 3
+      },
+      "seq": 7
+    },
+    {
+      "actorId": "alice",
+      "type": "CHART_PROTECTED",
+      "payload": {
+        "by": "alice",
+        "drawIndex": 4
+      },
+      "seq": 8
+    },
+    {
+      "actorId": "bob",
+      "type": "CHART_PROTECTED",
+      "payload": {
+        "by": "bob",
+        "drawIndex": 5
+      },
+      "seq": 9
+    },
+    {
+      "seq": 10,
+      "actorId": null,
+      "type": "SONG_STARTED",
+      "payload": {
+        "songIndex": 0,
+        "chart": {
+          "chartId": "chart-7",
+          "title": "Song 7",
+          "titleTranslit": null,
+          "subtitle": null,
+          "subtitleTranslit": null,
+          "artist": null,
+          "artistTranslit": null,
+          "playStyle": "SINGLE",
+          "difficulty": "EXPERT",
+          "meter": 12,
+          "stepartist": null,
+          "description": null,
+          "sourcePack": null,
+          "flags": []
+        },
+        "source": "FIRST_PROTECT",
+        "drawIndex": 0
+      }
+    },
+    {
+      "actorId": "alice",
+      "type": "SCORE_SUBMITTED",
+      "payload": {
+        "songIndex": 0,
+        "by": "alice",
+        "ex": 90
+      },
+      "seq": 11
+    },
+    {
+      "actorId": null,
+      "type": "PHOTO_OBSERVED",
+      "payload": {
+        "songIndex": 0,
+        "by": "alice",
+        "messageId": "m-0-alice"
+      },
+      "seq": 12
+    },
+    {
+      "actorId": "bob",
+      "type": "SCORE_SUBMITTED",
+      "payload": {
+        "songIndex": 0,
+        "by": "bob",
+        "ex": 90
+      },
+      "seq": 13
+    },
+    {
+      "actorId": null,
+      "type": "PHOTO_OBSERVED",
+      "payload": {
+        "songIndex": 0,
+        "by": "bob",
+        "messageId": "m-0-bob"
+      },
+      "seq": 14
+    },
+    {
+      "actorId": "alice",
+      "type": "SONG_WINNER_SELECTED",
+      "payload": {
+        "songIndex": 0,
+        "by": "alice",
+        "choice": "TIE"
+      },
+      "seq": 15
+    },
+    {
+      "actorId": "bob",
+      "type": "SONG_WINNER_SELECTED",
+      "payload": {
+        "songIndex": 0,
+        "by": "bob",
+        "choice": "TIE"
+      },
+      "seq": 16
+    },
+    {
+      "seq": 17,
+      "actorId": null,
+      "type": "SONG_STARTED",
+      "payload": {
+        "songIndex": 1,
+        "chart": {
+          "chartId": "chart-9",
+          "title": "Song 9",
+          "titleTranslit": null,
+          "subtitle": null,
+          "subtitleTranslit": null,
+          "artist": null,
+          "artistTranslit": null,
+          "playStyle": "SINGLE",
+          "difficulty": "EXPERT",
+          "meter": 14,
+          "stepartist": null,
+          "description": null,
+          "sourcePack": null,
+          "flags": []
+        },
+        "source": "PROTECT_ORDER",
+        "drawIndex": 1
+      }
+    },
+    {
+      "actorId": "alice",
+      "type": "SCORE_SUBMITTED",
+      "payload": {
+        "songIndex": 1,
+        "by": "alice",
+        "ex": 90
+      },
+      "seq": 18
+    },
+    {
+      "actorId": null,
+      "type": "PHOTO_OBSERVED",
+      "payload": {
+        "songIndex": 1,
+        "by": "alice",
+        "messageId": "m-1-alice"
+      },
+      "seq": 19
+    },
+    {
+      "actorId": "bob",
+      "type": "SCORE_SUBMITTED",
+      "payload": {
+        "songIndex": 1,
+        "by": "bob",
+        "ex": 90
+      },
+      "seq": 20
+    },
+    {
+      "actorId": null,
+      "type": "PHOTO_OBSERVED",
+      "payload": {
+        "songIndex": 1,
+        "by": "bob",
+        "messageId": "m-1-bob"
+      },
+      "seq": 21
+    },
+    {
+      "actorId": "alice",
+      "type": "SONG_WINNER_SELECTED",
+      "payload": {
+        "songIndex": 1,
+        "by": "alice",
+        "choice": "TIE"
+      },
+      "seq": 22
+    },
+    {
+      "actorId": "bob",
+      "type": "SONG_WINNER_SELECTED",
+      "payload": {
+        "songIndex": 1,
+        "by": "bob",
+        "choice": "TIE"
+      },
+      "seq": 23
+    },
+    {
+      "seq": 24,
+      "actorId": null,
+      "type": "SONG_STARTED",
+      "payload": {
+        "songIndex": 2,
+        "chart": {
+          "chartId": "chart-8",
+          "title": "Song 8",
+          "titleTranslit": null,
+          "subtitle": null,
+          "subtitleTranslit": null,
+          "artist": null,
+          "artistTranslit": null,
+          "playStyle": "SINGLE",
+          "difficulty": "EXPERT",
+          "meter": 13,
+          "stepartist": null,
+          "description": null,
+          "sourcePack": null,
+          "flags": []
+        },
+        "source": "PROTECT_ORDER",
+        "drawIndex": 4
+      }
+    },
+    {
+      "actorId": "alice",
+      "type": "SCORE_SUBMITTED",
+      "payload": {
+        "songIndex": 2,
+        "by": "alice",
+        "ex": 90
+      },
+      "seq": 25
+    },
+    {
+      "actorId": null,
+      "type": "PHOTO_OBSERVED",
+      "payload": {
+        "songIndex": 2,
+        "by": "alice",
+        "messageId": "m-2-alice"
+      },
+      "seq": 26
+    },
+    {
+      "actorId": "bob",
+      "type": "SCORE_SUBMITTED",
+      "payload": {
+        "songIndex": 2,
+        "by": "bob",
+        "ex": 90
+      },
+      "seq": 27
+    },
+    {
+      "actorId": null,
+      "type": "PHOTO_OBSERVED",
+      "payload": {
+        "songIndex": 2,
+        "by": "bob",
+        "messageId": "m-2-bob"
+      },
+      "seq": 28
+    },
+    {
+      "actorId": "alice",
+      "type": "SONG_WINNER_SELECTED",
+      "payload": {
+        "songIndex": 2,
+        "by": "alice",
+        "choice": "TIE"
+      },
+      "seq": 29
+    },
+    {
+      "actorId": "bob",
+      "type": "SONG_WINNER_SELECTED",
+      "payload": {
+        "songIndex": 2,
+        "by": "bob",
+        "choice": "TIE"
+      },
+      "seq": 30
+    },
+    {
+      "seq": 31,
+      "actorId": null,
+      "type": "SONG_STARTED",
+      "payload": {
+        "songIndex": 3,
+        "chart": {
+          "chartId": "chart-10",
+          "title": "Song 10",
+          "titleTranslit": null,
+          "subtitle": null,
+          "subtitleTranslit": null,
+          "artist": null,
+          "artistTranslit": null,
+          "playStyle": "SINGLE",
+          "difficulty": "EXPERT",
+          "meter": 10,
+          "stepartist": null,
+          "description": null,
+          "sourcePack": null,
+          "flags": []
+        },
+        "source": "PROTECT_ORDER",
+        "drawIndex": 5
+      }
+    },
+    {
+      "actorId": "alice",
+      "type": "SCORE_SUBMITTED",
+      "payload": {
+        "songIndex": 3,
+        "by": "alice",
+        "ex": 90
+      },
+      "seq": 32
+    },
+    {
+      "actorId": null,
+      "type": "PHOTO_OBSERVED",
+      "payload": {
+        "songIndex": 3,
+        "by": "alice",
+        "messageId": "m-3-alice"
+      },
+      "seq": 33
+    },
+    {
+      "actorId": "bob",
+      "type": "SCORE_SUBMITTED",
+      "payload": {
+        "songIndex": 3,
+        "by": "bob",
+        "ex": 90
+      },
+      "seq": 34
+    },
+    {
+      "actorId": null,
+      "type": "PHOTO_OBSERVED",
+      "payload": {
+        "songIndex": 3,
+        "by": "bob",
+        "messageId": "m-3-bob"
+      },
+      "seq": 35
+    },
+    {
+      "actorId": "alice",
+      "type": "SONG_WINNER_SELECTED",
+      "payload": {
+        "songIndex": 3,
+        "by": "alice",
+        "choice": "TIE"
+      },
+      "seq": 36
+    },
+    {
+      "actorId": "bob",
+      "type": "SONG_WINNER_SELECTED",
+      "payload": {
+        "songIndex": 3,
+        "by": "bob",
+        "choice": "TIE"
+      },
+      "seq": 37
+    },
+    {
+      "seq": 38,
+      "actorId": null,
+      "type": "SONG_STARTED",
+      "payload": {
+        "songIndex": 4,
+        "chart": {
+          "chartId": "chart-6",
+          "title": "Song 6",
+          "titleTranslit": null,
+          "subtitle": null,
+          "subtitleTranslit": null,
+          "artist": null,
+          "artistTranslit": null,
+          "playStyle": "SINGLE",
+          "difficulty": "EXPERT",
+          "meter": 11,
+          "stepartist": null,
+          "description": null,
+          "sourcePack": null,
+          "flags": []
+        },
+        "source": "DECIDER",
+        "drawIndex": 6
+      }
+    },
+    {
+      "actorId": "alice",
+      "type": "SCORE_SUBMITTED",
+      "payload": {
+        "songIndex": 4,
+        "by": "alice",
+        "ex": 90
+      },
+      "seq": 39
+    },
+    {
+      "actorId": null,
+      "type": "PHOTO_OBSERVED",
+      "payload": {
+        "songIndex": 4,
+        "by": "alice",
+        "messageId": "m-4-alice"
+      },
+      "seq": 40
+    },
+    {
+      "actorId": "bob",
+      "type": "SCORE_SUBMITTED",
+      "payload": {
+        "songIndex": 4,
+        "by": "bob",
+        "ex": 90
+      },
+      "seq": 41
+    },
+    {
+      "actorId": null,
+      "type": "PHOTO_OBSERVED",
+      "payload": {
+        "songIndex": 4,
+        "by": "bob",
+        "messageId": "m-4-bob"
+      },
+      "seq": 42
+    },
+    {
+      "actorId": "alice",
+      "type": "SONG_WINNER_SELECTED",
+      "payload": {
+        "songIndex": 4,
+        "by": "alice",
+        "choice": "TIE"
+      },
+      "seq": 43
+    },
+    {
+      "actorId": "bob",
+      "type": "SONG_WINNER_SELECTED",
+      "payload": {
+        "songIndex": 4,
+        "by": "bob",
+        "choice": "TIE"
+      },
+      "seq": 44
+    },
+    {
+      "seq": 45,
+      "actorId": null,
+      "type": "TIEBREAK_DRAWN",
+      "payload": {
+        "round": 1,
+        "seed": "tb-45",
+        "charts": [
+          {
+            "chartId": "chart-4",
+            "title": "Song 4",
+            "titleTranslit": null,
+            "subtitle": null,
+            "subtitleTranslit": null,
+            "artist": null,
+            "artistTranslit": null,
+            "playStyle": "SINGLE",
+            "difficulty": "EXPERT",
+            "meter": 14,
+            "stepartist": null,
+            "description": null,
+            "sourcePack": null,
+            "flags": []
+          },
+          {
+            "chartId": "chart-5",
+            "title": "Song 5",
+            "titleTranslit": null,
+            "subtitle": null,
+            "subtitleTranslit": null,
+            "artist": null,
+            "artistTranslit": null,
+            "playStyle": "SINGLE",
+            "difficulty": "EXPERT",
+            "meter": 10,
+            "stepartist": null,
+            "description": null,
+            "sourcePack": null,
+            "flags": []
+          },
+          {
+            "chartId": "chart-0",
+            "title": "Song 0",
+            "titleTranslit": null,
+            "subtitle": null,
+            "subtitleTranslit": null,
+            "artist": null,
+            "artistTranslit": null,
+            "playStyle": "SINGLE",
+            "difficulty": "EXPERT",
+            "meter": 10,
+            "stepartist": null,
+            "description": null,
+            "sourcePack": null,
+            "flags": []
+          }
+        ]
+      }
+    },
+    {
+      "actorId": "alice",
+      "type": "TIEBREAK_CHOICE",
+      "payload": {
+        "round": 1,
+        "by": "alice",
+        "index": 0
+      },
+      "seq": 46
+    },
+    {
+      "actorId": "bob",
+      "type": "TIEBREAK_CHOICE",
+      "payload": {
+        "round": 1,
+        "by": "bob",
+        "index": 0
+      },
+      "seq": 47
+    },
+    {
+      "seq": 48,
+      "actorId": null,
+      "type": "SONG_STARTED",
+      "payload": {
+        "songIndex": 5,
+        "chart": {
+          "chartId": "chart-4",
+          "title": "Song 4",
+          "titleTranslit": null,
+          "subtitle": null,
+          "subtitleTranslit": null,
+          "artist": null,
+          "artistTranslit": null,
+          "playStyle": "SINGLE",
+          "difficulty": "EXPERT",
+          "meter": 14,
+          "stepartist": null,
+          "description": null,
+          "sourcePack": null,
+          "flags": []
+        },
+        "source": "TIEBREAK",
+        "tiebreakRound": 1
+      }
+    },
+    {
+      "actorId": "alice",
+      "type": "SCORE_SUBMITTED",
+      "payload": {
+        "songIndex": 5,
+        "by": "alice",
+        "ex": 95
+      },
+      "seq": 49
+    },
+    {
+      "actorId": null,
+      "type": "PHOTO_OBSERVED",
+      "payload": {
+        "songIndex": 5,
+        "by": "alice",
+        "messageId": "m-5-alice"
+      },
+      "seq": 50
+    },
+    {
+      "actorId": "bob",
+      "type": "SCORE_SUBMITTED",
+      "payload": {
+        "songIndex": 5,
+        "by": "bob",
+        "ex": 90
+      },
+      "seq": 51
+    },
+    {
+      "actorId": null,
+      "type": "PHOTO_OBSERVED",
+      "payload": {
+        "songIndex": 5,
+        "by": "bob",
+        "messageId": "m-5-bob"
+      },
+      "seq": 52
+    },
+    {
+      "actorId": "alice",
+      "type": "SONG_WINNER_SELECTED",
+      "payload": {
+        "songIndex": 5,
+        "by": "alice",
+        "choice": "alice"
+      },
+      "seq": 53
+    },
+    {
+      "actorId": "bob",
+      "type": "SONG_WINNER_SELECTED",
+      "payload": {
+        "songIndex": 5,
+        "by": "bob",
+        "choice": "alice"
+      },
+      "seq": 54
+    },
+    {
+      "seq": 55,
+      "actorId": null,
+      "type": "TIEBREAK_DRAWN",
+      "payload": {
+        "round": 2,
+        "seed": "tb-55",
+        "charts": [
+          {
+            "chartId": "chart-14",
+            "title": "Song 14",
+            "titleTranslit": null,
+            "subtitle": null,
+            "subtitleTranslit": null,
+            "artist": null,
+            "artistTranslit": null,
+            "playStyle": "SINGLE",
+            "difficulty": "EXPERT",
+            "meter": 14,
+            "stepartist": null,
+            "description": null,
+            "sourcePack": null,
+            "flags": []
+          },
+          {
+            "chartId": "chart-18",
+            "title": "Song 18",
+            "titleTranslit": null,
+            "subtitle": null,
+            "subtitleTranslit": null,
+            "artist": null,
+            "artistTranslit": null,
+            "playStyle": "SINGLE",
+            "difficulty": "EXPERT",
+            "meter": 13,
+            "stepartist": null,
+            "description": null,
+            "sourcePack": null,
+            "flags": []
+          },
+          {
+            "chartId": "chart-11",
+            "title": "Song 11",
+            "titleTranslit": null,
+            "subtitle": null,
+            "subtitleTranslit": null,
+            "artist": null,
+            "artistTranslit": null,
+            "playStyle": "SINGLE",
+            "difficulty": "EXPERT",
+            "meter": 11,
+            "stepartist": null,
+            "description": null,
+            "sourcePack": null,
+            "flags": []
+          }
+        ]
+      }
+    },
+    {
+      "actorId": "alice",
+      "type": "TIEBREAK_CHOICE",
+      "payload": {
+        "round": 2,
+        "by": "alice",
+        "index": 0
+      },
+      "seq": 56
+    },
+    {
+      "actorId": "bob",
+      "type": "TIEBREAK_CHOICE",
+      "payload": {
+        "round": 2,
+        "by": "bob",
+        "index": 0
+      },
+      "seq": 57
+    },
+    {
+      "seq": 58,
+      "actorId": null,
+      "type": "SONG_STARTED",
+      "payload": {
+        "songIndex": 6,
+        "chart": {
+          "chartId": "chart-14",
+          "title": "Song 14",
+          "titleTranslit": null,
+          "subtitle": null,
+          "subtitleTranslit": null,
+          "artist": null,
+          "artistTranslit": null,
+          "playStyle": "SINGLE",
+          "difficulty": "EXPERT",
+          "meter": 14,
+          "stepartist": null,
+          "description": null,
+          "sourcePack": null,
+          "flags": []
+        },
+        "source": "TIEBREAK",
+        "tiebreakRound": 2
+      }
+    },
+    {
+      "actorId": "alice",
+      "type": "SCORE_SUBMITTED",
+      "payload": {
+        "songIndex": 6,
+        "by": "alice",
+        "ex": 95
+      },
+      "seq": 59
+    },
+    {
+      "actorId": null,
+      "type": "PHOTO_OBSERVED",
+      "payload": {
+        "songIndex": 6,
+        "by": "alice",
+        "messageId": "m-6-alice"
+      },
+      "seq": 60
+    },
+    {
+      "actorId": "bob",
+      "type": "SCORE_SUBMITTED",
+      "payload": {
+        "songIndex": 6,
+        "by": "bob",
+        "ex": 90
+      },
+      "seq": 61
+    },
+    {
+      "actorId": null,
+      "type": "PHOTO_OBSERVED",
+      "payload": {
+        "songIndex": 6,
+        "by": "bob",
+        "messageId": "m-6-bob"
+      },
+      "seq": 62
+    },
+    {
+      "actorId": "alice",
+      "type": "SONG_WINNER_SELECTED",
+      "payload": {
+        "songIndex": 6,
+        "by": "alice",
+        "choice": "alice"
+      },
+      "seq": 63
+    },
+    {
+      "actorId": "bob",
+      "type": "SONG_WINNER_SELECTED",
+      "payload": {
+        "songIndex": 6,
+        "by": "bob",
+        "choice": "alice"
+      },
+      "seq": 64
+    },
+    {
+      "seq": 65,
+      "actorId": null,
+      "type": "TIEBREAK_DRAWN",
+      "payload": {
+        "round": 3,
+        "seed": "tb-65",
+        "charts": [
+          {
+            "chartId": "chart-12",
+            "title": "Song 12",
+            "titleTranslit": null,
+            "subtitle": null,
+            "subtitleTranslit": null,
+            "artist": null,
+            "artistTranslit": null,
+            "playStyle": "SINGLE",
+            "difficulty": "EXPERT",
+            "meter": 12,
+            "stepartist": null,
+            "description": null,
+            "sourcePack": null,
+            "flags": []
+          },
+          {
+            "chartId": "chart-13",
+            "title": "Song 13",
+            "titleTranslit": null,
+            "subtitle": null,
+            "subtitleTranslit": null,
+            "artist": null,
+            "artistTranslit": null,
+            "playStyle": "SINGLE",
+            "difficulty": "EXPERT",
+            "meter": 13,
+            "stepartist": null,
+            "description": null,
+            "sourcePack": null,
+            "flags": []
+          },
+          {
+            "chartId": "chart-16",
+            "title": "Song 16",
+            "titleTranslit": null,
+            "subtitle": null,
+            "subtitleTranslit": null,
+            "artist": null,
+            "artistTranslit": null,
+            "playStyle": "SINGLE",
+            "difficulty": "EXPERT",
+            "meter": 11,
+            "stepartist": null,
+            "description": null,
+            "sourcePack": null,
+            "flags": []
+          }
+        ]
+      }
+    },
+    {
+      "actorId": "alice",
+      "type": "TIEBREAK_CHOICE",
+      "payload": {
+        "round": 3,
+        "by": "alice",
+        "index": 0
+      },
+      "seq": 66
+    },
+    {
+      "actorId": "bob",
+      "type": "TIEBREAK_CHOICE",
+      "payload": {
+        "round": 3,
+        "by": "bob",
+        "index": 0
+      },
+      "seq": 67
+    },
+    {
+      "seq": 68,
+      "actorId": null,
+      "type": "SONG_STARTED",
+      "payload": {
+        "songIndex": 7,
+        "chart": {
+          "chartId": "chart-12",
+          "title": "Song 12",
+          "titleTranslit": null,
+          "subtitle": null,
+          "subtitleTranslit": null,
+          "artist": null,
+          "artistTranslit": null,
+          "playStyle": "SINGLE",
+          "difficulty": "EXPERT",
+          "meter": 12,
+          "stepartist": null,
+          "description": null,
+          "sourcePack": null,
+          "flags": []
+        },
+        "source": "TIEBREAK",
+        "tiebreakRound": 3
+      }
+    },
+    {
+      "actorId": "alice",
+      "type": "SCORE_SUBMITTED",
+      "payload": {
+        "songIndex": 7,
+        "by": "alice",
+        "ex": 95
+      },
+      "seq": 69
+    },
+    {
+      "actorId": null,
+      "type": "PHOTO_OBSERVED",
+      "payload": {
+        "songIndex": 7,
+        "by": "alice",
+        "messageId": "m-7-alice"
+      },
+      "seq": 70
+    },
+    {
+      "actorId": "bob",
+      "type": "SCORE_SUBMITTED",
+      "payload": {
+        "songIndex": 7,
+        "by": "bob",
+        "ex": 90
+      },
+      "seq": 71
+    },
+    {
+      "actorId": null,
+      "type": "PHOTO_OBSERVED",
+      "payload": {
+        "songIndex": 7,
+        "by": "bob",
+        "messageId": "m-7-bob"
+      },
+      "seq": 72
+    },
+    {
+      "actorId": "alice",
+      "type": "SONG_WINNER_SELECTED",
+      "payload": {
+        "songIndex": 7,
+        "by": "alice",
+        "choice": "alice"
+      },
+      "seq": 73
+    },
+    {
+      "actorId": "bob",
+      "type": "SONG_WINNER_SELECTED",
+      "payload": {
+        "songIndex": 7,
+        "by": "bob",
+        "choice": "alice"
+      },
+      "seq": 74
+    },
+    {
+      "actorId": "alice",
+      "type": "SET_RESULT_CONFIRMED",
+      "payload": {
+        "by": "alice"
+      },
+      "seq": 75
+    },
+    {
+      "actorId": "bob",
+      "type": "SET_RESULT_CONFIRMED",
+      "payload": {
+        "by": "bob"
+      },
+      "seq": 76
+    }
+  ],
+  "expected": {
+    "committedSongs": [
+      {
+        "source": "FIRST_PROTECT",
+        "result": {
+          "winner": "TIE",
+          "by": "AGREEMENT"
+        }
+      },
+      {
+        "source": "PROTECT_ORDER",
+        "result": {
+          "winner": "TIE",
+          "by": "AGREEMENT"
+        }
+      },
+      {
+        "source": "PROTECT_ORDER",
+        "result": {
+          "winner": "TIE",
+          "by": "AGREEMENT"
+        }
+      },
+      {
+        "source": "PROTECT_ORDER",
+        "result": {
+          "winner": "TIE",
+          "by": "AGREEMENT"
+        }
+      },
+      {
+        "source": "DECIDER",
+        "result": {
+          "winner": "TIE",
+          "by": "AGREEMENT"
+        }
+      },
+      {
+        "source": "TIEBREAK",
+        "result": {
+          "winner": "alice",
+          "by": "AGREEMENT"
+        }
+      },
+      {
+        "source": "TIEBREAK",
+        "result": {
+          "winner": "alice",
+          "by": "AGREEMENT"
+        }
+      },
+      {
+        "source": "TIEBREAK",
+        "result": {
+          "winner": "alice",
+          "by": "AGREEMENT"
+        }
+      }
+    ],
+    "outcome": {
+      "placements": [
+        {
+          "entrantId": "alice",
+          "place": 1,
+          "points": 3
+        },
+        {
+          "entrantId": "bob",
+          "place": 2,
+          "points": 0
+        }
+      ],
+      "by": "AGREEMENT"
+    }
+  }
+}

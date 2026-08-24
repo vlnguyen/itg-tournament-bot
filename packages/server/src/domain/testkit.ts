@@ -31,6 +31,8 @@ export const makePack = (n: number): ChartSnapshot[] =>
  */
 export class MatchDriver {
   state: MatchState = emptyState();
+  /** Every event folded so far, in order — the log this driver's state is a reduction of. */
+  readonly events: MatchEvent[] = [];
   private seq = 0;
   private botSteps = 0;
 
@@ -41,7 +43,9 @@ export class MatchDriver {
   }
 
   apply(event: Omit<MatchEvent, 'seq'>): this {
-    this.state = F.reduce(this.state, { ...event, seq: ++this.seq } as MatchEvent);
+    const full = { ...event, seq: ++this.seq } as MatchEvent;
+    this.state = F.reduce(this.state, full);
+    this.events.push(full);
     this.settle();
     return this;
   }
@@ -52,7 +56,9 @@ export class MatchDriver {
       const p = F.pendingAction(this.state);
       if (p.kind !== 'AWAITING_BOT') return this;
       if (++this.botSteps > 200) throw new Error('bot directive loop did not settle');
-      this.state = F.reduce(this.state, this.eventFor(p) as MatchEvent);
+      const event = this.eventFor(p) as MatchEvent;
+      this.state = F.reduce(this.state, event);
+      this.events.push(event);
     }
   }
 

@@ -1,0 +1,124 @@
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
+} from 'discord.js';
+import type { EntrantId, MatchState, PendingAction } from '../domain/types.js';
+import { Action } from './actions.js';
+import { encodeCustomId } from './custom-id.js';
+import type { RenderedMessage } from './ports.js';
+import { selectOptionDescription, selectOptionLabel } from './render/chart.js';
+import { buildDrawStatusLines } from './render/draw-status.js';
+
+/**
+ * `MatchState` addresses players by `EntrantId` (the `Entrant` row's id),
+ * never a Discord snowflake directly — rendering a mention needs this
+ * lookup. Built by the caller from whatever `Entrant` rows it already
+ * queried; nothing here touches Prisma.
+ */
+export type PlayerDirectory = ReadonlyMap<EntrantId, { discordUserId: string; displayName: string }>;
+
+function mention(players: PlayerDirectory, entrantId: EntrantId): string {
+  const p = players.get(entrantId);
+  if (!p) throw new Error(`state-message: no player directory entry for entrant ${entrantId}`);
+  return `<@${p.discordUserId}>`;
+}
+
+/** Non-pinging, for log messages — repeated mentions in a running history would re-notify on every action. */
+export function displayName(players: PlayerDirectory, entrantId: EntrantId): string {
+  const p = players.get(entrantId);
+  if (!p) throw new Error(`state-message: no player directory entry for entrant ${entrantId}`);
+  return p.displayName;
+}
+
+/**
+ * Renders the thread's one live prompt from `pendingAction(state)` — never
+ * a second copy of what's legal, only a view of it. `state` supplies what
+ * `pending` alone can't (draw contents for a chart index, and so on, as
+ * later kinds need it). See DESIGN.md, "The state message shows who has
+ * acted, never what."
+ */
+export function renderStateMessage(
+  matchId: string,
+  pending: PendingAction,
+  state: MatchState,
+  players: PlayerDirectory,
+): RenderedMessage {
+  switch (pending.kind) {
+    case 'SEED_CHOICE':
+      return renderSeedChoice(matchId, pending.actor, players);
+    case 'PROTECT':
+    case 'VETO':
+      return renderProtectVeto(matchId, pending.kind, pending.actor, pending.choices, state, players);
+    default:
+      // Built incrementally alongside the interaction handlers that need
+      // each kind — see Phase 4's build order in the plan. A placeholder
+      // rather than a throw: the match's own state is correct regardless
+      // of what this file can render yet, and live testing outruns the
+      // build order.
+      return renderNotYetImplemented(pending);
+  }
+}
+
+function renderNotYetImplemented(pending: PendingAction): RenderedMessage {
+  return {
+    content: `_Match state is waiting on **${pending.kind}**. Rendering for this step isn't built yet — the underlying state is correct in the database._`,
+  };
+}
+
+function renderSeedChoice(matchId: string, actorId: EntrantId, players: PlayerDirectory): RenderedMessage {
+  const embed = new EmbedBuilder()
+    .setTitle('Choose your Protect order')
+    .setDescription(
+      `${mention(players, actorId)}, you have the higher seed. Looking at the Draw above, do you want to Protect first or second?`,
+    );
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(encodeCustomId({ matchId, action: Action.SEED_CHOICE, arg: 'FIRST' }))
+      .setLabel('Protect first')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(encodeCustomId({ matchId, action: Action.SEED_CHOICE, arg: 'SECOND' }))
+      .setLabel('Protect second')
+      .setStyle(ButtonStyle.Secondary),
+  );
+
+  return { embeds: [embed], components: [row] };
+}
+
+function renderProtectVeto(
+  matchId: string,
+  kind: 'PROTECT' | 'VETO',
+  actorId: EntrantId,
+  choices: number[],
+  state: MatchState,
+  players: PlayerDirectory,
+): RenderedMessage {
+  const verb = kind === 'PROTECT' ? 'Protect' : 'Veto';
+  const embed = new EmbedBuilder()
+    .setTitle(`${verb} a chart`)
+    .setDescription(`${mention(players, actorId)}, choose a chart to ${verb.toLowerCase()} from the Draw above.`)
+    .addFields({
+      name: 'Draw status',
+      value: buildDrawStatusLines(state, (id) => displayName(players, id)),
+    });
+
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(encodeCustomId({ matchId, action: Action.PROTECT_VETO }))
+    .setPlaceholder(`Select a chart to ${verb.toLowerCase()}`)
+    .addOptions(
+      choices.map((i) => {
+        const chart = state.draw[i]!;
+        const option = new StringSelectMenuOptionBuilder().setLabel(selectOptionLabel(chart)).setValue(String(i));
+        const description = selectOptionDescription(chart);
+        return description ? option.setDescription(description) : option;
+      }),
+    );
+
+  const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
+  return { embeds: [embed], components: [row] };
+}

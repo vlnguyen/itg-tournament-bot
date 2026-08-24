@@ -164,7 +164,7 @@ async function handleScoreModalSubmit(
 
   const songIndex = Number(decoded.arg);
   const event: Omit<MatchEvent, 'seq'> = {
-    actorId: me.entrantId,
+    actorId: interaction.user.id, // the raw Discord id — see buildEvent's note
     type: 'SCORE_SUBMITTED',
     payload: { songIndex, by: me.entrantId, ex },
   };
@@ -257,18 +257,24 @@ function buildEvent(
   entrantId: string,
   cachedPending: PendingAction,
 ): Omit<MatchEvent, 'seq'> | null {
+  // actorId is the raw Discord user id (see types.ts's Envelope) — distinct
+  // from payload.by, which is the EntrantId the reducer actually reasons
+  // about. They're never the same value; conflating them would silently
+  // lose who-really-clicked once a referee event needs to attribute a
+  // ruling to someone who isn't a participant at all.
+  const actorId = interaction.user.id;
   switch (decoded.action) {
     case Action.SEED_CHOICE: {
       const arg = decoded.arg;
       if (arg !== 'FIRST' && arg !== 'SECOND') return null;
-      return { actorId: entrantId, type: 'SEED_CHOICE_MADE', payload: { by: entrantId, order: arg } };
+      return { actorId, type: 'SEED_CHOICE_MADE', payload: { by: entrantId, order: arg } };
     }
     case Action.PROTECT_VETO: {
       if (!interaction.isStringSelectMenu()) return null;
       const drawIndex = Number(interaction.values[0]);
       if (!Number.isInteger(drawIndex)) return null;
       const type = cachedPending.kind === 'VETO' ? 'CHART_VETOED' : 'CHART_PROTECTED';
-      return { actorId: entrantId, type, payload: { by: entrantId, drawIndex } };
+      return { actorId, type, payload: { by: entrantId, drawIndex } };
     }
     default:
       return null;

@@ -9,5 +9,8 @@
   "dependencies": {
     "@itg/shared": "*",
     "@prisma/client": "^6.1.0"
+  },
+  "devDependencies": {
+    "fast-check": "^3.23.2"
   }
 }

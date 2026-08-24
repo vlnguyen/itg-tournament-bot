@@ -140,6 +140,12 @@ model User {
 // No Organizer table — authority is Discord role membership,
 // resolved to a tier. See Server Onboarding: Three tiers of privilege.
 
+model Admin {
+  discordUserId String   @id          // deployment-scoped; not a Discord role
+  addedByUserId String?               // null when applied from the config allowlist
+  createdAt     DateTime @default(now())
+}
+
 model Entrant {
   id            String  @id @default(cuid())
   tournamentId  String
@@ -1156,7 +1162,9 @@ Authorization is one service, transport-independent:
 | May this user act in match M? | Is one of the two players, or holds Referee tier |
 | May a referee override this song? | Not frozen — see Bracket Immutability |
 
-Config admins are re-applied additively at boot, which is the lockout recovery path.
+**Config admins are re-applied additively at boot.** The boot pass upserts every ID in `ADMIN_DISCORD_IDS` into `Admin` and removes nobody, so editing the config and redeploying always restores access — the lockout recovery path the requirements specify. A row added through the web UI carries `addedByUserId`; one applied from the allowlist leaves it null, which is how the two provenances stay distinguishable in the audit trail.
+
+Rows may be deleted, but deleting one that is also in the allowlist only lasts until the next boot. That is a feature of the recovery path rather than a flaw in it: the config file is deliberately the higher authority.
 
 Public bracket and match history need **no authentication** — sign-in only adds a personalized dashboard.
 

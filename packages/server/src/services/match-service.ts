@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { isLegal } from '../domain/validate.js';
-import type { MatchEvent, MatchOutcome, MatchState, PendingAction } from '../domain/types.js';
+import type { DomainEffect, MatchEvent, MatchOutcome, MatchState, PendingAction } from '../domain/types.js';
 import type { RandomPort } from './ports.js';
 import { appendOne, lockAndLoadMatch, persistAndCascade, settleBotLoop, type Tx } from './engine.js';
 
@@ -18,6 +18,13 @@ export class IllegalActionError extends Error {
 export interface AppendResult {
   state: MatchState;
   outcome: MatchOutcome | null;
+  /**
+   * What just became true, for a caller to act on — "returning a
+   * *description* of what to do keeps it pure and testable." See
+   * DESIGN.md, "Match Format as a Plugin". Empty on a dedupe-hit: nothing
+   * new happened as a result of *this* call.
+   */
+  effects: DomainEffect[];
 }
 
 /**
@@ -46,7 +53,7 @@ export async function appendMatchEventTx(
       // already recorded." Checked first rather than caught after, since
       // we're already inside the locked transaction either way.
       const { state, format } = await lockAndLoadMatch(tx, matchId);
-      return { state, outcome: format.outcome(state) };
+      return { state, outcome: format.outcome(state), effects: [] };
     }
   }
 
@@ -61,7 +68,7 @@ export async function appendMatchEventTx(
   const settled = await settleBotLoop(tx, match.tournamentId, random, matchId, afterAction, format);
   await persistAndCascade(tx, match.tournamentId, ref, matchId, format, random, state, settled);
 
-  return { state: settled, outcome: format.outcome(settled) };
+  return { state: settled, outcome: format.outcome(settled), effects: format.effects(state, settled) };
 }
 
 export async function appendMatchEvent(

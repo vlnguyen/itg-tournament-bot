@@ -1,0 +1,24 @@
+/**
+ * The `action` segment of every `custom_id` this bot creates — named here
+ * once so `state-message.ts` (encoding) and `interactions.ts` (decoding)
+ * can't drift apart on what a string like `"SEED"` means.
+ */
+export const Action = {
+  SEED_CHOICE: 'SEED',
+  PROTECT_VETO: 'PV',
+  SCORE: 'SCORE',
+  WINNER: 'WIN',
+  /** A referee ruling on an escalated song — posted in the alert channel, not the match thread. */
+  RULE: 'RULE',
+  /** A tiebreak pick — the response is always ephemeral, never `deferUpdate()`. See DESIGN.md, "The tiebreak". */
+  TIEBREAK: 'TB',
+  /** A referee resetting Protect/Veto — legal only before song 1 has started, which `isLegal` already enforces. */
+  RESET_PV: 'RESETPV',
+  /** A player's sign-off once the set is decided — `SET_RESULT_CONFIRMED`. */
+  CONFIRM: 'CONFIRM',
+} as const;
+
+/** The `customId` a "Submit score" text input carries within its modal. */
+export const SCORE_MODAL_EX_FIELD = 'ex';
+
+export type Action = (typeof Action)[keyof typeof Action];

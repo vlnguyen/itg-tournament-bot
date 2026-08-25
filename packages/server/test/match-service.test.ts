@@ -174,7 +174,7 @@ describe.skipIf(!(await isReachable()))('match-service', () => {
             await appendMatchEvent(prisma, random, matchId, {
               actorId,
               type: 'SET_RESULT_CONFIRMED',
-              payload: { by: actorId },
+              payload: { by: actorId, choice: champion },
             });
           }
           continue;

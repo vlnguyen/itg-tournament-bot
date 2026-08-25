@@ -1,0 +1,64 @@
+import type { ActionRowBuilder, EmbedBuilder, MessageActionRowComponentBuilder } from 'discord.js';
+
+/**
+ * "Everything the domain needs from a chat platform" — see DESIGN.md,
+ * "Ports and Adapters". A payload is `discord.js`'s own builder types
+ * rather than a reinvented shape: the boundary that matters is
+ * `services/`/`domain/` never importing `discord.js` at all, which they
+ * don't — nothing here is imported by either. Inside this module,
+ * `necord` vs. `discord.js` was already the only choice left "load-bearing
+ * enough to matter," so there's no separate payoff to a second translation
+ * layer between a rendered message and the Discord API call that sends it.
+ *
+ * `PrivatePromptPort` from the design sketch is deliberately absent. The
+ * one place a truly private prompt exists — the tiebreak pick — is always
+ * an ephemeral *reply* to the interaction the player just opened, never a
+ * message pushed to them out of the blue; there's nothing to abstract
+ * beyond `interaction.reply({ ephemeral: true, ... })`, called directly
+ * where that interaction is already in hand.
+ */
+
+export interface ThreadRef {
+  matchId: string;
+  threadId: string;
+}
+
+export interface RenderedMessage {
+  content?: string;
+  embeds?: EmbedBuilder[];
+  components?: ActionRowBuilder<MessageActionRowComponentBuilder>[];
+}
+
+export interface MatchChannelPort {
+  /**
+   * No `playerIds` here — a private thread's competitors join it as a side
+   * effect of `PlayerNotificationPort.matchReady`'s mention, not an
+   * explicit membership call. Mentioning a user in a thread message adds
+   * them to it if they can see the parent channel, which both competitors
+   * always can (matches channel view is granted to `@everyone`); a
+   * separate `thread.members.add` per player is redundant with that.
+   */
+  createMatchThread(input: { matchId: string; title: string }): Promise<ThreadRef>;
+  /** Permanent: the Draw, a committed song result, a tiebreak reveal, a ruling, a reset note. Never edited or deleted. */
+  postLogMessage(thread: ThreadRef, message: RenderedMessage): Promise<void>;
+  /** The singular, disposable prompt. Edited in place when it is still the last message; deleted and reposted otherwise. */
+  postMatchState(thread: ThreadRef, message: RenderedMessage): Promise<void>;
+  archiveThread(thread: ThreadRef): Promise<void>;
+  /** One public line per finished match, outside any thread. */
+  publishResult(message: RenderedMessage): Promise<void>;
+}
+
+/** "Tell these players their match is ready" — the adapter decides how (thread mention, best-effort DM, or both). */
+export interface PlayerNotificationPort {
+  matchReady(playerIds: string[], thread: ThreadRef): Promise<void>;
+}
+
+export interface AlertRef {
+  messageId: string;
+}
+
+/** Organizer-facing alerts: a disagreement or settings-violation escalation, posted with ruling buttons and resolved by editing in place. */
+export interface AlertPort {
+  raise(message: RenderedMessage): Promise<AlertRef>;
+  resolve(ref: AlertRef, resolution: RenderedMessage): Promise<void>;
+}

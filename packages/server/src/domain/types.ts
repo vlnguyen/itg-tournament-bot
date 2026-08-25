@@ -4,7 +4,7 @@ export type EntrantId = string;
 export type ChartId = string;
 
 /** Why a match is waiting on a referee. */
-export type EscalationReason = 'WINNER_DISAGREEMENT' | 'SETTINGS_VIOLATION';
+export type EscalationReason = 'WINNER_DISAGREEMENT' | 'SETTINGS_VIOLATION' | 'SET_RESULT_DISAGREEMENT';
 
 /** How a song's result was reached. */
 export type SongResultBy = 'AGREEMENT' | 'RULING';
@@ -85,7 +85,16 @@ export type MatchEvent =
       type: 'TIEBREAK_CHOICE';
       payload: { round: number; by: EntrantId; index: number };
     })
-  | (Envelope & { type: 'SET_RESULT_CONFIRMED'; payload: { by: EntrantId } })
+  | (Envelope & {
+      type: 'SET_RESULT_CONFIRMED';
+      /** Who the player believes won the set — not a bare sign-off. Two disagreeing picks escalate. */
+      payload: { by: EntrantId; choice: EntrantId };
+    })
+  | (Envelope & {
+      type: 'SET_RESULT_RULED';
+      /** A referee's ruling on a set-level disagreement — names the actual winner. */
+      payload: { result: EntrantId };
+    })
   | (Envelope & { type: 'FORFEIT_APPLIED'; payload: { winnerId: EntrantId } })
   | (Envelope & {
       type: 'DQ_APPLIED';
@@ -137,12 +146,13 @@ export interface MatchState {
   points: Record<EntrantId, number>;
   tiebreaks: TiebreakRound[];
   escalation?: { songIndex: number; reason: EscalationReason } | undefined;
-  confirmations: EntrantId[];
+  /** Each player's pick for who won the set — mirrors `SongRecord.selections`. Two disagreeing picks escalate. */
+  setWinnerSelections: Partial<Record<EntrantId, EntrantId>>;
   /** Set when a referee ends the match outside normal play. */
   terminal?:
     | {
         winnerId: EntrantId;
-        by: 'FORFEIT' | 'DQ' | 'WALKOVER';
+        by: 'FORFEIT' | 'DQ' | 'WALKOVER' | 'RULING';
       }
     | undefined;
 }
@@ -179,7 +189,10 @@ export type PendingAction =
   | { kind: 'TIEBREAK_PICK'; actors: EntrantId[]; round: number; choices: number[] }
   | { kind: 'CONFIRM_RESULT'; actors: EntrantId[] }
   | { kind: 'AWAITING_BOT'; directive: BotDirective }
-  | { kind: 'AWAITING_TO'; reason: EscalationReason }
+  // `songIndex` is undefined for a set-level disagreement — there is no
+  // single song it's about, unlike a song-level `WINNER_DISAGREEMENT` or
+  // `SETTINGS_VIOLATION`, which always name one.
+  | { kind: 'AWAITING_TO'; reason: EscalationReason; songIndex?: number }
   | { kind: 'DONE' };
 
 /** Every actor a pending action is waiting on, however the variant spells it. */
@@ -207,8 +220,8 @@ export interface MatchOutcome {
 export type DomainEffect =
   | { kind: 'SONG_COMMITTED'; songIndex: number }
   | { kind: 'TIEBREAK_RESOLVED'; round: number }
-  | { kind: 'ESCALATION_OPENED'; songIndex: number; reason: EscalationReason }
-  | { kind: 'ESCALATION_CLOSED'; songIndex: number }
+  | { kind: 'ESCALATION_OPENED'; songIndex?: number; reason: EscalationReason }
+  | { kind: 'ESCALATION_CLOSED'; songIndex?: number }
   | { kind: 'SET_DECIDED' };
 
 // ---------------------------------------------------------------------------
@@ -245,6 +258,6 @@ export function emptyState(): MatchState {
     songs: [],
     points: {},
     tiebreaks: [],
-    confirmations: [],
+    setWinnerSelections: {},
   };
 }

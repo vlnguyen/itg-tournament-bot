@@ -136,6 +136,16 @@ describe('tiebreak picks', () => {
   });
 });
 
+describe('SET_RESULT_CONFIRMED', () => {
+  it('accepts an actor still owed a pick, rejects anyone else or a different pending kind', () => {
+    const confirm = (by: string): MatchEvent =>
+      ({ seq: 0, actorId: by, type: 'SET_RESULT_CONFIRMED', payload: { by, choice: A } }) as MatchEvent;
+    expect(isLegal({ kind: 'CONFIRM_RESULT', actors: [A, B] }, confirm(A))).toBe(true);
+    expect(isLegal({ kind: 'CONFIRM_RESULT', actors: [B] }, confirm(A))).toBe(false); // A already confirmed
+    expect(isLegal({ kind: 'DONE' }, confirm(A))).toBe(false);
+  });
+});
+
 describe('referee events', () => {
   it('SONG_RULED is legal only while AWAITING_TO', () => {
     const d = opened();
@@ -146,7 +156,15 @@ describe('referee events', () => {
       payload: { songIndex: 0, result: A },
     } as MatchEvent;
     expect(isLegal(d.pending, ruling)).toBe(false); // nothing escalated yet
-    expect(isLegal({ kind: 'AWAITING_TO', reason: 'WINNER_DISAGREEMENT' }, ruling)).toBe(true);
+    expect(isLegal({ kind: 'AWAITING_TO', reason: 'WINNER_DISAGREEMENT', songIndex: 0 }, ruling)).toBe(true);
+    expect(isLegal({ kind: 'AWAITING_TO', reason: 'WINNER_DISAGREEMENT', songIndex: 1 }, ruling)).toBe(false);
+  });
+
+  it('SET_RESULT_RULED is legal only for a set-level disagreement, not a song-level one', () => {
+    const ruling: MatchEvent = { seq: 0, actorId: 'ref', type: 'SET_RESULT_RULED', payload: { result: A } } as MatchEvent;
+    expect(isLegal({ kind: 'AWAITING_TO', reason: 'SET_RESULT_DISAGREEMENT' }, ruling)).toBe(true);
+    expect(isLegal({ kind: 'AWAITING_TO', reason: 'WINNER_DISAGREEMENT', songIndex: 0 }, ruling)).toBe(false);
+    expect(isLegal({ kind: 'CONFIRM_RESULT', actors: [A, B] }, ruling)).toBe(false);
   });
 
   it('PROTECT_VETO_RESET is legal before song 1 starts, not after', () => {

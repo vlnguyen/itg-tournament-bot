@@ -172,7 +172,7 @@ describe('scoring a song', () => {
       type: 'SONG_WINNER_SELECTED',
       payload: { songIndex: 0, by: B, choice: B },
     });
-    expect(d.pending).toEqual({ kind: 'AWAITING_TO', reason: 'WINNER_DISAGREEMENT' });
+    expect(d.pending).toEqual({ kind: 'AWAITING_TO', reason: 'WINNER_DISAGREEMENT', songIndex: 0 });
     expect(p.songIndex).toBe(0);
   });
 
@@ -262,6 +262,45 @@ describe('deciding the set', () => {
     expect(d.state.songs).toHaveLength(5);
     expect(d.pending).toMatchObject({ kind: 'TIEBREAK_PICK', round: 1 });
     expect((d.pending as { choices: number[] }).choices).toHaveLength(3);
+  });
+
+  it('does not finish on one confirmation alone — the other player is still on the clock', () => {
+    const d = opened().playSong(A).playSong(A).playSong(A);
+    d.apply({ actorId: A, type: 'SET_RESULT_CONFIRMED', payload: { by: A, choice: A } });
+    expect(F.outcome(d.state)).toBeNull();
+    expect(d.pending).toEqual({ kind: 'CONFIRM_RESULT', actors: [B] });
+  });
+
+  it('escalates to a referee when the two players name different set winners', () => {
+    const d = opened().playSong(A).playSong(A).playSong(A);
+    d.confirmResult({ [A]: A, [B]: B });
+    expect(d.pending).toEqual({ kind: 'AWAITING_TO', reason: 'SET_RESULT_DISAGREEMENT' });
+    expect(F.outcome(d.state)).toBeNull();
+  });
+
+  it('a referee ruling on a set disagreement decides the match outright', () => {
+    const d = opened().playSong(A).playSong(A).playSong(A);
+    d.confirmResult({ [A]: A, [B]: B }).ruleSetResult(A);
+    expect(d.pending).toEqual({ kind: 'DONE' });
+    const out = F.outcome(d.state)!;
+    expect(out.by).toBe('RULING');
+    expect(out.placements.find((p) => p.place === 1)!.entrantId).toBe(A);
+  });
+
+  it('a same-but-wrong agreement does not override the arithmetic winner', () => {
+    // Both naming the loser is nonsensical, but nothing in `pendingAction`
+    // stops it (it only checks *that* both picked, and that they picked
+    // the same thing) — `points`, not the pick itself, is what `outcome`
+    // reports. Unlike a single song, there is no independent source of
+    // truth for the set to defer to: `points` already *is* the tally of
+    // every already-agreed song result, so there is nothing left to
+    // "agree" into being true. A genuine mismatch between the two picks
+    // still escalates, since that is the one thing this step actually
+    // catches — a misclick, not a re-litigation of settled songs.
+    const d = opened().playSong(A).playSong(A).playSong(A);
+    d.confirmResult({ [A]: B, [B]: B });
+    expect(d.pending).toEqual({ kind: 'DONE' });
+    expect(F.outcome(d.state)!.placements.find((p) => p.place === 1)!.entrantId).toBe(A);
   });
 });
 

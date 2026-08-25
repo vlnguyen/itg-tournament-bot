@@ -73,12 +73,14 @@ export function isLegal(pending: PendingAction, event: MatchEvent): boolean {
     case 'SET_RESULT_CONFIRMED':
       return pending.kind === 'CONFIRM_RESULT' && pending.actors.includes(event.payload.by);
 
-    // A referee rules exactly when the match is waiting on one — the escalated
-    // song's index is not repeated in `PendingAction.AWAITING_TO` (it carries
-    // only `reason`), so this is the coarse half of the check; the reducer's
-    // own "committed song stays committed" guard is the other.
+    // A referee rules exactly on the song the match is waiting on.
     case 'SONG_RULED':
-      return pending.kind === 'AWAITING_TO';
+      return pending.kind === 'AWAITING_TO' && pending.songIndex === event.payload.songIndex;
+
+    // A referee rules on a set-level disagreement — no songIndex to match,
+    // since it isn't about any one song.
+    case 'SET_RESULT_RULED':
+      return pending.kind === 'AWAITING_TO' && pending.reason === 'SET_RESULT_DISAGREEMENT';
 
     // "A referee may reset the sequence until song 1 has been played." A
     // person only ever observes `pendingAction` once the bot has settled, so

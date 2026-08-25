@@ -73,7 +73,7 @@ describe('settings violations', () => {
       type: 'SONG_ESCALATED',
       payload: { songIndex: 0, reason: 'SETTINGS_VIOLATION' },
     });
-    expect(d.pending).toEqual({ kind: 'AWAITING_TO', reason: 'SETTINGS_VIOLATION' });
+    expect(d.pending).toEqual({ kind: 'AWAITING_TO', reason: 'SETTINGS_VIOLATION', songIndex: 0 });
   });
 
   it('resumes play once the referee awards the song', () => {
@@ -193,7 +193,7 @@ describe('terminal events override everything', () => {
   it('needs no confirmation from either player', () => {
     const d = opened();
     d.apply({ actorId: REF, type: 'FORFEIT_APPLIED', payload: { winnerId: A } });
-    expect(d.state.confirmations).toEqual([]);
+    expect(d.state.setWinnerSelections).toEqual({});
     expect(F.outcome(d.state)).not.toBeNull();
   });
 });

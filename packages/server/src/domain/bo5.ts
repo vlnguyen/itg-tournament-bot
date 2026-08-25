@@ -81,10 +81,15 @@ const activeSong = (s: MatchState): { song: SongRecord; index: number } | undefi
  * would be a record that can disagree with the first — the same objection that
  * keeps commit events out of the log. Only a settings-violation report, which
  * nothing else implies, arrives as an explicit event.
+ *
+ * A set-level disagreement is the same idea one level up: once someone has
+ * reached `POINTS_TO_WIN`, each player names who they believe won the set,
+ * and two different picks escalate exactly like a song's would — no
+ * `songIndex` to attach it to, since it isn't about any one song.
  */
 function escalationOf(
   s: MatchState,
-): { songIndex: number; reason: EscalationReason } | undefined {
+): { songIndex?: number; reason: EscalationReason } | undefined {
   if (s.escalation) return s.escalation;
   const ids = idsOf(s);
   const index = s.songs.findIndex((song) => {
@@ -92,7 +97,16 @@ function escalationOf(
     const picks = ids.map((id) => song.selections[id]);
     return picks.every((p) => p !== undefined) && new Set(picks).size > 1;
   });
-  return index === -1 ? undefined : { songIndex: index, reason: 'WINNER_DISAGREEMENT' };
+  if (index !== -1) return { songIndex: index, reason: 'WINNER_DISAGREEMENT' };
+
+  if (setWinner(s)) {
+    const picks = ids.map((id) => s.setWinnerSelections[id]);
+    if (picks.every((p) => p !== undefined) && new Set(picks).size > 1) {
+      return { reason: 'SET_RESULT_DISAGREEMENT' };
+    }
+  }
+
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -163,7 +177,7 @@ function reduce(state: MatchState, event: MatchEvent): MatchState {
     songs: state.songs.map((x) => ({ ...x, ex: { ...x.ex }, photoSeen: { ...x.photoSeen }, selections: { ...x.selections } })),
     points: { ...state.points },
     tiebreaks: state.tiebreaks.map((t) => ({ ...t, choices: { ...t.choices } })),
-    confirmations: [...state.confirmations],
+    setWinnerSelections: { ...state.setWinnerSelections },
   };
 
   switch (event.type) {
@@ -300,9 +314,13 @@ function reduce(state: MatchState, event: MatchEvent): MatchState {
     }
 
     case 'SET_RESULT_CONFIRMED':
-      if (!s.confirmations.includes(event.payload.by)) {
-        s.confirmations = [...s.confirmations, event.payload.by];
-      }
+      s.setWinnerSelections = { ...s.setWinnerSelections, [event.payload.by]: event.payload.choice };
+      break;
+
+    // A referee's ruling on a set-level disagreement — same "first terminal
+    // event wins" rule as the other terminal events below.
+    case 'SET_RESULT_RULED':
+      if (!s.terminal) s.terminal = { winnerId: event.payload.result, by: 'RULING' };
       break;
 
     // A decided match stays decided. The first terminal event wins, for the
@@ -340,7 +358,11 @@ function pendingAction(state: MatchState): PendingAction {
   }
 
   const escalation = escalationOf(state);
-  if (escalation) return { kind: 'AWAITING_TO', reason: escalation.reason };
+  if (escalation) {
+    return escalation.songIndex === undefined
+      ? { kind: 'AWAITING_TO', reason: escalation.reason }
+      : { kind: 'AWAITING_TO', reason: escalation.reason, songIndex: escalation.songIndex };
+  }
 
   if (!state.a) {
     const chooser = higherSeed(state);
@@ -375,9 +397,12 @@ function pendingAction(state: MatchState): PendingAction {
   }
 
   if (setWinner(state)) {
-    const unconfirmed = ids.filter((id) => !state.confirmations.includes(id));
-    return unconfirmed.length > 0
-      ? { kind: 'CONFIRM_RESULT', actors: unconfirmed }
+    // A disagreement between the two picks is caught by `escalationOf`
+    // above, before this is ever reached — reaching here with both picks in
+    // means they agree, so there is nothing left to do but finish.
+    const undecided = ids.filter((id) => state.setWinnerSelections[id] === undefined);
+    return undecided.length > 0
+      ? { kind: 'CONFIRM_RESULT', actors: undecided }
       : { kind: 'DONE' };
   }
 
@@ -436,8 +461,14 @@ function outcome(state: MatchState): MatchOutcome | null {
 
   const winner = setWinner(state);
   if (!winner) return null;
-  // Both players must confirm before the set commits.
-  if (idsOf(state).some((id) => !state.confirmations.includes(id))) return null;
+  // Both players must pick a set winner before it commits, and their picks
+  // must actually agree — `outcome()` is read independently of
+  // `pendingAction()`/`escalationOf`, so it has to make this check itself
+  // rather than relying on the escalation having already fired elsewhere.
+  // A disagreement resolves only through `SET_RESULT_RULED`, which sets
+  // `state.terminal` and is handled above.
+  const picks = idsOf(state).map((id) => state.setWinnerSelections[id]);
+  if (picks.some((p) => p === undefined) || new Set(picks).size > 1) return null;
 
   const decidedByRuling = state.songs.some((x) => x.result?.by === 'RULING');
   return place(winner, decidedByRuling ? 'RULING' : 'AGREEMENT');
@@ -461,13 +492,17 @@ function effects(before: MatchState, after: MatchState): DomainEffect[] {
   const wasEscalated = escalationOf(before);
   const isEscalated = escalationOf(after);
   if (!wasEscalated && isEscalated) {
-    out.push({
-      kind: 'ESCALATION_OPENED',
-      songIndex: isEscalated.songIndex,
-      reason: isEscalated.reason,
-    });
+    out.push(
+      isEscalated.songIndex === undefined
+        ? { kind: 'ESCALATION_OPENED', reason: isEscalated.reason }
+        : { kind: 'ESCALATION_OPENED', songIndex: isEscalated.songIndex, reason: isEscalated.reason },
+    );
   } else if (wasEscalated && !isEscalated) {
-    out.push({ kind: 'ESCALATION_CLOSED', songIndex: wasEscalated.songIndex });
+    out.push(
+      wasEscalated.songIndex === undefined
+        ? { kind: 'ESCALATION_CLOSED' }
+        : { kind: 'ESCALATION_CLOSED', songIndex: wasEscalated.songIndex },
+    );
   }
 
   if (!outcome(before) && outcome(after)) out.push({ kind: 'SET_DECIDED' });

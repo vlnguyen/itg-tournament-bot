@@ -8,9 +8,11 @@
   },
   "dependencies": {
     "@itg/shared": "*",
-    "@prisma/client": "^6.1.0"
+    "@prisma/client": "^6.1.0",
+    "discord.js": "^14.27.0"
   },
   "devDependencies": {
-    "fast-check": "^3.23.2"
+    "fast-check": "^3.23.2",
+    "tsx": "^4.23.12"
   }
 }

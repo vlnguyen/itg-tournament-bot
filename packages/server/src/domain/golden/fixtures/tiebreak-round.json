@@ -1133,7 +1133,8 @@
       "actorId": "alice",
       "type": "SET_RESULT_CONFIRMED",
       "payload": {
-        "by": "alice"
+        "by": "alice",
+        "choice": "alice"
       },
       "seq": 75
     },
@@ -1141,7 +1142,8 @@
       "actorId": "bob",
       "type": "SET_RESULT_CONFIRMED",
       "payload": {
-        "by": "bob"
+        "by": "bob",
+        "choice": "alice"
       },
       "seq": 76
     }

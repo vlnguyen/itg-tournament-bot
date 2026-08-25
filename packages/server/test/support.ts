@@ -133,7 +133,7 @@ export async function playMatchToChampion(
           await appendMatchEvent(prisma, random, matchId, {
             actorId,
             type: 'SET_RESULT_CONFIRMED',
-            payload: { by: actorId },
+            payload: { by: actorId, choice: championEntrantId },
           });
         }
         break;

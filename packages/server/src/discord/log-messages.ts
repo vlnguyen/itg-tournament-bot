@@ -65,6 +65,17 @@ export function renderRulingLog(
   };
 }
 
+/** A referee's ruling on a set-level disagreement — no chart or song index, it isn't about any one song. */
+export function renderSetRulingLog(
+  winnerId: EntrantId,
+  refereeDisplayName: string,
+  players: PlayerDirectory,
+): RenderedMessage {
+  return {
+    content: `⚖️ Set result awarded to **${displayName(players, winnerId)}** — ruling by **${refereeDisplayName}**`,
+  };
+}
+
 /**
  * "The reveal is a log message, posted once both picks exist: both
  * selections, the rule applied... and the chart that results." See

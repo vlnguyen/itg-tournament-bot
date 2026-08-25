@@ -133,6 +133,17 @@ const fixtures: GoldenFixture[] = [];
   fixtures.push(toFixture('dq-match-scope', d));
 }
 
+// The players disagree on who won the set, not any one song — a referee
+// names the actual winner, same shape as a song-level disagreement one
+// level up.
+{
+  const d = new MatchDriver(makePack(20)).create(A, B).chooseSeed('FIRST').runProtectVeto();
+  d.playSong(A).playSong(A).playSong(A);
+  d.confirmResult({ [A]: A, [B]: B });
+  d.ruleSetResult(A);
+  fixtures.push(toFixture('set-result-disagreement', d));
+}
+
 // A round-1 bye: no Draw, no Protect/Veto, no play at all.
 {
   const d = new MatchDriver(makePack(20)).create(A, B);

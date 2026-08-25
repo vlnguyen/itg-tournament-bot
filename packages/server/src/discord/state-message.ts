@@ -6,10 +6,11 @@ import {
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
 } from 'discord.js';
-import type { EntrantId, MatchState, PendingAction } from '../domain/types.js';
+import type { EntrantId, EscalationReason, MatchState, PendingAction } from '../domain/types.js';
 import { Action } from './actions.js';
 import { encodeCustomId } from './custom-id.js';
 import type { RenderedMessage } from './ports.js';
+import { buildConfirmResultMessage } from './render/confirm-result.js';
 import { fullChartDescription, selectOptionDescription, selectOptionLabel } from './render/chart.js';
 import { buildDrawStatusLines } from './render/draw-status.js';
 import { buildAwaitingRefereeMessage } from './render/escalation.js';
@@ -62,9 +63,11 @@ export function renderStateMessage(
     case 'SELECT_WINNER':
       return renderSelectWinner(matchId, pending.songIndex, state, players);
     case 'AWAITING_TO':
-      return buildAwaitingRefereeMessage(pending.reason);
+      return renderAwaitingReferee(matchId, pending.reason, pending.songIndex, state, players);
     case 'TIEBREAK_PICK':
       return renderTiebreakPick(matchId, pending.round, pending.choices, state, players);
+    case 'CONFIRM_RESULT':
+      return renderConfirmResult(matchId, state, players);
     default:
       // Built incrementally alongside the interaction handlers that need
       // each kind — see Phase 4's build order in the plan. A placeholder
@@ -188,6 +191,28 @@ function renderSelectWinner(
   return buildWinnerSelectMessage(matchId, songIndex, song, [a!.entrantId, b!.entrantId], (id) =>
     displayName(players, id),
   );
+}
+
+function renderConfirmResult(matchId: string, state: MatchState, players: PlayerDirectory): RenderedMessage {
+  const [a, b] = state.participants;
+  return buildConfirmResultMessage(matchId, state.points, [a!.entrantId, b!.entrantId], (id) =>
+    displayName(players, id),
+  );
+}
+
+function renderAwaitingReferee(
+  matchId: string,
+  reason: EscalationReason,
+  songIndex: number | undefined,
+  state: MatchState,
+  players: PlayerDirectory,
+): RenderedMessage {
+  const [a, b] = state.participants;
+  const named = [a, b].map((p) => ({ entrantId: p!.entrantId, name: displayName(players, p!.entrantId) })) as [
+    { entrantId: EntrantId; name: string },
+    { entrantId: EntrantId; name: string },
+  ];
+  return buildAwaitingRefereeMessage(matchId, reason, songIndex, named);
 }
 
 /**

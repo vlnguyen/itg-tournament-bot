@@ -77,6 +77,11 @@ export function isLegal(pending: PendingAction, event: MatchEvent): boolean {
     case 'SONG_RULED':
       return pending.kind === 'AWAITING_TO' && pending.songIndex === event.payload.songIndex;
 
+    // A referee rules on a set-level disagreement — no songIndex to match,
+    // since it isn't about any one song.
+    case 'SET_RESULT_RULED':
+      return pending.kind === 'AWAITING_TO' && pending.reason === 'SET_RESULT_DISAGREEMENT';
+
     // "A referee may reset the sequence until song 1 has been played." A
     // person only ever observes `pendingAction` once the bot has settled, so
     // "song 1 not yet played" is exactly these three kinds — by the time

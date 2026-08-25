@@ -180,16 +180,38 @@ export class MatchDriver {
     return this;
   }
 
-  confirmResult(): this {
+  /** Whoever has more points right now — the answer both players give by default. */
+  private leadingEntrant(): EntrantId {
+    const [a, b] = this.state.participants.map((p) => p.entrantId);
+    return (this.state.points[a!] ?? 0) >= (this.state.points[b!] ?? 0) ? a! : b!;
+  }
+
+  /**
+   * Each remaining actor names who they think won the set. `picks` lets a
+   * test force a specific (and possibly disagreeing) answer per entrant;
+   * anyone not named there defaults to the actual leader.
+   */
+  confirmResult(picks: Partial<Record<EntrantId, EntrantId>> = {}): this {
     for (;;) {
       const p = this.pending;
       if (p.kind !== 'CONFIRM_RESULT') return this;
+      const actor = p.actors[0]!;
+      const choice = picks[actor] ?? this.leadingEntrant();
       this.apply({
-        actorId: p.actors[0]!,
+        actorId: actor,
         type: 'SET_RESULT_CONFIRMED',
-        payload: { by: p.actors[0]! },
+        payload: { by: actor, choice },
       });
     }
+  }
+
+  /** A referee's ruling on a set-level disagreement. */
+  ruleSetResult(result: EntrantId): this {
+    const p = this.pending;
+    if (p.kind !== 'AWAITING_TO' || p.reason !== 'SET_RESULT_DISAGREEMENT') {
+      throw new Error(`expected a SET_RESULT_DISAGREEMENT escalation, got ${p.kind}`);
+    }
+    return this.apply({ actorId: 'referee', type: 'SET_RESULT_RULED', payload: { result } });
   }
 
   /** Both players pick the same tiebreak chart, so that chart plays. */

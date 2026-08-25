@@ -13,6 +13,7 @@ import {
 } from 'discord.js';
 import type { PrismaClient } from '@prisma/client';
 import type { EntrantId, MatchEvent, MatchFormat, MatchState, PendingAction } from '../domain/types.js';
+import { toPublicMatch } from '../domain/projection.js';
 import { requireFormat } from '../services/engine.js';
 import { appendMatchEvent, IllegalActionError, type AppendResult } from '../services/match-service.js';
 import type { RandomPort } from '../services/ports.js';
@@ -23,6 +24,7 @@ import {
   renderResetLog,
   renderRulingLog,
   renderSeedChoiceLog,
+  renderSetRulingLog,
   renderSongResultLog,
   renderTiebreakRevealLog,
 } from './log-messages.js';
@@ -31,6 +33,7 @@ import type { AlertPort, MatchChannelPort, RenderedMessage, ThreadRef } from './
 import { compactChartLabel } from './render/chart.js';
 import { buildEscalationAlert, buildResolvedAlert } from './render/escalation.js';
 import { buildMatchSongsEmbed } from './render/match-songs.js';
+import { buildResultAnnouncement, buildResultSummaryEmbed } from './render/result-summary.js';
 import { hasTier, refereeTierRoleIds, Tier, type TierRoleConfig } from './tier.js';
 import { parseExPercent } from './validate-ex.js';
 import { displayName, renderStateMessage, type PlayerDirectory } from './state-message.js';
@@ -288,8 +291,43 @@ async function handleRulingButton(
     await interaction.followUp({ ephemeral: true, content: 'This escalation was already resolved.' });
     return;
   }
-  const songIndex = cachedPending.songIndex;
 
+  const players = buildPlayerDirectory(match);
+  const refDisplayName = refereeDisplayName(interaction);
+  const ref: ThreadRef = { matchId: match.id, threadId: match.threadId! };
+
+  // A set-level disagreement has no songIndex — it isn't about any one
+  // song — and only two possible rulings, never a Void.
+  if (cachedPending.reason === 'SET_RESULT_DISAGREEMENT') {
+    const winnerId = arg as EntrantId;
+    const event: Omit<MatchEvent, 'seq'> = {
+      actorId: interaction.user.id,
+      type: 'SET_RESULT_RULED',
+      payload: { result: winnerId },
+    };
+    try {
+      const result = await appendMatchEvent(prisma, random, match.id, event, interaction.id);
+      if (match.alertMsgId) {
+        const outcome = `awarded the set to ${displayName(players, winnerId)}`;
+        await alert.resolve({ messageId: match.alertMsgId }, buildResolvedAlert(refDisplayName, outcome));
+        await prisma.match.update({ where: { id: match.id }, data: { alertMsgId: null } });
+      }
+      await matchChannel.postLogMessage(ref, renderSetRulingLog(winnerId, refDisplayName, players));
+      await applyAppendResult(prisma, matchChannel, alert, match, format, event, result);
+    } catch (err) {
+      if (err instanceof IllegalActionError) {
+        await interaction.followUp({
+          ephemeral: true,
+          content: `That's not available anymore — ${describeStale(err)}.`,
+        });
+        return;
+      }
+      throw err;
+    }
+    return;
+  }
+
+  const songIndex = cachedPending.songIndex!;
   const rulingResult = arg as EntrantId | 'VOID';
   const event: Omit<MatchEvent, 'seq'> = {
     actorId: interaction.user.id,
@@ -299,9 +337,7 @@ async function handleRulingButton(
 
   try {
     const result = await appendMatchEvent(prisma, random, match.id, event, interaction.id);
-    const players = buildPlayerDirectory(match);
     const chart = result.state.songs[songIndex]!.chart;
-    const refDisplayName = refereeDisplayName(interaction);
 
     if (match.alertMsgId) {
       const outcome =
@@ -310,7 +346,6 @@ async function handleRulingButton(
       await prisma.match.update({ where: { id: match.id }, data: { alertMsgId: null } });
     }
 
-    const ref: ThreadRef = { matchId: match.id, threadId: match.threadId! };
     await matchChannel.postLogMessage(ref, renderRulingLog(songIndex, chart, rulingResult, refDisplayName, players));
 
     await applyAppendResult(prisma, matchChannel, alert, match, format, event, result);
@@ -523,6 +558,29 @@ async function applyAppendResult(
     await prisma.match.update({ where: { id: match.id }, data: { alertMsgId: alertRef.messageId } });
   }
 
+  // The set just closed — `SET_DECIDED` fires exactly once, the moment
+  // `outcome()` turns non-null (both confirmations landed, or a terminal
+  // event). "The result summary is a log message and the last thing the
+  // bot posts... the thread archives immediately afterward." See
+  // DESIGN.md, "Ending the match". No further state message: there is
+  // nothing left pending.
+  if (result.effects.some((e) => e.kind === 'SET_DECIDED')) {
+    const publicMatch = toPublicMatch(format, result.state);
+    const [p0, p1] = match.participants;
+    const participantIds: [EntrantId, EntrantId] = [p0!.entrantId, p1!.entrantId];
+    const nameOf = (id: EntrantId) => displayName(players, id);
+    const outcome = publicMatch.outcome!;
+
+    const summary = buildResultSummaryEmbed(publicMatch.songs, publicMatch.points, outcome, participantIds, nameOf);
+    await matchChannel.postLogMessage(ref, { embeds: [summary] });
+
+    const announcement = buildResultAnnouncement(match.bracket, match.round, outcome, publicMatch.points, participantIds, nameOf);
+    await matchChannel.publishResult(announcement);
+
+    await matchChannel.archiveThread(ref);
+    return;
+  }
+
   await matchChannel.postMatchState(ref, renderStateMessage(match.id, pending, result.state, players));
 }
 
@@ -588,6 +646,12 @@ function buildEvent(
         type: 'SONG_WINNER_SELECTED',
         payload: { songIndex: cachedPending.songIndex, by: entrantId, choice },
       };
+    }
+    case Action.CONFIRM: {
+      if (cachedPending.kind !== 'CONFIRM_RESULT') return null;
+      const arg = decoded.arg;
+      if (!arg) return null;
+      return { actorId, type: 'SET_RESULT_CONFIRMED', payload: { by: entrantId, choice: arg as EntrantId } };
     }
     default:
       return null;

@@ -14,6 +14,8 @@ export const Action = {
   TIEBREAK: 'TB',
   /** A referee resetting Protect/Veto — legal only before song 1 has started, which `isLegal` already enforces. */
   RESET_PV: 'RESETPV',
+  /** A player's sign-off once the set is decided — `SET_RESULT_CONFIRMED`. */
+  CONFIRM: 'CONFIRM',
 } as const;
 
 /** The `customId` a "Submit score" text input carries within its modal. */

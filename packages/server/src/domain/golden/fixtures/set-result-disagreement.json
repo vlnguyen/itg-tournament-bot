@@ -1,5 +1,5 @@
 {
-  "name": "settings-violation-void",
+  "name": "set-result-disagreement",
   "formatKey": "bo5-protect-veto",
   "events": [
     {
@@ -232,24 +232,66 @@
     },
     {
       "actorId": "alice",
-      "type": "SONG_ESCALATED",
+      "type": "SCORE_SUBMITTED",
       "payload": {
         "songIndex": 0,
-        "reason": "SETTINGS_VIOLATION"
+        "by": "alice",
+        "ex": 95
       },
       "seq": 11
     },
     {
-      "actorId": "referee-casey",
-      "type": "SONG_RULED",
+      "actorId": null,
+      "type": "PHOTO_OBSERVED",
       "payload": {
         "songIndex": 0,
-        "result": "VOID"
+        "by": "alice",
+        "messageId": "m-0-alice"
       },
       "seq": 12
     },
     {
-      "seq": 13,
+      "actorId": "bob",
+      "type": "SCORE_SUBMITTED",
+      "payload": {
+        "songIndex": 0,
+        "by": "bob",
+        "ex": 90
+      },
+      "seq": 13
+    },
+    {
+      "actorId": null,
+      "type": "PHOTO_OBSERVED",
+      "payload": {
+        "songIndex": 0,
+        "by": "bob",
+        "messageId": "m-0-bob"
+      },
+      "seq": 14
+    },
+    {
+      "actorId": "alice",
+      "type": "SONG_WINNER_SELECTED",
+      "payload": {
+        "songIndex": 0,
+        "by": "alice",
+        "choice": "alice"
+      },
+      "seq": 15
+    },
+    {
+      "actorId": "bob",
+      "type": "SONG_WINNER_SELECTED",
+      "payload": {
+        "songIndex": 0,
+        "by": "bob",
+        "choice": "alice"
+      },
+      "seq": 16
+    },
+    {
+      "seq": 17,
       "actorId": null,
       "type": "SONG_STARTED",
       "payload": {
@@ -270,7 +312,7 @@
           "sourcePack": null,
           "flags": []
         },
-        "source": "PROTECT_ORDER",
+        "source": "LOSER_PROTECT",
         "drawIndex": 1
       }
     },
@@ -282,7 +324,7 @@
         "by": "alice",
         "ex": 95
       },
-      "seq": 14
+      "seq": 18
     },
     {
       "actorId": null,
@@ -292,7 +334,7 @@
         "by": "alice",
         "messageId": "m-1-alice"
       },
-      "seq": 15
+      "seq": 19
     },
     {
       "actorId": "bob",
@@ -302,7 +344,7 @@
         "by": "bob",
         "ex": 90
       },
-      "seq": 16
+      "seq": 20
     },
     {
       "actorId": null,
@@ -312,7 +354,7 @@
         "by": "bob",
         "messageId": "m-1-bob"
       },
-      "seq": 17
+      "seq": 21
     },
     {
       "actorId": "alice",
@@ -322,7 +364,7 @@
         "by": "alice",
         "choice": "alice"
       },
-      "seq": 18
+      "seq": 22
     },
     {
       "actorId": "bob",
@@ -332,10 +374,10 @@
         "by": "bob",
         "choice": "alice"
       },
-      "seq": 19
+      "seq": 23
     },
     {
-      "seq": 20,
+      "seq": 24,
       "actorId": null,
       "type": "SONG_STARTED",
       "payload": {
@@ -368,7 +410,7 @@
         "by": "alice",
         "ex": 95
       },
-      "seq": 21
+      "seq": 25
     },
     {
       "actorId": null,
@@ -378,7 +420,7 @@
         "by": "alice",
         "messageId": "m-2-alice"
       },
-      "seq": 22
+      "seq": 26
     },
     {
       "actorId": "bob",
@@ -388,7 +430,7 @@
         "by": "bob",
         "ex": 90
       },
-      "seq": 23
+      "seq": 27
     },
     {
       "actorId": null,
@@ -398,144 +440,59 @@
         "by": "bob",
         "messageId": "m-2-bob"
       },
-      "seq": 24
-    },
-    {
-      "actorId": "alice",
-      "type": "SONG_WINNER_SELECTED",
-      "payload": {
-        "songIndex": 2,
-        "by": "alice",
-        "choice": "alice"
-      },
-      "seq": 25
-    },
-    {
-      "actorId": "bob",
-      "type": "SONG_WINNER_SELECTED",
-      "payload": {
-        "songIndex": 2,
-        "by": "bob",
-        "choice": "alice"
-      },
-      "seq": 26
-    },
-    {
-      "seq": 27,
-      "actorId": null,
-      "type": "SONG_STARTED",
-      "payload": {
-        "songIndex": 3,
-        "chart": {
-          "chartId": "chart-6",
-          "title": "Song 6",
-          "titleTranslit": null,
-          "subtitle": null,
-          "subtitleTranslit": null,
-          "artist": null,
-          "artistTranslit": null,
-          "playStyle": "SINGLE",
-          "difficulty": "EXPERT",
-          "meter": 11,
-          "stepartist": null,
-          "description": null,
-          "sourcePack": null,
-          "flags": []
-        },
-        "source": "DECIDER",
-        "drawIndex": 6
-      }
-    },
-    {
-      "actorId": "alice",
-      "type": "SCORE_SUBMITTED",
-      "payload": {
-        "songIndex": 3,
-        "by": "alice",
-        "ex": 95
-      },
       "seq": 28
     },
     {
-      "actorId": null,
-      "type": "PHOTO_OBSERVED",
+      "actorId": "alice",
+      "type": "SONG_WINNER_SELECTED",
       "payload": {
-        "songIndex": 3,
+        "songIndex": 2,
         "by": "alice",
-        "messageId": "m-3-alice"
+        "choice": "alice"
       },
       "seq": 29
     },
     {
       "actorId": "bob",
-      "type": "SCORE_SUBMITTED",
+      "type": "SONG_WINNER_SELECTED",
       "payload": {
-        "songIndex": 3,
+        "songIndex": 2,
         "by": "bob",
-        "ex": 90
+        "choice": "alice"
       },
       "seq": 30
     },
     {
-      "actorId": null,
-      "type": "PHOTO_OBSERVED",
+      "actorId": "alice",
+      "type": "SET_RESULT_CONFIRMED",
       "payload": {
-        "songIndex": 3,
-        "by": "bob",
-        "messageId": "m-3-bob"
+        "by": "alice",
+        "choice": "alice"
       },
       "seq": 31
     },
     {
-      "actorId": "alice",
-      "type": "SONG_WINNER_SELECTED",
+      "actorId": "bob",
+      "type": "SET_RESULT_CONFIRMED",
       "payload": {
-        "songIndex": 3,
-        "by": "alice",
-        "choice": "alice"
+        "by": "bob",
+        "choice": "bob"
       },
       "seq": 32
     },
     {
-      "actorId": "bob",
-      "type": "SONG_WINNER_SELECTED",
+      "actorId": "referee",
+      "type": "SET_RESULT_RULED",
       "payload": {
-        "songIndex": 3,
-        "by": "bob",
-        "choice": "alice"
+        "result": "alice"
       },
       "seq": 33
-    },
-    {
-      "actorId": "alice",
-      "type": "SET_RESULT_CONFIRMED",
-      "payload": {
-        "by": "alice",
-        "choice": "alice"
-      },
-      "seq": 34
-    },
-    {
-      "actorId": "bob",
-      "type": "SET_RESULT_CONFIRMED",
-      "payload": {
-        "by": "bob",
-        "choice": "alice"
-      },
-      "seq": 35
     }
   ],
   "expected": {
     "committedSongs": [
       {
         "source": "FIRST_PROTECT",
-        "result": {
-          "winner": "VOID",
-          "by": "RULING"
-        }
-      },
-      {
-        "source": "PROTECT_ORDER",
         "result": {
           "winner": "alice",
           "by": "AGREEMENT"
@@ -549,7 +506,7 @@
         }
       },
       {
-        "source": "DECIDER",
+        "source": "LOSER_PROTECT",
         "result": {
           "winner": "alice",
           "by": "AGREEMENT"

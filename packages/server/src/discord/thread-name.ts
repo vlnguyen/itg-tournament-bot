@@ -7,7 +7,7 @@ import type { BracketSide } from '@itg/shared';
  * is the first game, round 2 the reset, and design calls it "GF2," not
  * "GFR2."
  */
-function roundLabel(bracket: BracketSide, round: number): string {
+export function roundLabel(bracket: BracketSide, round: number): string {
   if (bracket === 'GRAND_FINAL') return `GF${round}`;
   return `${bracket === 'WINNERS' ? 'W' : 'L'}R${round}`;
 }

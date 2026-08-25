@@ -69,7 +69,7 @@ export interface PublicMatch {
   points: Record<EntrantId, number>;
   tiebreaks: PublicTiebreakRound[];
   escalation?: MatchState['escalation'];
-  confirmations: EntrantId[];
+  setWinnerSelections: MatchState['setWinnerSelections'];
   pending: PendingAction;
   outcome: MatchOutcome | null;
 }
@@ -111,7 +111,7 @@ export function toPublicMatch(format: MatchFormat, state: MatchState): PublicMat
     points: state.points,
     tiebreaks: state.tiebreaks.map(toPublicTiebreak),
     escalation: state.escalation,
-    confirmations: state.confirmations,
+    setWinnerSelections: state.setWinnerSelections,
     pending: format.pendingAction(state),
     outcome: format.outcome(state),
   };

@@ -193,7 +193,7 @@ describe('terminal events override everything', () => {
   it('needs no confirmation from either player', () => {
     const d = opened();
     d.apply({ actorId: REF, type: 'FORFEIT_APPLIED', payload: { winnerId: A } });
-    expect(d.state.confirmations).toEqual([]);
+    expect(d.state.setWinnerSelections).toEqual({});
     expect(F.outcome(d.state)).not.toBeNull();
   });
 });

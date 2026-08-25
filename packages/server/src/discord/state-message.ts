@@ -14,6 +14,7 @@ import { fullChartDescription, selectOptionDescription, selectOptionLabel } from
 import { buildDrawStatusLines } from './render/draw-status.js';
 import { buildAwaitingRefereeMessage } from './render/escalation.js';
 import { buildScoreTicksLines } from './render/score-ticks.js';
+import { buildTiebreakStatusLines } from './render/tiebreak-status.js';
 import { buildWinnerSelectMessage } from './render/winner-select.js';
 
 /**
@@ -62,6 +63,8 @@ export function renderStateMessage(
       return renderSelectWinner(matchId, pending.songIndex, state, players);
     case 'AWAITING_TO':
       return buildAwaitingRefereeMessage(pending.reason);
+    case 'TIEBREAK_PICK':
+      return renderTiebreakPick(matchId, pending.round, pending.choices, state, players);
     default:
       // Built incrementally alongside the interaction handlers that need
       // each kind — see Phase 4's build order in the plan. A placeholder
@@ -170,4 +173,47 @@ function renderSelectWinner(
   return buildWinnerSelectMessage(matchId, songIndex, song, [a!.entrantId, b!.entrantId], (id) =>
     displayName(players, id),
   );
+}
+
+/**
+ * The select menu lives on this shared message, but a pick must never be
+ * answered with `deferUpdate()` — the interaction handler responds
+ * ephemerally instead. This message only ever shows *who* has acted,
+ * never what — see DESIGN.md, "The tiebreak", and
+ * `render/tiebreak-status.ts`.
+ */
+function renderTiebreakPick(
+  matchId: string,
+  round: number,
+  choices: number[],
+  state: MatchState,
+  players: PlayerDirectory,
+): RenderedMessage {
+  const tiebreak = state.tiebreaks.find((t) => t.round === round)!;
+  const participantIds = state.participants.map((p) => p.entrantId);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`Tiebreak round ${round}`)
+    .setDescription(
+      'Choose privately. Your pick is not shown to your opponent — or to anyone else — until both of you have chosen, and then it is revealed for both.',
+    )
+    .addFields({
+      name: 'Status',
+      value: buildTiebreakStatusLines(tiebreak.choices, participantIds, (id) => displayName(players, id)),
+    });
+
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(encodeCustomId({ matchId, action: Action.TIEBREAK }))
+    .setPlaceholder('Select a chart')
+    .addOptions(
+      choices.map((i) => {
+        const chart = tiebreak.charts[i]!;
+        const option = new StringSelectMenuOptionBuilder().setLabel(selectOptionLabel(chart)).setValue(String(i));
+        const description = selectOptionDescription(chart);
+        return description ? option.setDescription(description) : option;
+      }),
+    );
+
+  const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
+  return { embeds: [embed], components: [row] };
 }

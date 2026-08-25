@@ -17,9 +17,16 @@ import { appendMatchEvent, IllegalActionError, type AppendResult } from '../serv
 import type { RandomPort } from '../services/ports.js';
 import { Action, SCORE_MODAL_EX_FIELD } from './actions.js';
 import { decodeCustomId, encodeCustomId, type CustomId } from './custom-id.js';
-import { renderProtectVetoLog, renderRulingLog, renderSeedChoiceLog, renderSongResultLog } from './log-messages.js';
+import {
+  renderProtectVetoLog,
+  renderRulingLog,
+  renderSeedChoiceLog,
+  renderSongResultLog,
+  renderTiebreakRevealLog,
+} from './log-messages.js';
 import { buildPlayerDirectory, loadMatch, type MatchWithParticipants } from './match-lookup.js';
 import type { AlertPort, MatchChannelPort, RenderedMessage, ThreadRef } from './ports.js';
+import { compactChartLabel } from './render/chart.js';
 import { buildEscalationAlert, buildResolvedAlert } from './render/escalation.js';
 import { buildMatchSongsEmbed } from './render/match-songs.js';
 import { hasTier, refereeTierRoleIds, Tier, type TierRoleConfig } from './tier.js';
@@ -80,6 +87,15 @@ async function handle(
   // check below rather than through the generic path.
   if (interaction.isButton() && decoded.action === Action.RULE) {
     await handleRulingButton(interaction, decoded, prisma, random, matchChannel, alert);
+    return;
+  }
+
+  // The one place the general defer-first rule has a wrong answer:
+  // deferUpdate() mutates the shared state message for everyone, which
+  // would leak a tiebreak pick to the opponent before it's revealed. See
+  // DESIGN.md, "The tiebreak".
+  if (interaction.isStringSelectMenu() && decoded.action === Action.TIEBREAK) {
+    await handleTiebreakPick(interaction, decoded, prisma, random, matchChannel, alert);
     return;
   }
 
@@ -285,6 +301,74 @@ async function handleRulingButton(
   }
 }
 
+async function handleTiebreakPick(
+  interaction: StringSelectMenuInteraction,
+  decoded: CustomId,
+  prisma: PrismaClient,
+  random: RandomPort,
+  matchChannel: MatchChannelPort,
+  alert: AlertPort,
+): Promise<void> {
+  // Ephemeral, never deferUpdate() — see the note at the call site.
+  await interaction.deferReply({ ephemeral: true });
+
+  const match = await loadMatch(prisma, decoded.matchId);
+  if (!match) {
+    await interaction.editReply('This match no longer exists.');
+    return;
+  }
+  const me = match.participants.find((p) => p.entrant.discordUserId === interaction.user.id);
+  if (!me) {
+    await interaction.editReply("You're not a participant in this match.");
+    return;
+  }
+
+  const format = requireFormat(match.formatKey);
+  const cachedState = match.state as unknown as MatchState;
+  const cachedPending = format.pendingAction(cachedState);
+
+  if (cachedPending.kind !== 'TIEBREAK_PICK') {
+    // "Selections are final. A second interaction from a player who has
+    // already chosen is refused ephemerally, saying what they picked so
+    // they are not left guessing." The round may also simply be over.
+    const round = cachedState.tiebreaks.at(-1);
+    const priorIndex = round?.choices[me.entrantId];
+    if (round && priorIndex !== undefined) {
+      await interaction.editReply(`Your pick is final — you already chose ${compactChartLabel(round.charts[priorIndex]!)}.`);
+    } else {
+      await interaction.editReply("That's not available anymore.");
+    }
+    return;
+  }
+
+  const index = Number(interaction.values[0]);
+  if (!Number.isInteger(index)) {
+    await interaction.editReply('Unrecognized choice.');
+    return;
+  }
+
+  const event: Omit<MatchEvent, 'seq'> = {
+    actorId: interaction.user.id,
+    type: 'TIEBREAK_CHOICE',
+    payload: { round: cachedPending.round, by: me.entrantId, index },
+  };
+
+  try {
+    const result = await appendMatchEvent(prisma, random, match.id, event, interaction.id);
+    const chosenChart = result.state.tiebreaks.find((t) => t.round === cachedPending.round)!.charts[index]!;
+    await interaction.editReply(
+      `You picked ${compactChartLabel(chosenChart)}. It'll be revealed once your opponent has chosen too.`,
+    );
+    await applyAppendResult(prisma, matchChannel, alert, match, format, event, result);
+  } catch (err) {
+    if (err instanceof IllegalActionError) {
+      await interaction.editReply("That's not available anymore.");
+      return;
+    }
+    throw err;
+  }
+}
+
 /**
  * Everything that happens after a successful append, shared by every
  * action type: a permanent log line where one applies, the Protect/Veto
@@ -315,11 +399,18 @@ async function applyAppendResult(
   // A song committed by agreement gets its own permanent log line — a
   // ruling does too, but that one is posted by handleRulingButton, which
   // is the only place that has the referee's identity to attribute it to.
+  // A resolved tiebreak round gets its own reveal log, once both picks
+  // exist — see DESIGN.md, "The tiebreak".
+  const [pA, pB] = match.participants;
   for (const effect of result.effects) {
-    if (effect.kind !== 'SONG_COMMITTED') continue;
-    const song = result.state.songs[effect.songIndex]!;
-    if (song.result?.by !== 'AGREEMENT') continue;
-    await matchChannel.postLogMessage(ref, renderSongResultLog(effect.songIndex, song.chart, song.result.winner, players));
+    if (effect.kind === 'SONG_COMMITTED') {
+      const song = result.state.songs[effect.songIndex]!;
+      if (song.result?.by !== 'AGREEMENT') continue;
+      await matchChannel.postLogMessage(ref, renderSongResultLog(effect.songIndex, song.chart, song.result.winner, players));
+    } else if (effect.kind === 'TIEBREAK_RESOLVED') {
+      const round = result.state.tiebreaks.find((t) => t.round === effect.round)!;
+      await matchChannel.postLogMessage(ref, renderTiebreakRevealLog(round, [pA!.entrantId, pB!.entrantId], players));
+    }
   }
 
   // Protect/Veto just finished — ABBAAB's sixth and last action always

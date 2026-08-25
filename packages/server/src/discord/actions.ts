@@ -10,6 +10,8 @@ export const Action = {
   WINNER: 'WIN',
   /** A referee ruling on an escalated song — posted in the alert channel, not the match thread. */
   RULE: 'RULE',
+  /** A tiebreak pick — the response is always ephemeral, never `deferUpdate()`. See DESIGN.md, "The tiebreak". */
+  TIEBREAK: 'TB',
 } as const;
 
 /** The `customId` a "Submit score" text input carries within its modal. */

@@ -1,5 +1,5 @@
 import type { ChartSnapshot } from '@itg/shared';
-import type { EntrantId } from '../domain/types.js';
+import type { EntrantId, TiebreakRound } from '../domain/types.js';
 import type { RenderedMessage } from './ports.js';
 import { compactChartLabel } from './render/chart.js';
 import { displayName, type PlayerDirectory } from './state-message.js';
@@ -62,5 +62,35 @@ export function renderRulingLog(
     result === 'VOID' ? 'voided' : result === 'TIE' ? 'ruled a tie' : `awarded to **${displayName(players, result)}**`;
   return {
     content: `⚖️ Song ${songIndex + 1} (${compactChartLabel(chart)}) ${outcome} — ruling by **${refereeDisplayName}**`,
+  };
+}
+
+/**
+ * "The reveal is a log message, posted once both picks exist: both
+ * selections, the rule applied... and the chart that results." See
+ * DESIGN.md, "The tiebreak" — permanent, because by then it's history and
+ * the whole point of the mechanism is that it can be audited afterwards.
+ */
+export function renderTiebreakRevealLog(
+  round: TiebreakRound,
+  participantIds: readonly [EntrantId, EntrantId],
+  players: PlayerDirectory,
+): RenderedMessage {
+  const [a, b] = participantIds;
+  const pickA = round.charts[round.choices[a]!]!;
+  const pickB = round.charts[round.choices[b]!]!;
+  const resultChart = round.charts[round.resolvedIndex!]!;
+  const rule =
+    round.choices[a] === round.choices[b]
+      ? `Both picked the same chart — it plays: ${compactChartLabel(resultChart)}`
+      : `Different picks — the unselected chart plays: ${compactChartLabel(resultChart)}`;
+
+  return {
+    content: [
+      `🎲 Tiebreak round ${round.round} — picks revealed`,
+      `**${displayName(players, a)}** chose ${compactChartLabel(pickA)}`,
+      `**${displayName(players, b)}** chose ${compactChartLabel(pickB)}`,
+      rule,
+    ].join('\n'),
   };
 }

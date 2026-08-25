@@ -12,7 +12,13 @@
  * Usage (from the repo root):
  *   npx tsx packages/server/scripts/seed-verification-match.ts \
  *     --guild <guildId> --matches <channelId> --alerts <channelId> \
- *     --referee-role <roleId> --entrant <userId> --entrant <userId>
+ *     --referee-role <roleId> --entrant <userId> --entrant <userId> \
+ *     [--pack </path/to/a/StepMania/pack/folder>]
+ *
+ * `--pack` is optional. Without it, a dozen synthetic placeholder charts
+ * are seeded, as before this flag existed. With it, the folder is walked
+ * via `readPackDirectory` and every song's real chart metadata is imported
+ * — no note data, no audio, nothing beyond what a Draw needs to show.
  *
  * Requires DISCORD_TOKEN in .env and the bot already invited to the guild
  * with the permissions listed in DESIGN.md's "Required permissions".
@@ -25,6 +31,7 @@ import { createMatchChannelAdapter } from '../src/discord/match-channel-adapter.
 import { createPlayerNotificationAdapter } from '../src/discord/player-notification-adapter.js';
 import { provisionReadyThreads } from '../src/discord/thread-provisioning.js';
 import { materializeBracket } from '../src/services/bracket-service.js';
+import { importPackToTournament } from '../src/services/pack-import.js';
 import { cryptoRandomPort } from '../src/services/ports.js';
 
 process.loadEnvFile(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../.env'));
@@ -35,6 +42,7 @@ function parseArgs(argv: string[]): {
   alertChannelId: string;
   refereeRoleId: string;
   entrantUserIds: string[];
+  packDir: string | null;
 } {
   const flags = new Map<string, string[]>();
   for (let i = 0; i < argv.length; i += 2) {
@@ -58,6 +66,10 @@ function parseArgs(argv: string[]): {
     alertChannelId: one('alerts'),
     refereeRoleId: one('referee-role'),
     entrantUserIds,
+    // Optional — a real StepMania pack directory on disk, walked by
+    // `readPackDirectory`. Without it, the harness falls back to a small
+    // synthetic placeholder pack, same as before this flag existed.
+    packDir: flags.get('pack')?.[0] ?? null,
   };
 }
 
@@ -123,17 +135,22 @@ async function main(): Promise<void> {
       });
     }
 
-    const packSize = 12;
-    for (let i = 0; i < packSize; i++) {
-      await prisma.chart.create({
-        data: {
-          tournamentId: tournament.id,
-          title: `Verification Song ${i + 1}`,
-          playStyle: 'SINGLE',
-          difficulty: 'EXPERT',
-          meter: 12 + (i % 6),
-        },
-      });
+    if (args.packDir) {
+      const count = await importPackToTournament(prisma, tournament.id, args.packDir);
+      console.log(`Imported ${count} chart(s) from "${args.packDir}".`);
+    } else {
+      const packSize = 12;
+      for (let i = 0; i < packSize; i++) {
+        await prisma.chart.create({
+          data: {
+            tournamentId: tournament.id,
+            title: `Verification Song ${i + 1}`,
+            playStyle: 'SINGLE',
+            difficulty: 'EXPERT',
+            meter: 12 + (i % 6),
+          },
+        });
+      }
     }
 
     console.log(`Seeded tournament ${tournament.id} with entrants ${members.map((m) => m.displayName).join(', ')}`);

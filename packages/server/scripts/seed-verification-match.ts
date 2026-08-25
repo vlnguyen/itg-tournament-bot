@@ -164,7 +164,7 @@ async function main(): Promise<void> {
     console.log('Bracket materialized.');
 
     const matchChannel = createMatchChannelAdapter(client, prisma);
-    const playerNotification = createPlayerNotificationAdapter(client);
+    const playerNotification = createPlayerNotificationAdapter(client, prisma);
     const threads = await provisionReadyThreads(prisma, matchChannel, playerNotification, tournament.id, '(Test) ');
 
     console.log(`Provisioned ${threads.length} thread(s):`);

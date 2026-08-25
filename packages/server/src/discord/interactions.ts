@@ -6,7 +6,6 @@ import {
   TextInputStyle,
   type ButtonInteraction,
   type Client,
-  type GuildMember,
   type Interaction,
   type ModalSubmitInteraction,
   type StringSelectMenuInteraction,
@@ -36,6 +35,7 @@ import { compactChartLabel } from './render/chart.js';
 import { buildEscalationAlert, buildResolvedAlert } from './render/escalation.js';
 import { buildMatchSongsEmbed } from './render/match-songs.js';
 import { buildResultAnnouncement, buildResultSummaryEmbed } from './render/result-summary.js';
+import { memberDisplayName } from './member-display-name.js';
 import { hasTier, refereeTierRoleIds, Tier, type TierRoleConfig } from './tier.js';
 import { parseExPercent } from './validate-ex.js';
 import { displayName, renderStateMessage, type PlayerDirectory } from './state-message.js';
@@ -247,23 +247,9 @@ function rolesOfMember(member: ButtonInteraction['member']): string[] {
   return [...member.roles.cache.keys()];
 }
 
-function isCachedMember(member: NonNullable<ButtonInteraction['member']>): member is GuildMember {
-  return !Array.isArray(member.roles);
-}
-
-/**
- * A referee's name attributed on a ruling/reset log must be how this
- * *server* shows them — nickname if set — never the raw Discord username.
- * Handles both shapes `interaction.member` can come back as: a cached
- * `GuildMember` (whose `displayName` getter already resolves nickname →
- * global name → username) or the raw API partial, which carries `nick`
- * directly and falls back the same way.
- */
+/** A referee's name attributed on a ruling/reset log must be how this *server* shows them — nickname if set — never the raw Discord username. */
 function refereeDisplayName(interaction: ButtonInteraction): string {
-  const member = interaction.member;
-  if (member && isCachedMember(member)) return member.displayName;
-  const nick = member && 'nick' in member ? member.nick : undefined;
-  return nick ?? interaction.user.globalName ?? interaction.user.username;
+  return memberDisplayName(interaction.member, interaction.user);
 }
 
 async function handleRulingButton(

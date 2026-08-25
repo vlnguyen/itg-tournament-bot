@@ -56,7 +56,13 @@ const tournament = new SlashCommandBuilder()
   .addSubcommand((sub) => sub.setName('open-checkin').setDescription('Open check-in and notify registered players'))
   .addSubcommand((sub) => sub.setName('close-checkin').setDescription('Close check-in and normalize seeds'))
   .addSubcommand((sub) => sub.setName('start').setDescription('Start the tournament — generates the bracket and provisions threads'))
-  .addSubcommand((sub) => sub.setName('cancel').setDescription('Cancel the tournament'));
+  .addSubcommand((sub) => sub.setName('cancel').setDescription('Cancel the tournament'))
+  .addSubcommand((sub) =>
+    sub
+      .setName('rename')
+      .setDescription('Rename the tournament this server is holding')
+      .addStringOption((o) => o.setName('name').setDescription('New name').setRequired(true)),
+  );
 
 const roster = new SlashCommandBuilder()
   .setName('roster')
@@ -84,7 +90,8 @@ const roster = new SlashCommandBuilder()
       .setName('remove')
       .setDescription('Withdraw a player from the tournament')
       .addUserOption((o) => o.setName('player').setDescription('The player').setRequired(true)),
-  );
+  )
+  .addSubcommand((sub) => sub.setName('list').setDescription('See who is on the tournament roster'));
 
 const join = new SlashCommandBuilder().setName('join').setDescription('Register for the current tournament');
 const checkin = new SlashCommandBuilder().setName('checkin').setDescription('Check yourself in');

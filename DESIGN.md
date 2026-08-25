@@ -272,15 +272,15 @@ All three are alert thresholds or estimates. Nothing inside a match format is co
 
 All three need raw SQL in a migration, and all three are worth the awkwardness because they enforce a requirement at the only level that cannot be bypassed by a bug in a service.
 
-**One active tournament per guild.** A partial unique index:
+**One tournament held per guild.** A partial unique index:
 
 ```sql
 CREATE UNIQUE INDEX one_active_tournament_per_guild
   ON "Tournament" ("guildId")
-  WHERE "state" NOT IN ('DRAFT', 'COMPLETE', 'CANCELLED');
+  WHERE "state" NOT IN ('COMPLETE', 'CANCELLED');
 ```
 
-Drafts do not occupy the slot — a TO can prepare the next event while one is running, which the requirement's "cannot *start* until the current one finishes" permits. Everything from open registration through the grand final does.
+A tournament occupies the slot **from the moment it is created** — `DRAFT` included — per REQUIREMENTS.md's "held from the moment it is created... no separate 'preparing the next one' state that doesn't count." `/tournament create` is the action that claims the slot, and only `COMPLETE` or `CANCELLED` release it. `createTournament` checks this first for a friendly `TournamentSlotOccupiedError`, naming what's already held; the index is what actually guarantees it under a race between two concurrent creates. A TO who wants to change a held draft's name before opening registration uses `/tournament rename` rather than discarding and recreating it — see "Tournament Lifecycle".
 
 **Sparse seed uniqueness.** `@@unique([tournamentId, seed])` allows multiple nulls, so unseeded entrants coexist while seeds are still being assigned and assigned seeds cannot collide. This is the SQL standard's nulls-are-distinct rule rather than a Postgres quirk — but **PostgreSQL 15 added `UNIQUE NULLS NOT DISTINCT`**, which inverts it. The design depends on the default; a migration that opts into the inversion would permit exactly one unseeded entrant per tournament, so the dependency is written down rather than assumed.
 
@@ -844,7 +844,7 @@ Everywhere else the adapter fails loud rather than pre-checking: a permission er
 
 Requirements call for a guided wizard walking a new server through configuration, building a song pack, and creating its first tournament.
 
-**It is a view over real records, not its own state machine.** Server configuration is the `Guild` row; the first tournament is a `Tournament` in `DRAFT`, which the lifecycle already defines and which explicitly does not occupy the server's active slot. A half-finished setup is therefore just a draft, resumable by construction — closing the tab loses nothing, and there is no wizard-progress table to keep in step with the records it describes.
+**It is a view over real records, not its own state machine.** Server configuration is the `Guild` row; the first tournament is a `Tournament` in `DRAFT`, which the lifecycle already defines. A half-finished setup is therefore just a draft, resumable by construction — closing the tab loses nothing, and there is no wizard-progress table to keep in step with the records it describes. It does claim the server's tournament slot the moment it exists, same as any other draft — nothing else can be created alongside it until it is renamed into shape, cancelled, or carried through to completion.
 
 ## Registration and Check-in
 
@@ -911,6 +911,8 @@ That is worth stating as a rule because the alternative is tempting and wrong. A
 
 **Late additions and re-check-ins re-run normalization**, exactly as late withdrawals do. They raise **no alert**, unlike a player's own `/leave`: the organizer already knows what they just did, and an alert reporting it is noise. That asymmetry is the whole reason the withdrawal alert exists — it reports a change the organizers did *not* make.
 
+**`/roster list` is the one subcommand with no tier gate** — read-only, so anyone can see who is on the roster, seeded entrants first in seed order then unseeded ones in join order. It reads `Entrant.displayName` when the tournament has a snapshot (`RUNNING` or later) and falls back to a live member fetch before that, same as every other pre-start display of a name.
+
 ### Snapshotting the display name
 
 `Entrant.displayName` is **null until the tournament starts**. Every surface before that — the roster, the seeding interface — reads the current name from the gateway member cache, which is exactly what the `User` table is for.
@@ -927,32 +929,47 @@ This is the second and last use of direct messages, on the same rationale as mat
 
 **The gap this leaves is real and is handled by a human.** With no mentions in the channel and a DM that may fail, a player who has DMs closed and is not watching the server will miss the window. So the roster view marks each entrant with two things: **checked in**, and **DM undeliverable**. An organizer can see at a glance who was never reached and chase them directly. That is the correct division — the bot does not nudge, and a person who wants to is given the information to.
 
+**Opening registration gets the same general-channel announcement, minus the DM half.** There is nobody registered yet to direct-message — the whole point of the post is to reach people who have not joined. `PlayerNotificationPort.registrationOpened` and `checkinOpened` therefore share one `postToGeneralChannel` helper in the adapter and differ only in whether a DM pass follows.
+
+**Every individual `/join` and `/checkin` also posts to the general channel** — who just joined or checked in, plus a reminder of the command for anyone reading who hasn't yet (`entrantJoined`/`entrantCheckedIn`). Unlike the window-opening announcements, these fire once per entrant rather than once per tournament, so a large field is a burst of general-channel traffic — accepted as the cost of keeping registration visible in the channel competitors already watch, the same tradeoff "The duplication is the design, not redundancy to optimise away" makes for result forwarding.
+
+### Logging changes to organizers
+
+Every tournament lifecycle transition (`/tournament create`/`open-registration`/`close-registration`/`open-checkin`/`close-checkin`/`start`/`cancel`/`rename`) and every roster change (`/join`, `/checkin`, `/leave`, and each `/roster` action) posts one line to the organizer alert channel, attributed to who did it. This is a plain activity log, not an escalation — no ruling buttons, nothing to resolve — so the command layer reuses `AlertPort.raise` as a bare post via a small `logToOrganizers` helper rather than routing it through the resolve-in-place machinery "Two classes, one inbox" describes below. A no-op confirmation (already joined, already checked in) is not a change and is not logged.
+
+**Naming differs by audience.** The organizer alert channel is private and names people by their **raw Discord username** — the identifier that actually disambiguates someone in a moderation context, where two members can share a display name (or an empty one). The general-channel announcements (`registrationOpened`/`checkinOpened`/`entrantJoined`/`entrantCheckedIn`) are public and use the **server display name** instead, matching every other player-facing surface. `/roster`'s ephemeral reply — visible only to the organizer who ran it — also uses the display name, since it is not a channel post at all and reads more naturally that way; only the alert-channel line switches to username.
+
 ## Tournament Lifecycle
 
 Every transition is an explicit action by someone at Tournament Organizer tier or above. Nothing is on a timer, and the state machine is the guard. Referees hold none of these — they rule on matches inside a running tournament, they do not move it between states.
 
 ```
-DRAFT ─► REGISTRATION_OPEN ─► REGISTRATION_CLOSED ─► CHECKIN_OPEN
-                                                          │
-                        ┌─────────────────────────────────┘
-                        ▼
-                  CHECKIN_CLOSED ─► RUNNING ─► COMPLETE
+DRAFT ─► REGISTRATION_OPEN ─► REGISTRATION_CLOSED ─► CHECKIN_OPEN ─► CHECKIN_CLOSED ─► RUNNING ─► COMPLETE
 ```
+
+Every state in that diagram, `DRAFT` included, holds the guild's one tournament slot; only `COMPLETE` and `CANCELLED` (reachable from anywhere left of `RUNNING`) release it.
 
 | Transition | Actor | Guard | Effect |
 | --- | --- | --- | --- |
-| `DRAFT → REGISTRATION_OPEN` | TO | Guild configured; format chosen; no other active tournament | `/join` starts working |
-| `→ REGISTRATION_CLOSED` | TO | — | `/join` stops working |
-| `→ CHECKIN_OPEN` | TO | — | `/checkin` starts working |
-| `→ CHECKIN_CLOSED` | TO | — | Un-checked-in entrants have their seeds cleared; surviving seeds renumbered from 1 in relative order; unseeded entrants appended in join order — one transaction. No status changes: `checkedIn` already records who was dropped |
+| `— → DRAFT` | TO | No tournament already held by this guild | Claims the guild's tournament slot — see below |
+| `DRAFT → REGISTRATION_OPEN`, or `REGISTRATION_CLOSED → REGISTRATION_OPEN` | TO | Guild configured; format chosen | `/join` starts (or resumes) working |
+| `REGISTRATION_OPEN → REGISTRATION_CLOSED`, or `CHECKIN_OPEN → REGISTRATION_CLOSED` | TO | — | `/join` stops working |
+| `REGISTRATION_CLOSED → CHECKIN_OPEN`, or `CHECKIN_CLOSED → CHECKIN_OPEN` | TO | — | `/checkin` starts (or resumes) working |
+| `CHECKIN_OPEN → CHECKIN_CLOSED` | TO | — | Un-checked-in entrants have their seeds cleared; surviving seeds renumbered from 1 in relative order; unseeded entrants appended in join order — one transaction. No status changes: `checkedIn` already records who was dropped |
 | `→ RUNNING` | TO | Every active entrant has a distinct seed, contiguous from 1; **Discord permission preflight passes** | Seeds fixed, bracket generated, threads provisioned, players notified |
-| `→ COMPLETE` | bot | Grand final committed | Standings posted, public archive frozen |
+| `→ COMPLETE` | bot | Grand final committed | Standings posted, public archive frozen; releases the slot |
+
+**Each of the three pre-`RUNNING` commands also runs one step in reverse** — `open-registration`, `close-registration`, and `open-checkin` each accept either their ordinary predecessor state or the state their own target normally leads to next, landing on the same target either way. Concretely: `close-registration` undoes an `open-checkin` that ran too early (from `CHECKIN_OPEN`, back to `REGISTRATION_CLOSED`); `open-registration` undoes a `close-registration` that ran too early (from `REGISTRATION_CLOSED`, back to `REGISTRATION_OPEN`); `open-checkin` undoes a `close-checkin` that ran too early (from `CHECKIN_CLOSED`, back to `CHECKIN_OPEN`). None of these touch `Entrant` rows — a reversal is a bare state-enum flip, and whatever `checkedIn`/`seed` values exist keep meaning exactly what they meant, ready for the ordinary forward path (in particular `closeCheckin`'s renormalization) to pick back up correctly once the TO moves forward again.
+
+**`start` and `COMPLETE` do not get this treatment.** Undoing either would mean unwinding a materialized bracket, provisioned threads, and (past `COMPLETE`) posted results and a frozen archive — a different order of operation entirely from flipping an enum, and not something this build order has attempted.
+
+**`/tournament rename`** works in any state short of `COMPLETE` or `CANCELLED` — the same span the tournament holds the slot for. It changes nothing but the name; no other field or transition is touched.
 
 **There is no separate `SEEDED` state, deliberately.** An earlier draft had one, recording that a TO had reviewed and committed the seed order before starting. It gated nothing and froze nothing — `/leave` works until the tournament starts, so a player could withdraw after the commit, renumbering the field while the tournament still claimed the order was confirmed. A state asserting a fact that can quietly stop being true is worse than no state.
 
 Starting *is* the confirmation: the start action shows the final order for review, and generating the bracket fixes it. The seed guard moved onto `→ RUNNING`, where it is still an **assertion rather than a gate** — normalization at check-in close already guarantees it — kept because a violation means normalization is broken, and learning that before a bracket exists is much cheaper than after.
 
-`CANCELLED` is reachable from any pre-`RUNNING` state at Tournament Organizer tier, and frees the guild's active slot.
+`CANCELLED` is reachable from any pre-`RUNNING` state at Tournament Organizer tier, and — like `COMPLETE` — frees the guild's slot for a new `/tournament create`. See "Three constraints Prisma cannot express" for how the slot itself is held and enforced.
 
 **Two things happen at the start transition and only one of them can block.** Permissions are re-checked and a missing one blocks with the exact list. A song pack below the recommended size warns and proceeds — the requirement is explicit that the warning never blocks. The threshold is **`recommendedPackSize` from the format**, not a constant: Bo5 asks for 10, and a format with a different draw asks for whatever it needs. Once a tournament can mix formats, the threshold is the maximum across those in use.
 

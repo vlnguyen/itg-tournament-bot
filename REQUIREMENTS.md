@@ -511,8 +511,9 @@ Buttons remain *visible* to anyone who can read the channel; enforcement happens
 ## Notifications
 
 - The bot **announces when check-in opens**, in the general channel, and **direct messages every registered player**. The channel post carries no mentions. Missing check-in means missing the tournament, so this is the one lifecycle event a player cannot be expected to discover on their own.
+- The bot also **announces in the general channel when registration opens** — a no-mentions post inviting anyone watching to `/join`. No direct message accompanies it: nobody is registered yet to DM.
 - The bot **notifies both players when a new match is ready** — that is, when their next-round opponent is determined and the thread has been created. It does this **twice**: by mentioning them in the thread, and by **direct message**.
-- A separate **organizer alert channel** receives escalations, timer alerts, and disputes.
+- A separate **organizer alert channel** receives escalations, timer alerts, and disputes — and, as a plain activity log, every tournament lifecycle transition and every roster change (`/join`, `/checkin`, `/leave`, and every `/roster` action), attributed to who did it.
 
 **The direct message is best-effort.** Discord lets a user refuse DMs from server members, and a bot cannot override that or detect it in advance — the send simply fails. The thread mention is therefore the notification of record, and a failed DM is logged and never retried. A player who has DMs closed loses nothing but the second nudge.
 
@@ -600,7 +601,7 @@ The public tournament view carries a **tab showing that tournament's song pack**
 
 - **Full state is persisted.** A restart mid-Protect/Veto or mid-set resumes exactly where it left off.
 - A single bot instance serves **multiple Discord servers**, each with independent tournaments and song packs.
-- **One active tournament per Discord server.** A new tournament cannot start until the current one finishes.
+- **One tournament per Discord server, held from the moment it is created.** A new tournament cannot be created until the current one is cancelled or reaches completion — there is no separate "preparing the next one" state that doesn't count.
 - **Historical results are retained** and remain queryable after an event ends.
 - History is **scoped to the Discord server** it belongs to.
 - The bot administrator can see which servers the bot has been added to and view the tournaments and brackets belonging to each.

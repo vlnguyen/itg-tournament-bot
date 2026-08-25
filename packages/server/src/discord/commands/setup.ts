@@ -28,7 +28,7 @@ import { describeGap } from '../permission-diagnostic.js';
 import { refereeTierRoleIds, type TierRoleConfig } from '../tier.js';
 import type { CommandContext } from './context.js';
 
-type ChannelSlot = 'matches' | 'alerts' | 'results' | 'general';
+export type ChannelSlot = 'matches' | 'alerts' | 'results' | 'general';
 
 const EMPTY_TIER_CONFIG: TierRoleConfig = { refereeRoleId: null, toRoleId: null, adminRoleId: null };
 
@@ -340,7 +340,12 @@ const REQUIRED_TIER_ROLE_LABELS: Record<RequiredTierRole, string> = {
   organizer: 'Tournament Organizer',
 };
 
-async function runFullDiagnostic(
+/**
+ * Also the permission-preflight `/tournament start` blocks on — see
+ * `tournament.ts`. Reused rather than reimplemented so there is one
+ * computation of "what's missing" for both surfaces.
+ */
+export async function runFullDiagnostic(
   ctx: CommandContext,
   guild: DiscordGuild,
   guildRow: GuildRow,

@@ -288,12 +288,13 @@ ALTER TABLE "Alert" ADD CONSTRAINT "Alert_matchId_fkey" FOREIGN KEY ("matchId") 
 -- migration dropping both. Always read generated SQL before applying it.
 -- ---------------------------------------------------------------------------
 
--- One active tournament per guild. DRAFT does not occupy the slot, so a TO can
--- prepare the next event while one is running; everything from open
--- registration through the grand final does.
+-- One tournament held per guild, from the moment it is created. DRAFT
+-- occupies the slot too — creating a tournament is what claims it, not
+-- opening registration — so at most one can exist per guild at any state
+-- short of COMPLETE or CANCELLED, either of which releases it.
 CREATE UNIQUE INDEX "one_active_tournament_per_guild"
   ON "Tournament" ("guildId")
-  WHERE "state" NOT IN ('DRAFT', 'COMPLETE', 'CANCELLED');
+  WHERE "state" NOT IN ('COMPLETE', 'CANCELLED');
 
 -- Seed uniqueness, DEFERRABLE. Seeding runs continuously from the first /join,
 -- so reordering is routine, and a set-based renumber

@@ -47,7 +47,7 @@ async function main(): Promise<void> {
 
   const matchChannel = createMatchChannelAdapter(client, prisma);
   const alert = createAlertAdapter(client, prisma);
-  const playerNotification = createPlayerNotificationAdapter(client);
+  const playerNotification = createPlayerNotificationAdapter(client, prisma);
   registerInteractionHandlers(client, prisma, cryptoRandomPort, matchChannel, alert, playerNotification);
   registerMessageListener(client, prisma, cryptoRandomPort, matchChannel);
 

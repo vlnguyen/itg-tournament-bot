@@ -36,15 +36,15 @@ async function main(): Promise<void> {
 
   const prisma = new PrismaClient();
   const guild = await prisma.guild.findUniqueOrThrow({ where: { id: guildId } });
-  if (!guild.matchesChannelId || !guild.alertChannelId) {
-    throw new Error(`guild ${guildId} is missing matchesChannelId or alertChannelId`);
+  if (!guild.matchesChannelId || !guild.alertChannelId || !guild.resultsChannelId) {
+    throw new Error(`guild ${guildId} is missing matchesChannelId, alertChannelId, or resultsChannelId`);
   }
 
   const client = createDiscordClient();
   await loginDiscordClient(client, token);
   console.log(`Logged in as ${client.user?.tag}, serving guild ${guildId}`);
 
-  const matchChannel = createMatchChannelAdapter(client, prisma, guild.matchesChannelId, guild.alertChannelId);
+  const matchChannel = createMatchChannelAdapter(client, prisma, guild.matchesChannelId, guild.resultsChannelId);
   const alert = createAlertAdapter(client, guild.alertChannelId);
   registerInteractionHandlers(client, prisma, cryptoRandomPort, matchChannel, alert);
   registerMessageListener(client, prisma, cryptoRandomPort, matchChannel);

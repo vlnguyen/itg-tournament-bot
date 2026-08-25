@@ -12,7 +12,8 @@
  * Usage (from the repo root):
  *   npx tsx packages/server/scripts/seed-verification-match.ts \
  *     --guild <guildId> --matches <channelId> --alerts <channelId> \
- *     --referee-role <roleId> --entrant <userId> --entrant <userId> \
+ *     --results <channelId> --referee-role <roleId> \
+ *     --entrant <userId> --entrant <userId> \
  *     [--pack </path/to/a/StepMania/pack/folder>]
  *
  * `--pack` is optional. Without it, a dozen synthetic placeholder charts
@@ -40,6 +41,7 @@ function parseArgs(argv: string[]): {
   guildId: string;
   matchesChannelId: string;
   alertChannelId: string;
+  resultsChannelId: string;
   refereeRoleId: string;
   entrantUserIds: string[];
   packDir: string | null;
@@ -64,6 +66,7 @@ function parseArgs(argv: string[]): {
     guildId: one('guild'),
     matchesChannelId: one('matches'),
     alertChannelId: one('alerts'),
+    resultsChannelId: one('results'),
     refereeRoleId: one('referee-role'),
     entrantUserIds,
     // Optional — a real StepMania pack directory on disk, walked by
@@ -104,11 +107,13 @@ async function main(): Promise<void> {
         id: args.guildId,
         matchesChannelId: args.matchesChannelId,
         alertChannelId: args.alertChannelId,
+        resultsChannelId: args.resultsChannelId,
         refereeRoleId: args.refereeRoleId,
       },
       update: {
         matchesChannelId: args.matchesChannelId,
         alertChannelId: args.alertChannelId,
+        resultsChannelId: args.resultsChannelId,
         refereeRoleId: args.refereeRoleId,
       },
     });
@@ -158,12 +163,7 @@ async function main(): Promise<void> {
     await materializeBracket(prisma, cryptoRandomPort, tournament.id);
     console.log('Bracket materialized.');
 
-    const matchChannel = createMatchChannelAdapter(
-      client,
-      prisma,
-      args.matchesChannelId,
-      args.alertChannelId, // no dedicated results channel for this harness; reused, not posted to yet
-    );
+    const matchChannel = createMatchChannelAdapter(client, prisma, args.matchesChannelId, args.resultsChannelId);
     const playerNotification = createPlayerNotificationAdapter(client);
     const threads = await provisionReadyThreads(prisma, matchChannel, playerNotification, tournament.id, '(Test) ');
 

@@ -29,6 +29,8 @@ export async function provisionReadyThreads(
   matchChannel: MatchChannelPort,
   playerNotification: PlayerNotificationPort,
   tournamentId: string,
+  /** Appended to every thread name — see `thread-name.ts`'s `formatThreadName`. */
+  tournamentName: string,
   /**
    * Prepended to every thread name. Only ever set by the verification
    * harness — `'(Test) '`, so a thread this phase creates is unmistakably
@@ -54,6 +56,7 @@ export async function provisionReadyThreads(
         match.round,
         p0!.entrant.displayName ?? p0!.entrant.discordUserId,
         p1!.entrant.displayName ?? p1!.entrant.discordUserId,
+        tournamentName,
       );
     const playerIds = [p0!.entrant.discordUserId, p1!.entrant.discordUserId];
 

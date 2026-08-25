@@ -35,7 +35,7 @@ export type EntrantStatus = z.infer<typeof EntrantStatus>;
 export const BracketSide = z.enum(['WINNERS', 'LOSERS', 'GRAND_FINAL']);
 export type BracketSide = z.infer<typeof BracketSide>;
 
-export const MatchStatus = z.enum(['PENDING', 'IN_PROGRESS', 'COMPLETE']);
+export const MatchStatus = z.enum(['PENDING', 'IN_PROGRESS', 'COMPLETE', 'CANCELLED']);
 export type MatchStatus = z.infer<typeof MatchStatus>;
 
 /** The playstyle prefix that leads every chart display: SX, DX, SH, and so on. */

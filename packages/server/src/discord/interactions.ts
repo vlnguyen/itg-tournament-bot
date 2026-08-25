@@ -41,6 +41,17 @@ import { parseExPercent } from './validate-ex.js';
 import { displayName, renderStateMessage, type PlayerDirectory } from './state-message.js';
 
 /**
+ * The proactive cleanup in `discord/commands/tournament.ts`'s
+ * `handleCancel` (clearing the state message, archiving the thread) is
+ * best-effort — a crash mid-cascade, or an interaction already in flight
+ * when it ran, can still leave a live button or select menu behind. This is
+ * the backstop: `match.status` is set to `CANCELLED` in the same
+ * transaction as the tournament's own cancellation, so it's authoritative
+ * regardless of what the thread visibly still shows.
+ */
+const CANCELLED_MATCH_MESSAGE = "This action isn't allowed — the tournament has been cancelled.";
+
+/**
  * The one `interactionCreate` listener. Decodes the stateless `custom_id`,
  * resolves the acting Discord user to an `EntrantId` for this match,
  * builds the domain event, and hands it to `appendMatchEvent` — the same
@@ -128,6 +139,10 @@ async function handle(
     await interaction.followUp({ ephemeral: true, content: 'This match no longer exists.' });
     return;
   }
+  if (match.status === 'CANCELLED') {
+    await interaction.followUp({ ephemeral: true, content: CANCELLED_MATCH_MESSAGE });
+    return;
+  }
 
   const me = match.participants.find((p) => p.entrant.discordUserId === interaction.user.id);
   if (!me) {
@@ -207,6 +222,10 @@ async function handleScoreModalSubmit(
     await interaction.followUp({ ephemeral: true, content: 'This match no longer exists.' });
     return;
   }
+  if (match.status === 'CANCELLED') {
+    await interaction.followUp({ ephemeral: true, content: CANCELLED_MATCH_MESSAGE });
+    return;
+  }
   const me = match.participants.find((p) => p.entrant.discordUserId === interaction.user.id);
   if (!me) {
     await interaction.followUp({ ephemeral: true, content: "You're not a participant in this match." });
@@ -265,6 +284,10 @@ async function handleRulingButton(
   const match = await loadMatch(prisma, decoded.matchId);
   if (!match) {
     await interaction.followUp({ ephemeral: true, content: 'This match no longer exists.' });
+    return;
+  }
+  if (match.status === 'CANCELLED') {
+    await interaction.followUp({ ephemeral: true, content: CANCELLED_MATCH_MESSAGE });
     return;
   }
 
@@ -374,6 +397,10 @@ async function handleResetButton(
     await interaction.followUp({ ephemeral: true, content: 'This match no longer exists.' });
     return;
   }
+  if (match.status === 'CANCELLED') {
+    await interaction.followUp({ ephemeral: true, content: CANCELLED_MATCH_MESSAGE });
+    return;
+  }
 
   const guild = await prisma.guild.findUnique({ where: { id: match.tournament.guildId } });
   const tierConfig: TierRoleConfig = guild ?? { refereeRoleId: null, toRoleId: null, adminRoleId: null };
@@ -420,6 +447,10 @@ async function handleTiebreakPick(
   const match = await loadMatch(prisma, decoded.matchId);
   if (!match) {
     await interaction.editReply('This match no longer exists.');
+    return;
+  }
+  if (match.status === 'CANCELLED') {
+    await interaction.editReply(CANCELLED_MATCH_MESSAGE);
     return;
   }
   const me = match.participants.find((p) => p.entrant.discordUserId === interaction.user.id);

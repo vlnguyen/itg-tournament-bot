@@ -62,13 +62,22 @@ export function createPlayerNotificationAdapter(client: Client, prisma: PrismaCl
       }
     },
 
-    async checkinOpened(guildId: string, playerIds: string[]): Promise<{ unreachable: string[] }> {
+    async checkinOpened(guildId: string, tournamentName: string, playerIds: string[]): Promise<{ unreachable: string[] }> {
       // "The channel post carries no mentions."
-      await postToGeneralChannel(client, prisma, guildId, 'Check-in is now open. Registered players: check your DMs, or use `/checkin`.');
+      await postToGeneralChannel(
+        client,
+        prisma,
+        guildId,
+        `Check-in is now open for **${tournamentName}**. Registered players: check your DMs, or use \`/checkin\`.`,
+      );
 
       const unreachable: string[] = [];
       for (const userId of playerIds) {
-        const reached = await tryDm(client, userId, "Check-in is now open for the tournament — use `/checkin` to confirm you're playing.");
+        const reached = await tryDm(
+          client,
+          userId,
+          `Check-in is now open for **${tournamentName}** — use \`/checkin\` to confirm you're playing.`,
+        );
         if (!reached) unreachable.push(userId);
       }
       return { unreachable };

@@ -969,7 +969,11 @@ Every state in that diagram, `DRAFT` included, holds the guild's one tournament 
 
 Starting *is* the confirmation: the start action shows the final order for review, and generating the bracket fixes it. The seed guard moved onto `→ RUNNING`, where it is still an **assertion rather than a gate** — normalization at check-in close already guarantees it — kept because a violation means normalization is broken, and learning that before a bracket exists is much cheaper than after.
 
-`CANCELLED` is reachable from any pre-`RUNNING` state at Tournament Organizer tier, and — like `COMPLETE` — frees the guild's slot for a new `/tournament create`. See "Three constraints Prisma cannot express" for how the slot itself is held and enforced.
+`CANCELLED` is reachable from **any** pre-`COMPLETE` state at Tournament Organizer tier, `RUNNING` included — "for any number of reasons... a tournament may need to be cancelled midway." Cancelling before `RUNNING` is the bare state flip described so far. Cancelling a `RUNNING` tournament does one thing more, in the same transaction: every `Match` not already `COMPLETE` is force-completed as `CANCELLED` too — a third terminal match status alongside `COMPLETE` itself, added to `MatchStatus` for exactly this. A match someone already finished keeps its real result; nothing about it is touched. The command layer then closes out whichever of those cancelled matches had a live thread — a note posted in it, then archived, the same mechanism used for a thread closing on ordinary match completion — and announces the cancellation to the general channel, same as it does for every other lifecycle transition.
+
+Either way, cancelling — like completing — frees the guild's slot for a new `/tournament create`. See "Three constraints Prisma cannot express" for how the slot itself is held and enforced.
+
+**Nothing here is a reversal**, unlike the pre-`RUNNING` back-edges above: `CANCELLED` is terminal, same as `COMPLETE`, and there is no path out of it. What changed is only which *source* states `cancel` accepts — it now includes `RUNNING`, where it previously refused.
 
 **Two things happen at the start transition and only one of them can block.** Permissions are re-checked and a missing one blocks with the exact list. A song pack below the recommended size warns and proceeds — the requirement is explicit that the warning never blocks. The threshold is **`recommendedPackSize` from the format**, not a constant: Bo5 asks for 10, and a format with a different draw asks for whatever it needs. Once a tournament can mix formats, the threshold is the maximum across those in use.
 
@@ -1152,11 +1156,11 @@ The competitor-facing surface. Everything the rules require a player to do happe
 
 ### Creating the thread
 
-**The name is `WR2 · Alice vs Bob`** — bracket side and round, then both competitors. It sorts sensibly, identifies a match at a glance in a list of sixteen, and gives an organizer the two things they scan for. Display names are truncated to fit Discord's 100-character limit, longest first so both stay legible.
+**The name is `WR2 · Alice vs Bob · Storm 2026`** — bracket side and round, both competitors, then the tournament name. It sorts sensibly, identifies a match at a glance in a list of sixteen, and gives an organizer the two things they scan for; the tournament name at the end tells apart threads from different events for anyone whose thread list spans more than one — a player's own DM/thread history, or a bot administrator's. Display names are truncated to fit Discord's 100-character limit, longest first so both stay legible; the tournament name is appended last and never shortened by that pass, only hard-cut as a last resort if it alone doesn't fit even with both competitor names empty.
 
 **The name is fixed at creation and never changes.** Renaming a thread hits a sublimit of roughly two changes per ten minutes — **undocumented, but consistently reproduced**, so the number should be read from the response headers rather than hardcoded, as Discord's rate-limit guidance instructs. A name carrying live state would therefore fall behind precisely when an event is busiest, which is the moment it would be worth having. State belongs in the thread, the bracket, and the results feed, none of which are constrained this way.
 
-A grand final reset is a separate `Match` row and therefore a separate thread, named `GF2 · Alice vs Bob`. It gets a fresh event log, so it gets a fresh place to live.
+A grand final reset is a separate `Match` row and therefore a separate thread, named `GF2 · Alice vs Bob · Storm 2026`. It gets a fresh event log, so it gets a fresh place to live.
 
 ### Two kinds of bot message
 
@@ -1271,6 +1275,12 @@ It probably closes itself. The state message is **already edited** after each pi
 The result summary is a log message and the last thing the bot posts: songs in play order with both EX% values and the winner of each, tiebreak rounds if any, and the final score. The thread archives immediately afterward.
 
 It is rendered from the same projection as the public match view, so the thread and the web page cannot disagree about what happened.
+
+### Ending a match by tournament cancellation
+
+A different, out-of-band way for a match to end: the whole tournament is cancelled while it's `RUNNING`. Unlike the ordinary ending above, this never touches the match's own event log — `cancelTournament` force-sets `Match.status` to `CANCELLED` directly, a status `MatchState`'s own reducer never produces and never needs to reason about. Whatever the match's `pendingAction` was at the moment of cancellation — Protect/Veto, a score submission, a tiebreak pick, anything — is simply abandoned; there is no terminal domain event for "the tournament ended out from under this match."
+
+Cleanup is therefore two-layered. Proactively, cancellation posts a log line in the thread, replaces the live prompt with a plain, component-free message (clearing whatever buttons or select menu were last shown), and archives the thread — best-effort, same as thread provisioning's own "a crash mid-burst resumes on boot" acknowledgment that Discord operations can fail partway through a batch. As a backstop, every interaction entry point checks `match.status === 'CANCELLED'` before doing anything else, ahead of even the participant/referee checks — so a stale click that survives the cleanup (a button visually still there, or an interaction already in flight when cancellation ran) is refused with "the tournament has been cancelled" rather than silently mutating a match the tournament no longer considers live. This check is deliberately on the cached `Match.status` column, not `pendingAction`, since a cancelled match's `MatchState` still looks perfectly ordinary — cancellation is administrative information the match's own state has no way to carry.
 
 ## Organizer Alerts and Escalation
 

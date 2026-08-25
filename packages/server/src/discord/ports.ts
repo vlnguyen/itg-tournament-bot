@@ -60,7 +60,7 @@ export interface PlayerNotificationPort {
    * the DM could not reach, best-effort — same failure semantics as
    * `matchReady` — so the caller can surface who to chase.
    */
-  checkinOpened(guildId: string, playerIds: string[]): Promise<{ unreachable: string[] }>;
+  checkinOpened(guildId: string, tournamentName: string, playerIds: string[]): Promise<{ unreachable: string[] }>;
   /**
    * A public, no-mentions announcement in the general channel that `/join`
    * is now open — there is no one registered yet to DM, unlike

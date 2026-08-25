@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
 import type { ChatInputCommandInteraction } from 'discord.js';
 import type { Guild as GuildRow, Tournament } from '@prisma/client';
+import type { ChartInput } from '@itg/shared';
 import { describeGap } from '../permission-diagnostic.js';
 import { provisionReadyThreads } from '../thread-provisioning.js';
 import { hasTier, Tier } from '../tier.js';
@@ -81,13 +83,7 @@ export async function handleTournament(interaction: ChatInputCommandInteraction,
     case 'start':
       return handleStart(interaction, ctx, tournament, guildRow!);
     case 'cancel':
-      return runTransition(
-        interaction,
-        ctx,
-        () => cancelTournament(ctx.prisma, tournament.id, interaction.user.id),
-        (t) => `**${t.name}** is cancelled.`,
-        (t) => ctx.playerNotification.tournamentCancelled(interaction.guildId!, t.name),
-      );
+      return handleCancel(interaction, ctx, tournament);
     case 'rename': {
       const name = interaction.options.getString('name', true);
       return runTransition(
@@ -100,6 +96,21 @@ export async function handleTournament(interaction: ChatInputCommandInteraction,
     default:
       await interaction.reply({ ephemeral: true, content: "This command isn't available yet." });
   }
+}
+
+// DEBUG — not meant to ship. Every tournament created during manual testing
+// gets auto-seeded with a real chart pack (Storm 2026), so there's always
+// something to draw from without a separate import step (`/pack import`
+// doesn't exist yet). `debug-storm-2026-pack.json` is a one-time dump of
+// `readPackDirectory("/Users/vincent/Downloads/Storm 2026")` — parsed once
+// and committed as data, not re-parsed from the real pack on every create.
+// Delete this block, the import above it, and the JSON file together once
+// `/pack import` exists for real.
+const DEBUG_PACK_PATH = new URL('../../../scripts/debug-storm-2026-pack.json', import.meta.url);
+let debugPackCache: ChartInput[] | null = null;
+function loadDebugPack(): ChartInput[] {
+  debugPackCache ??= JSON.parse(readFileSync(DEBUG_PACK_PATH, 'utf8')) as ChartInput[];
+  return debugPackCache;
 }
 
 /** "If a tournament is created then that is the tournament the bot is now holding" — released only by `/tournament cancel` or reaching `COMPLETE`. */
@@ -115,6 +126,15 @@ async function handleCreate(interaction: ChatInputCommandInteraction, ctx: Comma
     // that channel is organizer-private, unlike the general channel, which
     // uses the server display name. See `player-notification-adapter.ts`.
     await logToOrganizers(ctx.alert, interaction.guildId!, `🆕 **${interaction.user.username}** created tournament **${t.name}**.`);
+
+    // DEBUG — see the block above.
+    try {
+      const charts = loadDebugPack();
+      await ctx.prisma.chart.createMany({ data: charts.map((c) => ({ tournamentId: t.id, ...c })) });
+      console.log(`[DEBUG] seeded ${charts.length} chart(s) from debug-storm-2026-pack.json into "${t.name}"`);
+    } catch (err) {
+      console.warn(`[DEBUG] failed to auto-seed test pack: ${(err as Error).message}`);
+    }
   } catch (err) {
     if (err instanceof TournamentSlotOccupiedError) {
       await interaction.reply({
@@ -175,7 +195,7 @@ async function handleOpenCheckin(interaction: ChatInputCommandInteraction, ctx: 
     where: { tournamentId: tournament.id, status: 'ACTIVE' },
     select: { discordUserId: true },
   });
-  const { unreachable } = await ctx.playerNotification.checkinOpened(interaction.guildId!, registered.map((e) => e.discordUserId));
+  const { unreachable } = await ctx.playerNotification.checkinOpened(interaction.guildId!, opened.name, registered.map((e) => e.discordUserId));
 
   const lines = [`Check-in is open for **${opened.name}** — registered players have been notified.`];
   if (unreachable.length > 0) lines.push(`⚠️ Could not DM: ${unreachable.map((id) => `<@${id}>`).join(', ')}.`);
@@ -184,6 +204,58 @@ async function handleOpenCheckin(interaction: ChatInputCommandInteraction, ctx: 
   const logLines = [`📋 **${interaction.user.username}**: check-in is open for **${opened.name}**.`];
   if (unreachable.length > 0) logLines.push(`⚠️ Could not DM: ${unreachable.map((id) => `<@${id}>`).join(', ')}.`);
   await logToOrganizers(ctx.alert, interaction.guildId!, logLines.join('\n'));
+}
+
+/**
+ * Reachable from `RUNNING` too — "for any number of reasons... a tournament
+ * may need to be cancelled midway." `cancelTournament` already marked every
+ * not-yet-`COMPLETE` match `CANCELLED`; this closes out whichever of those
+ * had a live thread — a note posted in it, then archived, the same
+ * mechanism `matchChannel` already uses to close a thread on ordinary match
+ * completion — and announces the cancellation to the general channel.
+ */
+async function handleCancel(interaction: ChatInputCommandInteraction, ctx: CommandContext, tournament: Tournament): Promise<void> {
+  await interaction.deferReply({ ephemeral: true });
+
+  let result;
+  try {
+    result = await cancelTournament(ctx.prisma, tournament.id, interaction.user.id);
+  } catch (err) {
+    if (err instanceof TournamentTransitionError) {
+      await interaction.editReply(`Can't do that: ${err.reason}`);
+      return;
+    }
+    throw err;
+  }
+
+  const cancelledWithThreads =
+    result.cancelledMatchIds.length > 0
+      ? await ctx.prisma.match.findMany({
+          where: { id: { in: result.cancelledMatchIds }, threadId: { not: null } },
+          select: { id: true, threadId: true },
+        })
+      : [];
+
+  for (const m of cancelledWithThreads) {
+    const ref = { matchId: m.id, threadId: m.threadId! };
+    await ctx.matchChannel.postLogMessage(ref, { content: '⚠️ This tournament has been cancelled. This match will not be completed.' });
+    // Replaces whatever was last — Protect/Veto, a score-submit button, a
+    // tiebreak select, anything — with a plain, component-free message, so
+    // there's no live prompt left to click. `postMatchState` edits the
+    // current state message in place (or reposts) with exactly the
+    // components given; omitting them here clears whatever was there.
+    await ctx.matchChannel.postMatchState(ref, { content: 'This match has been cancelled — no further action is possible.' });
+    await ctx.matchChannel.archiveThread(ref);
+  }
+
+  const lines = [`**${result.tournament.name}** is cancelled.`];
+  if (result.cancelledMatchIds.length > 0) {
+    lines.push(`⚠️ ${result.cancelledMatchIds.length} in-progress match(es) were cancelled — ${cancelledWithThreads.length} with a thread closed.`);
+  }
+  await interaction.editReply(lines.join('\n'));
+
+  await logToOrganizers(ctx.alert, interaction.guildId!, [`📋 **${interaction.user.username}**:`, ...lines].join('\n'));
+  await ctx.playerNotification.tournamentCancelled(interaction.guildId!, result.tournament.name);
 }
 
 const TIER_ROLE_LABEL: Record<RequiredTierRole, string> = { referee: 'Referee', organizer: 'Tournament Organizer' };
@@ -253,7 +325,7 @@ async function handleStart(
     throw err;
   }
 
-  const threads = await provisionReadyThreads(ctx.prisma, ctx.matchChannel, ctx.playerNotification, tournament.id);
+  const threads = await provisionReadyThreads(ctx.prisma, ctx.matchChannel, ctx.playerNotification, tournament.id, result.tournament.name);
 
   const lines = [`🏁 **${result.tournament.name}** has started — ${threads.length} match thread(s) created.`];
   if (result.packSizeWarning) {

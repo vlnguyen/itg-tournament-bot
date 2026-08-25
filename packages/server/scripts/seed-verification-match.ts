@@ -165,7 +165,7 @@ async function main(): Promise<void> {
 
     const matchChannel = createMatchChannelAdapter(client, prisma);
     const playerNotification = createPlayerNotificationAdapter(client, prisma);
-    const threads = await provisionReadyThreads(prisma, matchChannel, playerNotification, tournament.id, '(Test) ');
+    const threads = await provisionReadyThreads(prisma, matchChannel, playerNotification, tournament.id, tournament.name, '(Test) ');
 
     console.log(`Provisioned ${threads.length} thread(s):`);
     for (const t of threads) {

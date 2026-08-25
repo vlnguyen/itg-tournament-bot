@@ -12,7 +12,7 @@ import {
   TournamentTransitionError,
 } from '../src/services/tournament-service.js';
 import { sequentialRandomPort } from '../src/services/ports.js';
-import { isReachable, prisma } from './support.js';
+import { isReachable, playMatchToChampion, prisma } from './support.js';
 
 /**
  * Drives the tournament lifecycle state machine against real Postgres —
@@ -188,7 +188,8 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
         const first = await createTournament(prisma, guildId, 'To Cancel', ACTOR);
         await openRegistration(prisma, first.id, ACTOR);
         const cancelled = await cancelTournament(prisma, first.id, ACTOR);
-        expect(cancelled.state).toBe('CANCELLED');
+        expect(cancelled.tournament.state).toBe('CANCELLED');
+        expect(cancelled.cancelledMatchIds).toEqual([]); // pre-RUNNING — no matches exist yet to cancel
 
         const second = await createTournament(prisma, guildId, 'Replacement', ACTOR);
         const opened = await openRegistration(prisma, second.id, ACTOR);
@@ -198,8 +199,55 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
       }
     });
 
-    it('refuses once the tournament is RUNNING', async () => {
+    it('is reachable from RUNNING — completed matches keep their result, everything else becomes CANCELLED', async () => {
       const guildId = `ts-cancel-running-${Date.now()}`;
+      await makeGuild(guildId, true);
+      try {
+        const t = await createTournament(prisma, guildId, 'T', ACTOR);
+        await openRegistration(prisma, t.id, ACTOR);
+        await closeRegistration(prisma, t.id, ACTOR);
+        await openCheckin(prisma, t.id, ACTOR);
+        for (const seed of [1, 2, 3, 4]) {
+          await addEntrant(t.id, `p${seed}`, { seed, checkedIn: true });
+        }
+        await closeCheckin(prisma, t.id, ACTOR);
+        for (let i = 0; i < 12; i++) {
+          await prisma.chart.create({
+            data: { tournamentId: t.id, title: `Song ${i}`, playStyle: 'SINGLE', difficulty: 'EXPERT', meter: 12 },
+          });
+        }
+        const random = sequentialRandomPort(guildId);
+        await startTournament(prisma, random, t.id, new Map(), ACTOR);
+
+        // Finish exactly one of the two round-1 matches; everything else
+        // (the other round-1 match, and every later round it feeds) stays
+        // PENDING or IN_PROGRESS.
+        const round1 = await prisma.match.findMany({
+          where: { tournamentId: t.id, bracket: 'WINNERS', round: 1 },
+          include: { participants: true },
+        });
+        const [toFinish, toLeaveRunning] = round1;
+        await playMatchToChampion(toFinish!.id, toFinish!.participants[0]!.entrantId, random);
+
+        const result = await cancelTournament(prisma, t.id, ACTOR);
+        expect(result.tournament.state).toBe('CANCELLED');
+        expect(result.cancelledMatchIds).not.toContain(toFinish!.id);
+        expect(result.cancelledMatchIds).toContain(toLeaveRunning!.id);
+
+        const finished = await prisma.match.findUniqueOrThrow({ where: { id: toFinish!.id } });
+        expect(finished.status).toBe('COMPLETE'); // untouched — a finished result stands
+
+        const allMatches = await prisma.match.findMany({ where: { tournamentId: t.id } });
+        for (const m of allMatches) {
+          expect(m.status === 'COMPLETE' || m.status === 'CANCELLED').toBe(true);
+        }
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('refuses once the tournament is already COMPLETE', async () => {
+      const guildId = `ts-cancel-complete-${Date.now()}`;
       await makeGuild(guildId, true);
       try {
         const t = await createTournament(prisma, guildId, 'T', ACTOR);
@@ -214,7 +262,15 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
             data: { tournamentId: t.id, title: `Song ${i}`, playStyle: 'SINGLE', difficulty: 'EXPERT', meter: 12 },
           });
         }
-        await startTournament(prisma, sequentialRandomPort(guildId), t.id, new Map(), ACTOR);
+        const random = sequentialRandomPort(guildId);
+        await startTournament(prisma, random, t.id, new Map(), ACTOR);
+        // Exactly two entrants: the one round-1 match decides the whole
+        // tournament, which auto-completes the moment it's decided.
+        const only = await prisma.match.findFirstOrThrow({
+          where: { tournamentId: t.id },
+          include: { participants: true },
+        });
+        await playMatchToChampion(only.id, only.participants[0]!.entrantId, random);
 
         await expect(cancelTournament(prisma, t.id, ACTOR)).rejects.toThrow(TournamentTransitionError);
       } finally {

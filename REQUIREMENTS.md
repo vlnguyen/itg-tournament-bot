@@ -339,7 +339,7 @@ Tiers are cumulative, so each action below lists the **minimum** tier required. 
 | Seed entrants, at any point from the first `/join` onward | Tournament Organizer |
 | Review the final seed order and start the tournament | Tournament Organizer |
 | Start the tournament | Tournament Organizer |
-| Cancel a tournament that has not started | Tournament Organizer |
+| Cancel a tournament, including one already running | Tournament Organizer |
 
 **Configuring the server** — gated on Discord's own Manage Guild permission, not a tier; see "Reconfiguring the server is not a tier at all" above.
 

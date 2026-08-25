@@ -270,18 +270,60 @@ const CANCELLABLE_STATES: readonly TournamentState[] = [
   'REGISTRATION_CLOSED',
   'CHECKIN_OPEN',
   'CHECKIN_CLOSED',
+  'RUNNING',
 ];
 
-/** "`CANCELLED` is reachable from any pre-`RUNNING` state at Tournament Organizer tier, and frees the guild's active slot." */
-export async function cancelTournament(prisma: PrismaClient, tournamentId: string, actorId: string): Promise<Tournament> {
+const CANCELLABLE_MATCH_STATUSES = ['PENDING', 'IN_PROGRESS'] as const;
+
+export interface CancelTournamentResult {
+  tournament: Tournament;
+  /** Every match this cancellation force-completed as `CANCELLED` — empty unless the tournament was `RUNNING`. Matches already `COMPLETE` are untouched and keep their real result. */
+  cancelledMatchIds: string[];
+}
+
+/**
+ * `CANCELLED` is reachable from any pre-`COMPLETE` state, including
+ * `RUNNING` — "for any number of reasons... a tournament may need to be
+ * cancelled midway." Cancelling a `RUNNING` tournament additionally marks
+ * every not-yet-`COMPLETE` match `CANCELLED` in the same transaction as the
+ * tournament's own state flip — one atomic write, not a cascade a partial
+ * failure could leave half-done. `COMPLETE` matches are left exactly as
+ * they are: a finished result stands regardless of what happens to the
+ * rest of the event.
+ *
+ * Closing each cancelled match's Discord thread (posting a note in it,
+ * then archiving) is Discord I/O and belongs to the command layer, same
+ * split as everywhere else in this file — this only returns which match
+ * ids were cancelled so the caller can look up their `threadId`s.
+ */
+export async function cancelTournament(prisma: PrismaClient, tournamentId: string, actorId: string): Promise<CancelTournamentResult> {
   return prisma.$transaction(async (tx) => {
     const t = await tx.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
     if (!CANCELLABLE_STATES.includes(t.state)) {
       throw new TournamentTransitionError(tournamentId, `cannot cancel — it is already ${t.state}`);
     }
+
+    let cancelledMatchIds: string[] = [];
+    if (t.state === 'RUNNING') {
+      const incomplete = await tx.match.findMany({
+        where: { tournamentId, status: { in: [...CANCELLABLE_MATCH_STATUSES] } },
+        select: { id: true },
+      });
+      cancelledMatchIds = incomplete.map((m) => m.id);
+      if (cancelledMatchIds.length > 0) {
+        await tx.match.updateMany({
+          where: { id: { in: cancelledMatchIds } },
+          data: { status: 'CANCELLED' },
+        });
+      }
+    }
+
     const updated = await tx.tournament.update({ where: { id: tournamentId }, data: { state: 'CANCELLED' } });
-    await logAction(tx, actorId, 'TOURNAMENT_CANCELLED', 'Tournament', tournamentId, { fromState: t.state });
-    return updated;
+    await logAction(tx, actorId, 'TOURNAMENT_CANCELLED', 'Tournament', tournamentId, {
+      fromState: t.state,
+      matchesCancelled: cancelledMatchIds.length,
+    });
+    return { tournament: updated, cancelledMatchIds };
   });
 }
 

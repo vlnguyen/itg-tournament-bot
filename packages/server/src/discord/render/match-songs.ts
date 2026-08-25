@@ -18,9 +18,9 @@ export function buildMatchSongsEmbed(
   state: Pick<MatchState, 'draw' | 'protects' | 'deciderIndex'>,
   nameOf: NameLookup,
 ): EmbedBuilder {
-  const lines = state.protects.map((p) => `🛡️ **${nameOf(p.by)}** — ${compactChartLabel(state.draw[p.drawIndex]!)}`);
+  const lines = state.protects.map((p) => `**${nameOf(p.by)}** — ${compactChartLabel(state.draw[p.drawIndex]!)} 🛡️`);
   if (state.deciderIndex !== undefined) {
-    lines.push(`⭐ Decider — ${compactChartLabel(state.draw[state.deciderIndex]!)}`);
+    lines.push(`Decider — ${compactChartLabel(state.draw[state.deciderIndex]!)} ⭐`);
   }
   return new EmbedBuilder().setTitle('Match Songs').setColor(LOG_COLOR.DRAW).setDescription(lines.join('\n'));
 }

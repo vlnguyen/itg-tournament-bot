@@ -1,5 +1,5 @@
 import type { EntrantId, MatchState } from '../../domain/types.js';
-import { compactChartLabel } from './chart.js';
+import { titleWithSubtitle } from './chart.js';
 
 export interface NameLookup {
   (entrantId: EntrantId): string;
@@ -20,7 +20,7 @@ export function buildDrawStatusLines(
 ): string {
   return state.draw
     .map((chart, i) => {
-      const label = compactChartLabel(chart);
+      const label = titleWithSubtitle(chart) + (chart.flags.includes('noCmod') ? ' ⚠️' : '');
       const vetoedBy = state.vetoes.find((v) => v.drawIndex === i)?.by;
       if (vetoedBy) return `${i + 1}. ~~${label}~~ ❌ Vetoed by ${nameOf(vetoedBy)}`;
       const protectedBy = state.protects.find((p) => p.drawIndex === i)?.by;

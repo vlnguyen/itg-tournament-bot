@@ -47,7 +47,7 @@ describe('buildMatchSongsEmbed', () => {
       },
       nameOf,
     );
-    expect(embed.data.description).toBe('🛡️ **Alice** — SX 12 · Song 3\n🛡️ **Bob** — SX 12 · Song 6');
+    expect(embed.data.description).toBe('**Alice** — Song 3 SX 12 🛡️\n**Bob** — Song 6 SX 12 🛡️');
   });
 
   it('excludes vetoed charts entirely — they never appear in `protects`', () => {
@@ -73,7 +73,7 @@ describe('buildMatchSongsEmbed', () => {
       },
       nameOf,
     );
-    expect(embed.data.description!.split('\n').at(-1)).toBe('⭐ Decider — SX 12 · Song 5');
+    expect(embed.data.description!.split('\n').at(-1)).toBe('Decider — Song 5 SX 12 ⭐');
   });
 
   it('omits the Decider line when it is not yet determined', () => {

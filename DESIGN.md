@@ -715,15 +715,15 @@ For the standard shape this equals `2⌈log₂ n⌉ + 1` rounds including both g
 
 A freshly-invited server has no configured tier roles, no tournament, and therefore no application-level authority. Something has to establish the first one.
 
-**`/setup` is gated on Manage Guild *or* the Server Administrator role.** Whoever added the bot runs it first and names the three tier roles; from then on the configured administrators can re-run it themselves. The Manage Guild path is narrow by necessity — the administrator role cannot authorize the command that decides which role is the administrator role — and it remains as the recovery route.
+**`/setup` is gated on Discord's own Manage Guild permission, full stop — there is no bound "Server Administrator" role to fall back to or from.** Whoever added the bot runs it first and names the two tier roles; Manage Guild is not a bootstrap-only fallback that a configured role later supersedes — it is the permanent, only gate, every time. "There is always one implied administrator through the server owner": whoever can manage the server in Discord's own terms already has everything `/setup` needs to grant, so tracking a separate bot-side administrator role would just be a second name for the same fact.
 
 **It is re-runnable, which makes it the per-server recovery path.** If a tier role is deleted, emptied, or misconfigured, anyone with Manage Guild can run `/setup` again and re-point the bot. That mirrors the config allowlist at the deployment level, giving two independent recovery routes at the right scopes — neither depending on the other, and neither requiring the operator to be a member of a server they are rescuing.
 
 **Bot administrators stay view-only.** Requirements define their capability as seeing across servers, and with self-service bootstrap and self-service recovery they never need to reach into a server's referee pool. The role keeps exactly the scope the requirements give it.
 
-### Three tiers of privilege
+### Two tiers of privilege, plus Manage Guild outside the ladder
 
-Authority is Discord role membership, resolved to one of three cumulative tiers. `/setup` points the bot at a role for each, stored on `Guild`.
+Authority is Discord role membership, resolved to one of two cumulative tiers. `/setup` points the bot at a role for each, stored on `Guild`. Reconfiguring the server itself (`/setup`) is a separate concern entirely, gated on Discord's own Manage Guild permission rather than a third bound role — see Bootstrap, above, and "Two things called administrator" below.
 
 **The capability list lives in REQUIREMENTS.md**, under *What each role may do*, and is not restated here. A second copy is a second thing to keep in step, and the one that drifts is always the copy — the same reasoning that removed commit events from the match log.
 
@@ -731,19 +731,19 @@ What belongs here is the mechanism:
 
 **Tiers are cumulative and totally ordered**, so a check is `tierOf(member) >= required` rather than a set intersection. `tierOf` returns the highest tier whose role the member holds, and `required` is a constant on the action — one comparison, no per-capability bookkeeping, and adding an action means naming its tier rather than editing a matrix.
 
-**The dividing line is refereeing versus running an event:** a referee unblocks matches but cannot create, start, or close a tournament. That falls out cleanly in implementation — everything reachable from the alert channel is Referee tier, everything in the lifecycle state machine is Tournament Organizer tier, and `/setup` is the only thing above it.
+**The dividing line is refereeing versus running an event:** a referee unblocks matches but cannot create, start, or close a tournament. That falls out cleanly in implementation — everything reachable from the alert channel is Referee tier, everything in the lifecycle state machine is Tournament Organizer tier, and `/setup` sits outside the ladder altogether, gated on Manage Guild instead of either.
 
 **Tournament-scope disqualification sits with referees, deliberately** — the one placement in that list worth arguing about. It is the most consequential thing at the tier, withdrawing an entrant and cascading walkovers through both brackets. It belongs there because it is conflict resolution rather than lifecycle: the tournament-scope option exists precisely so a player who has left for good is handled in one action instead of being disqualified again in the losers bracket, and making a referee escalate for it reintroduces the friction the option was added to remove. It is audit-logged like every other ruling.
 
 #### Two things called "administrator"
 
-The tiers above are **server-scoped**. Requirements also define a **Bot Administrator** that is deployment-scoped — able to see every server the bot is in — granted by the config allowlist and the `Admin` table, not by any Discord role.
+`Tier.SERVER_ADMINISTRATOR` still exists in the tier mechanism's code as a value, but `/setup` never binds a role to it — "there is always one implied administrator through the server owner," via Manage Guild, so there is nothing left for a third bound role to add. Requirements separately define a **Bot Administrator** that is deployment-scoped — able to see every server the bot is in — granted by the config allowlist and the `Admin` table, not by any Discord role, and unrelated to server reconfiguration entirely.
 
-They are unrelated and the collision is only in the word. This document uses **Server Administrator** for the tier and **Bot Administrator** for the deployment role, and nothing should be labelled plain "Administrator" in code or UI.
+Nothing should be labelled plain "Administrator" in code or UI — say **Bot Administrator** for the deployment role, and describe server reconfiguration as "Manage Guild," never as an administrator tier.
 
 #### Servers may collapse the tiers
 
-Nothing requires three distinct roles. A server can point two slots — or all three — at the same role and get exactly the flatter model it wants: one `@Staff` role in every slot reproduces the original single-tier design.
+Nothing requires two distinct roles. A server can point both slots at the same role and get exactly the flatter model it wants: one `@Staff` role in both slots reproduces the original single-tier design.
 
 This is an endorsed configuration, not a degenerate one. Plenty of servers want the same people involved at every level of running an event, and the tiers exist to let a server that needs the separation express it — not to impose hierarchy on one that does not. The capability model is fixed; how a server maps onto it is theirs.
 
@@ -783,9 +783,9 @@ Three parts of the design read differently once the role is understood as a pool
 
 ### What `/setup` does
 
-Requirements are explicit that it does not provision channels — it asks the organizer to create them, then points the bot at them. The same applies to the role.
+Requirements are explicit that it does not provision channels — it asks the organizer to create them, then points the bot at them. **Both channels and roles have since grown an optional create-it-for-me path** (see "Provisioning the channels" and "Provisioning the roles" below) — point-at-existing remains the always-available fallback for both, since selection is never filtered or rejected regardless of which path was used to get the thing being pointed at.
 
-1. Takes the matches channel, the organizer alert channel, and a role for each of the three tiers. The same role may be given for more than one tier.
+1. Takes the matches channel, the organizer alert channel, and a role for each of the two tiers. The same role may be given for both.
 2. **Accepts every selection.** No picker is filtered and no choice is rejected for lacking a permission.
 3. Writes the `Guild` row, then reports a diagnostic of everything still missing.
 
@@ -811,10 +811,14 @@ What it reports, per target:
 | Bot, in the organizer alert channel | View Channel, Send Messages, Embed Links, Read Message History | Raising and editing alerts |
 | Bot, in the results channel | View Channel, Send Messages, Embed Links | Posting the result feed |
 | Bot, in the general channel, if set | View Channel, Send Messages, Embed Links | Forwarding results |
-| Each tier role, in the matches channel | View Channel, Manage Threads | Seeing private match threads. Tier capability is ours; thread visibility is Discord's, and it does not inherit — a Server Administrator without `Manage Threads` can rule on a match they cannot read |
-| Referee-tier role | At least one member | A tournament started with an empty referee pool has no way to resolve a dispute |
+| Each tier role, in the matches channel | View Channel, Manage Threads | Seeing private match threads. Tier capability is ours; thread visibility is Discord's, and it does not inherit — a Tournament Organizer without `Manage Threads` can rule on a match they cannot read |
+| Referee tier or above | At least one member, counting across both roles | Tiers are cumulative — a Tournament Organizer can rule too — so a tournament started with nobody at Referee tier or above has no way to resolve a dispute |
 
 The last is a warning rather than a gap, since a server may legitimately configure roles before populating them.
+
+**Both the Referee and Tournament Organizer roles must be bound.** Neither is optional the way an empty pool is a warning: with no Tournament Organizer role, not one `/tournament` lifecycle command is reachable by anyone, and with no Referee role a disagreement has nobody to escalate to. `/setup status` and every `/setup channels`/`roles` reply reports either as missing outright until `/setup roles` binds it. Manage Guild has no equivalent requirement here — it isn't a bound role at all, and whoever holds it in Discord can always run `/setup` regardless.
+
+**The diagnostic always lists the current bindings**, success or not — which channel and role is pointed at what, or "not configured" — so a clean report is legible on its own rather than only useful when something is wrong.
 
 **Re-checking is one click.** The diagnostic carries a *Re-check* button, so the loop is fix-in-Discord → click → see what remains, without retyping the selections. The same report is available any time from `/setup status` and in the web wizard, which renders it as a live checklist rather than a one-shot message.
 
@@ -987,6 +991,21 @@ View Channel, Send Messages, Send Messages in Threads, Create Private Threads, M
 
 `Manage Threads` is the one that surprises people. The bot needs it to archive a thread on completion; **every tier role** needs it too, on the matches channel, because it is what lets referees see private threads at all — checked separately at `/setup`.
 
+### Inviting the bot
+
+The invite link needs the `bot` and `applications.commands` OAuth2 scopes, plus the base guild-level permission set — the union of everything any channel in "Required permissions" above ever asks for, since an invite grants guild-level permissions and `/setup` (and each channel's own overwrites) refine them from there:
+
+View Channel, Send Messages, Send Messages in Threads, Create Private Threads, Manage Threads, Attach Files, Embed Links, Read Message History, Add Reactions.
+
+Two more are worth granting up front even though `/setup` degrades gracefully without them, per "optional" above:
+
+- **Manage Channels** — lets `/setup channels` create the matches/alerts/results channels itself, correct by construction. Without it, `/setup` falls back to "point at a channel you created yourself" plus a diagnostic; nothing else breaks.
+- **Manage Roles** — lets `/setup`'s repair flow add a missing overwrite for a tier role, and lets `/setup roles` create a tier role when one is omitted. Without it, repair reports what it can't fix instead of fixing it (per "narrower than it first appears" under Provisioning the channels), and role creation falls back the same way channel creation does.
+
+Both intents in "Privileged intents" above (`MessageContent`, `GuildMembers`) also need toggling on in the Developer Portal's Bot tab before the token will authenticate at all — a one-time step per deployment, not per-server.
+
+**Keep this list in sync with the code, not the other way around.** The permission sets actually enforced live in `discord/setup-diagnostic.ts` (`REQUIRED_BOT_PERMS`, `REQUIRED_TIER_ROLE_PERMS`) and the creation overwrite table in `discord/commands/setup.ts` (`OVERWRITE_TABLE`); if a future phase adds something the bot needs, it belongs in both places before it belongs here.
+
 ### The three-second rule
 
 Discord kills an interaction that is not acknowledged within three seconds. Every handler therefore **defers first, works second** — `deferUpdate()` for a button that edits the match message in place, `deferReply({ ephemeral: true })` where the response is private, and the work (lock, validate, append, post) follows. This is not an optimization; a lock wait behind another player's action can easily exceed three seconds on its own.
@@ -1039,13 +1058,27 @@ That has a consequence worth stating, because a server will hit it: **#matches l
 
 | Channel | `@everyone` | Tier roles | Bot |
 | --- | --- | --- | --- |
-| Matches | View; **deny** Send, Create Public Threads | View, Manage Threads | Full thread-capable set |
+| Matches | View; **deny** Send, Create Public Threads, Create Private Threads | View, Manage Threads | Full thread-capable set |
 | Organizer alerts | **deny** View | View, Read History | Send, Embed Links |
-| Results | View, Add Reactions; **deny** Send | — | Send, Embed Links |
+| Results | View, Add Reactions; **deny** Send, Create Public Threads, Create Private Threads | — | Send, Embed Links |
 
-`@everyone` keeps View on the matches channel deliberately: thread visibility requires it on the parent, and anyone may `/join`. The general channel is never created — every server already has one, and making a second is not a service.
+`@everyone` keeps View on the matches and results channels deliberately — thread visibility requires View on the parent, and anyone may `/join`; results is meant to be read (and reacted to). Both are otherwise read-only: `@everyone` can neither post in the channel body nor start a thread of either kind there. That denial is scoped to the parent channel, not the private match threads under it — sending inside a thread is `SendMessagesInThreads`, a separate permission the two competitors get by being added to their own thread, untouched by what `@everyone` can do at the parent. The general channel is never created — every server already has one, and making a second is not a service.
+
+**Every created channel lands under a "Tournament" category**, found or created once per `/setup channels` run and reused across all three — never a duplicate category on a re-run. This applies only to channels this bot creates; a channel an administrator points at instead stays wherever it already lives, unmoved.
+
+**A configured channel that Discord no longer has is treated as unconfigured.** `/setup channels` re-checks every already-configured slot before deciding anything: if the stored channel id was deleted out from under it, that slot falls through to "point at what was given this run, or create fresh" exactly as if it had never been set — never silently left pointing at nothing. The diagnostic (`/setup status` and every `/setup channels`/`roles` reply) reports the same gap on its own, naming which slot's channel is gone, for the case where nobody has re-run `/setup channels` yet to pick up the drift.
 
 **Pointing at an existing channel accepts any choice**, then computes the gap and **offers to repair it**, showing exactly which overwrites would be added before touching anything. Nothing is modified without confirmation: silently rewriting permissions on a channel a server already uses is not something a bot should do unprompted.
+
+### Provisioning the roles
+
+`/setup roles` offers the create-or-point-at choice for its **only two** tiers, Referee and Tournament Organizer: give a role, or omit it and let the bot create one, named for the tier (`Referee`, `Tournament Organizer`) and mentionable — so the escalation mention in the alert channel actually pings, which a non-mentionable role would otherwise silence for anyone without `Mention @everyone, @here, and All Roles`. A created role carries no guild-level permissions of its own; everything it needs is the channel-level overwrite `/setup channels` already grants it (or `/setup roles`' own re-diagnostic offers to repair, if the role is created after the channels already exist).
+
+**There is no third option, for Server Administrator or otherwise — `/setup roles` has nothing to configure there at all.** Reconfiguring the server is Manage Guild, not a bound role (see Bootstrap and Two things called "administrator", above); there is no slot to bind, point at, or create, and no such requirement in the diagnostic.
+
+**Membership is never provisioned, only the role itself.** Assigning members to a tier role remains entirely manual, in Discord — see "Granting access" below; nothing here changes that.
+
+**A configured role that Discord no longer has is treated as unconfigured**, the same reasoning as a deleted channel: `/setup roles` re-checks every already-bound slot first, and a role deleted out from under it falls through to "point at what was given this run, or create fresh." The diagnostic reports the same gap on its own too — `/setup status` and every `/setup channels`/`roles` reply names which tier role is gone, the same way it names a gone channel, for the case where nobody has re-run `/setup roles` yet to pick up the drift.
 
 **What bounds repair is narrower than it first appears.** A bot may only allow or deny permissions it holds in the guild or the parent channel — **unless it has a `Manage Roles` overwrite in that channel**, which lifts the ceiling entirely. So the practical rule is: with a channel-level `Manage Roles` overwrite the bot can grant `Manage Threads` to a tier role regardless of its own guild permissions; without one, it cannot exceed what it already has.
 
@@ -1314,10 +1347,10 @@ Authorization is one service, transport-independent:
 
 | Check | Source of truth |
 | --- | --- |
-| What tier does this user hold here? | Highest of the three `Guild.*RoleId` roles they hold |
+| What tier does this user hold here? | Highest of the two `Guild.*RoleId` roles they hold |
 | May they rule on a match? | Tier ≥ Referee |
 | May they run a tournament? | Tier ≥ Tournament Organizer |
-| May they reconfigure the bot here? | Tier = Server Administrator |
+| May they reconfigure the bot here? | Holds Discord's Manage Guild permission — not a tier check at all |
 | Is this user a bot administrator? | Config allowlist ∪ `Admin` table |
 | May this user act in match M? | Is one of the two players, or holds Referee tier |
 | May a referee override this song? | Not frozen — see Bracket Immutability |
@@ -1428,7 +1461,7 @@ The reasoning worth keeping: a strict reading of "all updates are announced" wou
 
 ## The Organizer Console
 
-Desktop-first, best-effort accessibility, and used by all three tiers — what a person sees is filtered by `tierOf`, not by which console they opened.
+Desktop-first, best-effort accessibility, and used by both tiers — what a person sees is filtered by `tierOf`, not by which console they opened. The one panel outside that filter is server reconfiguration, gated on Manage Guild the same way `/setup` is, not on a tier.
 
 ### The run view
 

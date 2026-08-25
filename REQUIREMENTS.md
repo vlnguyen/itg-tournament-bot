@@ -287,9 +287,11 @@ A player who later renames themselves keeps all their history, because the ID ne
 
 ### Granted roles
 
-These are explicitly assigned and confer permissions. The first three are **server-scoped tiers, granted by assigning a Discord role**; the fourth is deployment-scoped and unrelated to Discord roles.
+These are explicitly assigned and confer permissions. The first two are **server-scoped tiers, granted by assigning a Discord role**; the third is deployment-scoped and unrelated to Discord roles.
 
-**The three server tiers are cumulative.** A Server Administrator can do everything a Tournament Organizer can, who can do everything a Referee can. Every capability listed below is therefore a **minimum** — naming a tier never excludes the tiers above it.
+**The two server tiers are cumulative.** A Tournament Organizer can do everything a Referee can. Every capability listed below is therefore a **minimum** — naming a tier never excludes the tier above it.
+
+**Reconfiguring the server is not a tier at all.** It is gated directly on Discord's own **Manage Guild** permission — there is no bound "Server Administrator" role to assign, and holding Manage Guild confers no tournament or match authority by itself. Whoever has it may run `/setup`, full stop; ruling on a match or running a tournament still requires the relevant tier role regardless.
 
 **Bot Administrator is not part of that chain.** It is deployment-scoped and confers no authority over any tournament: a Bot Administrator without a tier role in a given server can view that server's brackets and rule on nothing.
 
@@ -297,18 +299,17 @@ These are explicitly assigned and confer permissions. The first three are **serv
 | --- | --- | --- |
 | Referee | One Discord server | Rule on matches to unblock them — award or void a song, force a result on an escalation, reset Protect/Veto before song 1, forfeit a match, disqualify a player at either scope. All within the limits in Bracket Immutability. **Cannot create, start, or close a tournament** |
 | Tournament Organizer (TO) | One Discord server | Everything a Referee can do, plus create and configure tournaments, manage song packs, open and close registration and check-in, seed the bracket, start and cancel a tournament |
-| Server Administrator | One Discord server | Everything a TO can do, plus reconfigure the bot for that server — the channels and roles chosen during `/setup` |
 | Bot Administrator | The whole deployment | View every Discord server the bot has been added to, and the tournaments and brackets belonging to each |
 
 **Referee exists so refereeing can be delegated.** Running an event needs more hands than running the tournament does, and someone trusted to unblock a stalled match need not be trusted to cancel the tournament.
 
-**A server may collapse the tiers.** Pointing two or three of the tier slots at the same Discord role is a supported configuration, for servers that want the same people involved at every level.
+**A server may collapse the tiers.** Pointing both tier slots at the same Discord role is a supported configuration, for servers that want the same people involved at every level.
 
-**"Server Administrator" and "Bot Administrator" are unrelated.** The first is a per-server tier; the second is a deployment-wide role held by whoever operates the bot. Neither implies the other.
+**"Administrator" names only the deployment-scoped Bot Administrator role.** There is no server-scoped role by that name — reconfiguring a server is Manage Guild, above, not a tier — so nothing else should ever be labelled plain "Administrator."
 
 ### What each role may do
 
-Tiers are cumulative, so each action below lists the **minimum** tier required. Anything a Referee may do, a Tournament Organizer and Server Administrator may also do.
+Tiers are cumulative, so each action below lists the **minimum** tier required. Anything a Referee may do, a Tournament Organizer may also do.
 
 **In a match** — the referee's domain. Everything the organizers do during a running tournament sits here, and none of it needs a tier above Referee.
 
@@ -340,12 +341,12 @@ Tiers are cumulative, so each action below lists the **minimum** tier required. 
 | Start the tournament | Tournament Organizer |
 | Cancel a tournament that has not started | Tournament Organizer |
 
-**Configuring the server.**
+**Configuring the server** — gated on Discord's own Manage Guild permission, not a tier; see "Reconfiguring the server is not a tier at all" above.
 
 | Action | Minimum |
 | --- | --- |
-| Run `/setup` — choose channels and the role for each tier | Server Administrator, **or** Discord's Manage Guild |
-| Re-run the configuration diagnostic (`/setup status`) | Server Administrator |
+| Run `/setup` — choose channels and the role for each tier | Discord's Manage Guild |
+| Re-run the configuration diagnostic (`/setup status`) | Discord's Manage Guild |
 
 **Across the deployment** — unrelated to the server tiers.
 
@@ -472,12 +473,12 @@ The web backend remains the system of record for structured data — every chart
 | `/leave` | An entrant | Withdraw from the tournament, any time before it starts |
 | `/pack` | Any server member | Get a link to the current tournament's song pack |
 | `/roster` | Tournament Organizer | Add, check in, un-check-in or remove an entrant on their behalf |
-| `/setup` | Server Administrator, or anyone with Discord's Manage Guild | Server setup — point the bot at the matches, organizer alert, results and general channels, and the Discord role for each tier. Re-runnable |
-| `/setup status` | Server Administrator | Re-run the configuration and permission diagnostic without changing anything |
+| `/setup` | Discord's Manage Guild | Server setup — point the bot at the matches, organizer alert, results and general channels, and the Discord role for each tier. Re-runnable |
+| `/setup status` | Discord's Manage Guild | Re-run the configuration and permission diagnostic without changing anything |
 | `/dq` | Referee | Disqualify a player, choosing whether it applies to this match only or withdraws them from the tournament |
 | `/forfeit` | Referee | Award a match to a player whose opponent is absent or unresponsive |
 
-`/setup` accepts Manage Guild as well as the Server Administrator tier because the tier is *configured by* `/setup` — a freshly-invited server has no administrator role yet, and Manage Guild remains the recovery path if the roles are later deleted or misconfigured.
+`/setup` is gated on Manage Guild alone, not a tier — a freshly-invited server has no tier roles yet, so this also doubles as the permanent recovery path if the roles are later deleted or misconfigured, with nothing else to fall back to.
 
 Match play itself uses **components, not commands** — Protect, Veto, score submission, winner selection, and tiebreak song selection all happen inside the match thread. Where a component needs a typed value, it opens a **modal** rather than asking for a chat message; EX% entry is the only such case.
 
@@ -501,9 +502,9 @@ Referees can rule from any surface:
 - **From slash commands**, for anything the alert buttons do not cover.
 - **From the web UI**, which retains the full set of override capabilities.
 
-**Authorization.** Button interactions and organizer slash commands are authorized by resolving the acting user's **tier** — the highest of the three configured Discord roles they hold — and comparing it against what the action requires. Every ruling in the alert channel requires **Referee**; nothing there requires more. A user below the required tier receives an ephemeral rejection visible only to them.
+**Authorization.** Button interactions and organizer slash commands are authorized by resolving the acting user's **tier** — the highest of the two configured Discord roles they hold — and comparing it against what the action requires. Every ruling in the alert channel requires **Referee**; nothing there requires more. A user below the required tier receives an ephemeral rejection visible only to them.
 
-Only the specific roles named during `/setup` are consulted. No other Discord role and no native Discord permission grants authority over a tournament, so a server administrator who has not been given a tier role cannot rule on a match.
+Only the specific roles named during `/setup` are consulted. No other Discord role and no native Discord permission grants authority over a tournament — Manage Guild included — so someone who administers the server in Discord's own terms but has not been given a tier role still cannot rule on a match.
 
 Buttons remain *visible* to anyone who can read the channel; enforcement happens on the click. The organizer alert channel is expected to be permission-restricted in Discord as a first gate.
 

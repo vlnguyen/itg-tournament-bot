@@ -18,6 +18,7 @@ import { createDiscordClient, loginDiscordClient } from '../src/discord/client.j
 import { registerInteractionHandlers } from '../src/discord/interactions.js';
 import { createMatchChannelAdapter } from '../src/discord/match-channel-adapter.js';
 import { registerMessageListener } from '../src/discord/message-listener.js';
+import { createPlayerNotificationAdapter } from '../src/discord/player-notification-adapter.js';
 import { cryptoRandomPort } from '../src/services/ports.js';
 
 process.loadEnvFile(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../.env'));
@@ -44,9 +45,10 @@ async function main(): Promise<void> {
   await loginDiscordClient(client, token);
   console.log(`Logged in as ${client.user?.tag}, serving guild ${guildId}`);
 
-  const matchChannel = createMatchChannelAdapter(client, prisma, guild.matchesChannelId, guild.resultsChannelId);
-  const alert = createAlertAdapter(client, guild.alertChannelId);
-  registerInteractionHandlers(client, prisma, cryptoRandomPort, matchChannel, alert);
+  const matchChannel = createMatchChannelAdapter(client, prisma);
+  const alert = createAlertAdapter(client, prisma);
+  const playerNotification = createPlayerNotificationAdapter(client);
+  registerInteractionHandlers(client, prisma, cryptoRandomPort, matchChannel, alert, playerNotification);
   registerMessageListener(client, prisma, cryptoRandomPort, matchChannel);
 
   console.log('Listening for interactions. Ctrl-C to stop.');

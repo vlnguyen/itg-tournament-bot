@@ -12,13 +12,22 @@ function isUnknownMessage(err: unknown): boolean {
  * Discord-backed `MatchChannelPort`. Mechanics only — the thread and
  * message lifecycle — never match rules. See DESIGN.md, "The Match
  * Thread".
+ *
+ * Takes no channel IDs at construction — one instance serves every guild
+ * the bot is in. `createMatchThread`/`publishResult` resolve the guild's
+ * configured matches/results channel from the `Guild` row per call (via
+ * the match's `tournamentId`), so a channel `/setup` repoints takes effect
+ * on the next call with no restart, and boot never depends on a guild
+ * already being configured.
  */
-export function createMatchChannelAdapter(
-  client: Client,
-  prisma: PrismaClient,
-  matchesChannelId: string,
-  resultsChannelId: string,
-): MatchChannelPort {
+export function createMatchChannelAdapter(client: Client, prisma: PrismaClient): MatchChannelPort {
+  async function guildIdOfMatch(matchId: string): Promise<string> {
+    const match = await prisma.match.findUniqueOrThrow({
+      where: { id: matchId },
+      select: { tournament: { select: { guildId: true } } },
+    });
+    return match.tournament.guildId;
+  }
   /**
    * Per-match debounce for the state message: coalesces a burst of
    * triggers (two photos landing within the same second) into one repost.
@@ -76,9 +85,12 @@ export function createMatchChannelAdapter(
 
   return {
     async createMatchThread({ matchId, title }): Promise<ThreadRef> {
-      const parent = await client.channels.fetch(matchesChannelId);
+      const guildId = await guildIdOfMatch(matchId);
+      const guild = await prisma.guild.findUniqueOrThrow({ where: { id: guildId } });
+      if (!guild.matchesChannelId) throw new Error(`guild ${guildId} has no matches channel configured`);
+      const parent = await client.channels.fetch(guild.matchesChannelId);
       if (!parent || parent.type !== ChannelType.GuildText) {
-        throw new Error(`matches channel ${matchesChannelId} is not a text channel`);
+        throw new Error(`matches channel ${guild.matchesChannelId} is not a text channel`);
       }
       const thread = await parent.threads.create({
         name: title,
@@ -120,10 +132,13 @@ export function createMatchChannelAdapter(
       await thread.setArchived(true);
     },
 
-    async publishResult(message) {
-      const channel = await client.channels.fetch(resultsChannelId);
+    async publishResult(ref, message) {
+      const guildId = await guildIdOfMatch(ref.matchId);
+      const guild = await prisma.guild.findUniqueOrThrow({ where: { id: guildId } });
+      if (!guild.resultsChannelId) throw new Error(`guild ${guildId} has no results channel configured`);
+      const channel = await client.channels.fetch(guild.resultsChannelId);
       if (!channel || channel.type !== ChannelType.GuildText) {
-        throw new Error(`results channel ${resultsChannelId} is not a text channel`);
+        throw new Error(`results channel ${guild.resultsChannelId} is not a text channel`);
       }
       await channel.send(message);
     },

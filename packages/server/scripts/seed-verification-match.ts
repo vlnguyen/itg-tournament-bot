@@ -163,7 +163,7 @@ async function main(): Promise<void> {
     await materializeBracket(prisma, cryptoRandomPort, tournament.id);
     console.log('Bracket materialized.');
 
-    const matchChannel = createMatchChannelAdapter(client, prisma, args.matchesChannelId, args.resultsChannelId);
+    const matchChannel = createMatchChannelAdapter(client, prisma);
     const playerNotification = createPlayerNotificationAdapter(client);
     const threads = await provisionReadyThreads(prisma, matchChannel, playerNotification, tournament.id, '(Test) ');
 

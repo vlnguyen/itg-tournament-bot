@@ -18,6 +18,8 @@ import { requireFormat } from '../services/engine.js';
 import { appendMatchEvent, IllegalActionError, type AppendResult } from '../services/match-service.js';
 import type { RandomPort } from '../services/ports.js';
 import { Action, SCORE_MODAL_EX_FIELD } from './actions.js';
+import type { CommandContext } from './commands/context.js';
+import { dispatchChatInputCommand } from './commands/router.js';
 import { decodeCustomId, encodeCustomId, type CustomId } from './custom-id.js';
 import {
   renderProtectVetoLog,
@@ -29,7 +31,7 @@ import {
   renderTiebreakRevealLog,
 } from './log-messages.js';
 import { buildPlayerDirectory, loadMatch, type MatchWithParticipants } from './match-lookup.js';
-import type { AlertPort, MatchChannelPort, RenderedMessage, ThreadRef } from './ports.js';
+import type { AlertPort, MatchChannelPort, PlayerNotificationPort, RenderedMessage, ThreadRef } from './ports.js';
 import { compactChartLabel } from './render/chart.js';
 import { buildEscalationAlert, buildResolvedAlert } from './render/escalation.js';
 import { buildMatchSongsEmbed } from './render/match-songs.js';
@@ -55,9 +57,11 @@ export function registerInteractionHandlers(
   random: RandomPort,
   matchChannel: MatchChannelPort,
   alert: AlertPort,
+  playerNotification: PlayerNotificationPort,
 ): void {
+  const commandCtx: CommandContext = { client, prisma, random, matchChannel, playerNotification, alert };
   client.on(Events.InteractionCreate, (interaction: Interaction) => {
-    handle(interaction, prisma, random, matchChannel, alert).catch((err: unknown) => {
+    handle(interaction, prisma, random, matchChannel, alert, commandCtx).catch((err: unknown) => {
       console.error('[discord] interaction handler failed', err);
     });
   });
@@ -69,7 +73,13 @@ async function handle(
   random: RandomPort,
   matchChannel: MatchChannelPort,
   alert: AlertPort,
+  commandCtx: CommandContext,
 ): Promise<void> {
+  if (interaction.isChatInputCommand()) {
+    await dispatchChatInputCommand(interaction, commandCtx);
+    return;
+  }
+
   if (interaction.isModalSubmit()) {
     const decoded = decodeCustomId(interaction.customId);
     if (!decoded || decoded.action !== Action.SCORE) return;
@@ -309,7 +319,7 @@ async function handleRulingButton(
       const result = await appendMatchEvent(prisma, random, match.id, event, interaction.id);
       if (match.alertMsgId) {
         const outcome = `awarded the set to ${displayName(players, winnerId)}`;
-        await alert.resolve({ messageId: match.alertMsgId }, buildResolvedAlert(refDisplayName, outcome));
+        await alert.resolve(match.tournament.guildId, { messageId: match.alertMsgId }, buildResolvedAlert(refDisplayName, outcome));
         await prisma.match.update({ where: { id: match.id }, data: { alertMsgId: null } });
       }
       await matchChannel.postLogMessage(ref, renderSetRulingLog(winnerId, refDisplayName, players));
@@ -342,7 +352,7 @@ async function handleRulingButton(
     if (match.alertMsgId) {
       const outcome =
         rulingResult === 'VOID' ? 'voided' : `awarded to ${displayName(players, rulingResult)}`;
-      await alert.resolve({ messageId: match.alertMsgId }, buildResolvedAlert(refDisplayName, outcome));
+      await alert.resolve(match.tournament.guildId, { messageId: match.alertMsgId }, buildResolvedAlert(refDisplayName, outcome));
       await prisma.match.update({ where: { id: match.id }, data: { alertMsgId: null } });
     }
 
@@ -485,7 +495,7 @@ async function handleTiebreakPick(
  * escalation alert, and the state message re-rendered from whatever is
  * now pending.
  */
-async function applyAppendResult(
+export async function applyAppendResult(
   prisma: PrismaClient,
   matchChannel: MatchChannelPort,
   alert: AlertPort,
@@ -554,7 +564,7 @@ async function applyAppendResult(
       { entrantId: p0!.entrantId, name: displayName(players, p0!.entrantId) },
       { entrantId: p1!.entrantId, name: displayName(players, p1!.entrantId) },
     ]);
-    const alertRef = await alert.raise(alertMessage);
+    const alertRef = await alert.raise(match.tournament.guildId, alertMessage);
     await prisma.match.update({ where: { id: match.id }, data: { alertMsgId: alertRef.messageId } });
   }
 
@@ -575,7 +585,7 @@ async function applyAppendResult(
     await matchChannel.postLogMessage(ref, { embeds: [summary] });
 
     const announcement = buildResultAnnouncement(match.bracket, match.round, outcome, publicMatch.points, participantIds, nameOf);
-    await matchChannel.publishResult(announcement);
+    await matchChannel.publishResult(ref, announcement);
 
     await matchChannel.archiveThread(ref);
     return;

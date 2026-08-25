@@ -44,8 +44,8 @@ export interface MatchChannelPort {
   /** The singular, disposable prompt. Edited in place when it is still the last message; deleted and reposted otherwise. */
   postMatchState(thread: ThreadRef, message: RenderedMessage): Promise<void>;
   archiveThread(thread: ThreadRef): Promise<void>;
-  /** One public line per finished match, outside any thread. */
-  publishResult(message: RenderedMessage): Promise<void>;
+  /** One public line per finished match, outside any thread. `ref.matchId` is how the adapter resolves the guild's configured results channel. */
+  publishResult(thread: ThreadRef, message: RenderedMessage): Promise<void>;
 }
 
 /** "Tell these players their match is ready" — the adapter decides how (thread mention, best-effort DM, or both). */
@@ -59,6 +59,6 @@ export interface AlertRef {
 
 /** Organizer-facing alerts: a disagreement or settings-violation escalation, posted with ruling buttons and resolved by editing in place. */
 export interface AlertPort {
-  raise(message: RenderedMessage): Promise<AlertRef>;
-  resolve(ref: AlertRef, resolution: RenderedMessage): Promise<void>;
+  raise(guildId: string, message: RenderedMessage): Promise<AlertRef>;
+  resolve(guildId: string, ref: AlertRef, resolution: RenderedMessage): Promise<void>;
 }

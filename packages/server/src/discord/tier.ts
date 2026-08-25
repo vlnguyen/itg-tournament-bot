@@ -34,3 +34,12 @@ export function tierOf(memberRoleIds: Iterable<string>, config: TierRoleConfig):
 export function hasTier(memberRoleIds: Iterable<string>, config: TierRoleConfig, required: Tier): boolean {
   return tierOf(memberRoleIds, config) >= required;
 }
+
+/**
+ * "Escalations mention every distinct role configured at Referee tier or
+ * above." See DESIGN.md, "Two classes, one inbox" — deduplicated, so a
+ * server that has collapsed its tiers onto one role produces one mention.
+ */
+export function refereeTierRoleIds(config: TierRoleConfig): string[] {
+  return [...new Set([config.refereeRoleId, config.toRoleId, config.adminRoleId].filter((id): id is string => Boolean(id)))];
+}

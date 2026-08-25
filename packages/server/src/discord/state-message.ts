@@ -12,7 +12,9 @@ import { encodeCustomId } from './custom-id.js';
 import type { RenderedMessage } from './ports.js';
 import { fullChartDescription, selectOptionDescription, selectOptionLabel } from './render/chart.js';
 import { buildDrawStatusLines } from './render/draw-status.js';
+import { buildAwaitingRefereeMessage } from './render/escalation.js';
 import { buildScoreTicksLines } from './render/score-ticks.js';
+import { buildWinnerSelectMessage } from './render/winner-select.js';
 
 /**
  * `MatchState` addresses players by `EntrantId` (the `Entrant` row's id),
@@ -56,6 +58,10 @@ export function renderStateMessage(
       return renderProtectVeto(matchId, pending.kind, pending.actor, pending.choices, state, players);
     case 'SUBMIT_SCORE':
       return renderSubmitScore(matchId, pending.songIndex, state, players);
+    case 'SELECT_WINNER':
+      return renderSelectWinner(matchId, pending.songIndex, state, players);
+    case 'AWAITING_TO':
+      return buildAwaitingRefereeMessage(pending.reason);
     default:
       // Built incrementally alongside the interaction handlers that need
       // each kind — see Phase 4's build order in the plan. A placeholder
@@ -151,4 +157,17 @@ function renderSubmitScore(
   );
 
   return { embeds: [embed], components: [row] };
+}
+
+function renderSelectWinner(
+  matchId: string,
+  songIndex: number,
+  state: MatchState,
+  players: PlayerDirectory,
+): RenderedMessage {
+  const song = state.songs[songIndex]!;
+  const [a, b] = state.participants;
+  return buildWinnerSelectMessage(matchId, songIndex, song, [a!.entrantId, b!.entrantId], (id) =>
+    displayName(players, id),
+  );
 }

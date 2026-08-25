@@ -13,6 +13,7 @@
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { PrismaClient } from '@prisma/client';
+import { createAlertAdapter } from '../src/discord/alert-adapter.js';
 import { createDiscordClient, loginDiscordClient } from '../src/discord/client.js';
 import { registerInteractionHandlers } from '../src/discord/interactions.js';
 import { createMatchChannelAdapter } from '../src/discord/match-channel-adapter.js';
@@ -44,7 +45,8 @@ async function main(): Promise<void> {
   console.log(`Logged in as ${client.user?.tag}, serving guild ${guildId}`);
 
   const matchChannel = createMatchChannelAdapter(client, prisma, guild.matchesChannelId, guild.alertChannelId);
-  registerInteractionHandlers(client, prisma, cryptoRandomPort, matchChannel);
+  const alert = createAlertAdapter(client, guild.alertChannelId);
+  registerInteractionHandlers(client, prisma, cryptoRandomPort, matchChannel, alert);
   registerMessageListener(client, prisma, cryptoRandomPort, matchChannel);
 
   console.log('Listening for interactions. Ctrl-C to stop.');

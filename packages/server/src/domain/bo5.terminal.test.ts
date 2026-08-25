@@ -73,7 +73,7 @@ describe('settings violations', () => {
       type: 'SONG_ESCALATED',
       payload: { songIndex: 0, reason: 'SETTINGS_VIOLATION' },
     });
-    expect(d.pending).toEqual({ kind: 'AWAITING_TO', reason: 'SETTINGS_VIOLATION' });
+    expect(d.pending).toEqual({ kind: 'AWAITING_TO', reason: 'SETTINGS_VIOLATION', songIndex: 0 });
   });
 
   it('resumes play once the referee awards the song', () => {

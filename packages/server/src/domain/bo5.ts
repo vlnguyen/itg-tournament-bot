@@ -340,7 +340,7 @@ function pendingAction(state: MatchState): PendingAction {
   }
 
   const escalation = escalationOf(state);
-  if (escalation) return { kind: 'AWAITING_TO', reason: escalation.reason };
+  if (escalation) return { kind: 'AWAITING_TO', reason: escalation.reason, songIndex: escalation.songIndex };
 
   if (!state.a) {
     const chooser = higherSeed(state);

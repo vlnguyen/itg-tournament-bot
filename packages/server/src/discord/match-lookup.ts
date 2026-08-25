@@ -1,23 +1,25 @@
 import type { Entrant, Match, MatchParticipant, PrismaClient } from '@prisma/client';
 import type { PlayerDirectory } from './state-message.js';
 
-export type MatchWithParticipants = Match & { participants: (MatchParticipant & { entrant: Entrant })[] };
+export type MatchWithParticipants = Match & {
+  participants: (MatchParticipant & { entrant: Entrant })[];
+  tournament: { guildId: string };
+};
+
+const include = {
+  participants: { include: { entrant: true } },
+  tournament: { select: { guildId: true } },
+} as const;
 
 export async function loadMatch(prisma: PrismaClient, matchId: string): Promise<MatchWithParticipants | null> {
-  return prisma.match.findUnique({
-    where: { id: matchId },
-    include: { participants: { include: { entrant: true } } },
-  });
+  return prisma.match.findUnique({ where: { id: matchId }, include });
 }
 
 export async function loadMatchByThreadId(
   prisma: PrismaClient,
   threadId: string,
 ): Promise<MatchWithParticipants | null> {
-  return prisma.match.findFirst({
-    where: { threadId },
-    include: { participants: { include: { entrant: true } } },
-  });
+  return prisma.match.findFirst({ where: { threadId }, include });
 }
 
 export function buildPlayerDirectory(match: MatchWithParticipants): PlayerDirectory {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasTier, Tier, tierOf } from './tier.js';
+import { hasTier, refereeTierRoleIds, Tier, tierOf } from './tier.js';
 
 const config = { refereeRoleId: 'ref-role', toRoleId: 'to-role', adminRoleId: 'admin-role' };
 
@@ -37,5 +37,25 @@ describe('hasTier', () => {
     expect(hasTier(['admin-role'], config, Tier.REFEREE)).toBe(true);
     expect(hasTier(['ref-role'], config, Tier.TOURNAMENT_ORGANIZER)).toBe(false);
     expect(hasTier(['to-role'], config, Tier.TOURNAMENT_ORGANIZER)).toBe(true);
+  });
+});
+
+describe('refereeTierRoleIds', () => {
+  it('lists every distinct role at Referee tier or above', () => {
+    expect(refereeTierRoleIds(config).sort()).toEqual(['admin-role', 'ref-role', 'to-role'].sort());
+  });
+
+  it('deduplicates when a server collapses tiers onto one role', () => {
+    const collapsed = { refereeRoleId: 'staff', toRoleId: 'staff', adminRoleId: 'staff' };
+    expect(refereeTierRoleIds(collapsed)).toEqual(['staff']);
+  });
+
+  it('omits unconfigured slots', () => {
+    const partial = { refereeRoleId: 'ref-role', toRoleId: null, adminRoleId: null };
+    expect(refereeTierRoleIds(partial)).toEqual(['ref-role']);
+  });
+
+  it('is empty when nothing is configured', () => {
+    expect(refereeTierRoleIds({ refereeRoleId: null, toRoleId: null, adminRoleId: null })).toEqual([]);
   });
 });

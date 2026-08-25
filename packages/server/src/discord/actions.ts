@@ -7,6 +7,9 @@ export const Action = {
   SEED_CHOICE: 'SEED',
   PROTECT_VETO: 'PV',
   SCORE: 'SCORE',
+  WINNER: 'WIN',
+  /** A referee ruling on an escalated song — posted in the alert channel, not the match thread. */
+  RULE: 'RULE',
 } as const;
 
 /** The `customId` a "Submit score" text input carries within its modal. */

@@ -11,16 +11,18 @@ import {
   type StringSelectMenuInteraction,
 } from 'discord.js';
 import type { PrismaClient } from '@prisma/client';
-import type { MatchEvent, MatchFormat, MatchState, PendingAction } from '../domain/types.js';
+import type { EntrantId, MatchEvent, MatchFormat, MatchState, PendingAction } from '../domain/types.js';
 import { requireFormat } from '../services/engine.js';
 import { appendMatchEvent, IllegalActionError, type AppendResult } from '../services/match-service.js';
 import type { RandomPort } from '../services/ports.js';
 import { Action, SCORE_MODAL_EX_FIELD } from './actions.js';
 import { decodeCustomId, encodeCustomId, type CustomId } from './custom-id.js';
-import { renderProtectVetoLog, renderSeedChoiceLog } from './log-messages.js';
+import { renderProtectVetoLog, renderRulingLog, renderSeedChoiceLog, renderSongResultLog } from './log-messages.js';
 import { buildPlayerDirectory, loadMatch, type MatchWithParticipants } from './match-lookup.js';
-import type { MatchChannelPort, RenderedMessage, ThreadRef } from './ports.js';
+import type { AlertPort, MatchChannelPort, RenderedMessage, ThreadRef } from './ports.js';
+import { buildEscalationAlert, buildResolvedAlert } from './render/escalation.js';
 import { buildMatchSongsEmbed } from './render/match-songs.js';
+import { hasTier, refereeTierRoleIds, Tier, type TierRoleConfig } from './tier.js';
 import { parseExPercent } from './validate-ex.js';
 import { displayName, renderStateMessage, type PlayerDirectory } from './state-message.js';
 
@@ -40,9 +42,10 @@ export function registerInteractionHandlers(
   prisma: PrismaClient,
   random: RandomPort,
   matchChannel: MatchChannelPort,
+  alert: AlertPort,
 ): void {
   client.on(Events.InteractionCreate, (interaction: Interaction) => {
-    handle(interaction, prisma, random, matchChannel).catch((err: unknown) => {
+    handle(interaction, prisma, random, matchChannel, alert).catch((err: unknown) => {
       console.error('[discord] interaction handler failed', err);
     });
   });
@@ -53,11 +56,12 @@ async function handle(
   prisma: PrismaClient,
   random: RandomPort,
   matchChannel: MatchChannelPort,
+  alert: AlertPort,
 ): Promise<void> {
   if (interaction.isModalSubmit()) {
     const decoded = decodeCustomId(interaction.customId);
     if (!decoded || decoded.action !== Action.SCORE) return;
-    await handleScoreModalSubmit(interaction, decoded, prisma, random, matchChannel);
+    await handleScoreModalSubmit(interaction, decoded, prisma, random, matchChannel, alert);
     return;
   }
 
@@ -68,6 +72,14 @@ async function handle(
 
   if (interaction.isButton() && decoded.action === Action.SCORE) {
     await interaction.showModal(buildScoreModal(decoded));
+    return;
+  }
+
+  // A referee ruling isn't a participant action — gated on tier, not on
+  // being seated in the match — so it's routed before the participant
+  // check below rather than through the generic path.
+  if (interaction.isButton() && decoded.action === Action.RULE) {
+    await handleRulingButton(interaction, decoded, prisma, random, matchChannel, alert);
     return;
   }
 
@@ -100,7 +112,7 @@ async function handle(
 
   try {
     const result = await appendMatchEvent(prisma, random, match.id, event, interaction.id);
-    await applyAppendResult(matchChannel, match, format, event, result);
+    await applyAppendResult(prisma, matchChannel, alert, match, format, event, result);
   } catch (err) {
     if (err instanceof IllegalActionError) {
       await interaction.followUp({
@@ -138,6 +150,7 @@ async function handleScoreModalSubmit(
   prisma: PrismaClient,
   random: RandomPort,
   matchChannel: MatchChannelPort,
+  alert: AlertPort,
 ): Promise<void> {
   const raw = interaction.fields.getTextInputValue(SCORE_MODAL_EX_FIELD);
   const ex = parseExPercent(raw);
@@ -172,7 +185,94 @@ async function handleScoreModalSubmit(
 
   try {
     const result = await appendMatchEvent(prisma, random, match.id, event, interaction.id);
-    await applyAppendResult(matchChannel, match, format, event, result);
+    await applyAppendResult(prisma, matchChannel, alert, match, format, event, result);
+  } catch (err) {
+    if (err instanceof IllegalActionError) {
+      await interaction.followUp({
+        ephemeral: true,
+        content: `That's not available anymore — ${describeStale(err)}.`,
+      });
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Every role's roles come back shaped differently depending on whether
+ * discord.js resolved a full cached `GuildMember` or the raw API partial —
+ * both carry the same role ids, just under different shapes.
+ */
+function rolesOfMember(member: ButtonInteraction['member']): string[] {
+  if (!member) return [];
+  if (Array.isArray(member.roles)) return member.roles;
+  return [...member.roles.cache.keys()];
+}
+
+async function handleRulingButton(
+  interaction: ButtonInteraction,
+  decoded: CustomId,
+  prisma: PrismaClient,
+  random: RandomPort,
+  matchChannel: MatchChannelPort,
+  alert: AlertPort,
+): Promise<void> {
+  await interaction.deferUpdate();
+
+  const match = await loadMatch(prisma, decoded.matchId);
+  if (!match) {
+    await interaction.followUp({ ephemeral: true, content: 'This match no longer exists.' });
+    return;
+  }
+
+  const guild = await prisma.guild.findUnique({ where: { id: match.tournament.guildId } });
+  const tierConfig: TierRoleConfig = guild ?? { refereeRoleId: null, toRoleId: null, adminRoleId: null };
+  if (!hasTier(rolesOfMember(interaction.member), tierConfig, Tier.REFEREE)) {
+    await interaction.followUp({ ephemeral: true, content: 'Only a referee can rule on this.' });
+    return;
+  }
+
+  // `state.escalation` (the raw field) is only ever set for an explicit
+  // settings-violation report — a winner disagreement is derived from the
+  // selections and never stored there. `pendingAction` is the only place
+  // it, and the songIndex it applies to, surfaces at all.
+  const format = requireFormat(match.formatKey);
+  const cachedState = match.state as unknown as MatchState;
+  const cachedPending = format.pendingAction(cachedState);
+  const arg = decoded.arg;
+  if (cachedPending.kind !== 'AWAITING_TO' || !arg) {
+    await interaction.followUp({ ephemeral: true, content: 'This escalation was already resolved.' });
+    return;
+  }
+  const songIndex = cachedPending.songIndex;
+
+  const rulingResult = arg as EntrantId | 'VOID';
+  const event: Omit<MatchEvent, 'seq'> = {
+    actorId: interaction.user.id,
+    type: 'SONG_RULED',
+    payload: { songIndex, result: rulingResult },
+  };
+
+  try {
+    const result = await appendMatchEvent(prisma, random, match.id, event, interaction.id);
+    const players = buildPlayerDirectory(match);
+    const chart = result.state.songs[songIndex]!.chart;
+    const refereeDisplayName = interaction.user.username;
+
+    if (match.alertMsgId) {
+      const outcome =
+        rulingResult === 'VOID' ? 'voided' : `awarded to ${displayName(players, rulingResult)}`;
+      await alert.resolve({ messageId: match.alertMsgId }, buildResolvedAlert(refereeDisplayName, outcome));
+      await prisma.match.update({ where: { id: match.id }, data: { alertMsgId: null } });
+    }
+
+    const ref: ThreadRef = { matchId: match.id, threadId: match.threadId! };
+    await matchChannel.postLogMessage(
+      ref,
+      renderRulingLog(songIndex, chart, rulingResult, refereeDisplayName, players),
+    );
+
+    await applyAppendResult(prisma, matchChannel, alert, match, format, event, result);
   } catch (err) {
     if (err instanceof IllegalActionError) {
       await interaction.followUp({
@@ -188,11 +288,14 @@ async function handleScoreModalSubmit(
 /**
  * Everything that happens after a successful append, shared by every
  * action type: a permanent log line where one applies, the Protect/Veto
- * completion recap where that transition just happened, and the state
- * message re-rendered from whatever is now pending.
+ * completion recap where that transition just happened, a newly raised
+ * escalation alert, and the state message re-rendered from whatever is
+ * now pending.
  */
 async function applyAppendResult(
+  prisma: PrismaClient,
   matchChannel: MatchChannelPort,
+  alert: AlertPort,
   match: MatchWithParticipants,
   format: MatchFormat,
   event: Omit<MatchEvent, 'seq'>,
@@ -209,18 +312,52 @@ async function applyAppendResult(
   const log = renderActionLog(event, result.state, players);
   if (log) await matchChannel.postLogMessage(ref, log);
 
+  // A song committed by agreement gets its own permanent log line — a
+  // ruling does too, but that one is posted by handleRulingButton, which
+  // is the only place that has the referee's identity to attribute it to.
+  for (const effect of result.effects) {
+    if (effect.kind !== 'SONG_COMMITTED') continue;
+    const song = result.state.songs[effect.songIndex]!;
+    if (song.result?.by !== 'AGREEMENT') continue;
+    await matchChannel.postLogMessage(ref, renderSongResultLog(effect.songIndex, song.chart, song.result.winner, players));
+  }
+
   // Protect/Veto just finished — ABBAAB's sixth and last action always
   // lands on exactly 4 protects and 2 vetoes. Checked as a *transition*
   // (not complete before, complete after): that count never changes again
   // once reached, so a bare state check would re-fire this on every action
   // for the rest of the match.
-  const justCompleted = (s: MatchState) => s.protects.length === 4 && s.vetoes.length === 2;
-  if (!justCompleted(before) && justCompleted(result.state)) {
+  const justCompletedPV = (s: MatchState) => s.protects.length === 4 && s.vetoes.length === 2;
+  if (!justCompletedPV(before) && justCompletedPV(result.state)) {
     const songs = buildMatchSongsEmbed(result.state, (id) => displayName(players, id));
     await matchChannel.postLogMessage(ref, { embeds: [songs] });
   }
 
+  // Newly escalated — same transition-not-state-check reasoning as above.
+  // Read off `pendingAction`, never `state.escalation`: that raw field is
+  // only ever set for an explicit settings-violation report — a winner
+  // disagreement is derived from the selections themselves and never
+  // stored, so `pendingAction` is the only place it surfaces at all (with
+  // the songIndex `isLegal`'s SONG_RULED check also depends on).
+  const beforePending = format.pendingAction(before);
   const pending = format.pendingAction(result.state);
+  if (beforePending.kind !== 'AWAITING_TO' && pending.kind === 'AWAITING_TO') {
+    const guild = await prisma.guild.findUnique({ where: { id: match.tournament.guildId } });
+    const mention = guild
+      ? refereeTierRoleIds(guild)
+          .map((id) => `<@&${id}>`)
+          .join(' ')
+      : '';
+    const [p0, p1] = match.participants;
+    const threadLink = `https://discord.com/channels/${match.tournament.guildId}/${match.threadId}`;
+    const alertMessage = buildEscalationAlert(match.id, pending.songIndex, pending.reason, mention, threadLink, [
+      { entrantId: p0!.entrantId, name: displayName(players, p0!.entrantId) },
+      { entrantId: p1!.entrantId, name: displayName(players, p1!.entrantId) },
+    ]);
+    const alertRef = await alert.raise(alertMessage);
+    await prisma.match.update({ where: { id: match.id }, data: { alertMsgId: alertRef.messageId } });
+  }
+
   await matchChannel.postMatchState(ref, renderStateMessage(match.id, pending, result.state, players));
 }
 
@@ -275,6 +412,17 @@ function buildEvent(
       if (!Number.isInteger(drawIndex)) return null;
       const type = cachedPending.kind === 'VETO' ? 'CHART_VETOED' : 'CHART_PROTECTED';
       return { actorId, type, payload: { by: entrantId, drawIndex } };
+    }
+    case Action.WINNER: {
+      if (cachedPending.kind !== 'SELECT_WINNER') return null;
+      const arg = decoded.arg;
+      if (!arg) return null;
+      const choice = arg as EntrantId | 'TIE';
+      return {
+        actorId,
+        type: 'SONG_WINNER_SELECTED',
+        payload: { songIndex: cachedPending.songIndex, by: entrantId, choice },
+      };
     }
     default:
       return null;

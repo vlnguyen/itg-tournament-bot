@@ -146,7 +146,8 @@ describe('referee events', () => {
       payload: { songIndex: 0, result: A },
     } as MatchEvent;
     expect(isLegal(d.pending, ruling)).toBe(false); // nothing escalated yet
-    expect(isLegal({ kind: 'AWAITING_TO', reason: 'WINNER_DISAGREEMENT' }, ruling)).toBe(true);
+    expect(isLegal({ kind: 'AWAITING_TO', reason: 'WINNER_DISAGREEMENT', songIndex: 0 }, ruling)).toBe(true);
+    expect(isLegal({ kind: 'AWAITING_TO', reason: 'WINNER_DISAGREEMENT', songIndex: 1 }, ruling)).toBe(false);
   });
 
   it('PROTECT_VETO_RESET is legal before song 1 starts, not after', () => {

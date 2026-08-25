@@ -179,7 +179,7 @@ export type PendingAction =
   | { kind: 'TIEBREAK_PICK'; actors: EntrantId[]; round: number; choices: number[] }
   | { kind: 'CONFIRM_RESULT'; actors: EntrantId[] }
   | { kind: 'AWAITING_BOT'; directive: BotDirective }
-  | { kind: 'AWAITING_TO'; reason: EscalationReason }
+  | { kind: 'AWAITING_TO'; reason: EscalationReason; songIndex: number }
   | { kind: 'DONE' };
 
 /** Every actor a pending action is waiting on, however the variant spells it. */

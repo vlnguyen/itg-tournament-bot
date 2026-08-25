@@ -172,7 +172,7 @@ describe('scoring a song', () => {
       type: 'SONG_WINNER_SELECTED',
       payload: { songIndex: 0, by: B, choice: B },
     });
-    expect(d.pending).toEqual({ kind: 'AWAITING_TO', reason: 'WINNER_DISAGREEMENT' });
+    expect(d.pending).toEqual({ kind: 'AWAITING_TO', reason: 'WINNER_DISAGREEMENT', songIndex: 0 });
     expect(p.songIndex).toBe(0);
   });
 

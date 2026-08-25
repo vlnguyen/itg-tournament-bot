@@ -94,3 +94,13 @@ export function renderTiebreakRevealLog(
     ].join('\n'),
   };
 }
+
+/**
+ * "A log message records that a referee reset the sequence and that the
+ * Draw stands." See DESIGN.md, "Resetting Protect/Veto" — the abandoned
+ * picks stay in the log above this line; nothing is removed, only
+ * cleared going forward.
+ */
+export function renderResetLog(refereeDisplayName: string): RenderedMessage {
+  return { content: `🔄 **${refereeDisplayName}** reset the Protect/Veto sequence. The Draw stands.` };
+}

@@ -12,6 +12,8 @@ export const Action = {
   RULE: 'RULE',
   /** A tiebreak pick — the response is always ephemeral, never `deferUpdate()`. See DESIGN.md, "The tiebreak". */
   TIEBREAK: 'TB',
+  /** A referee resetting Protect/Veto — legal only before song 1 has started, which `isLegal` already enforces. */
+  RESET_PV: 'RESETPV',
 } as const;
 
 /** The `customId` a "Submit score" text input carries within its modal. */

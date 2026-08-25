@@ -6,6 +6,7 @@ import {
   TextInputStyle,
   type ButtonInteraction,
   type Client,
+  type GuildMember,
   type Interaction,
   type ModalSubmitInteraction,
   type StringSelectMenuInteraction,
@@ -19,6 +20,7 @@ import { Action, SCORE_MODAL_EX_FIELD } from './actions.js';
 import { decodeCustomId, encodeCustomId, type CustomId } from './custom-id.js';
 import {
   renderProtectVetoLog,
+  renderResetLog,
   renderRulingLog,
   renderSeedChoiceLog,
   renderSongResultLog,
@@ -87,6 +89,13 @@ async function handle(
   // check below rather than through the generic path.
   if (interaction.isButton() && decoded.action === Action.RULE) {
     await handleRulingButton(interaction, decoded, prisma, random, matchChannel, alert);
+    return;
+  }
+
+  // Same reasoning: a referee resetting Protect/Veto isn't a participant
+  // action either.
+  if (interaction.isButton() && decoded.action === Action.RESET_PV) {
+    await handleResetButton(interaction, decoded, prisma, random, matchChannel, alert);
     return;
   }
 
@@ -225,6 +234,25 @@ function rolesOfMember(member: ButtonInteraction['member']): string[] {
   return [...member.roles.cache.keys()];
 }
 
+function isCachedMember(member: NonNullable<ButtonInteraction['member']>): member is GuildMember {
+  return !Array.isArray(member.roles);
+}
+
+/**
+ * A referee's name attributed on a ruling/reset log must be how this
+ * *server* shows them — nickname if set — never the raw Discord username.
+ * Handles both shapes `interaction.member` can come back as: a cached
+ * `GuildMember` (whose `displayName` getter already resolves nickname →
+ * global name → username) or the raw API partial, which carries `nick`
+ * directly and falls back the same way.
+ */
+function refereeDisplayName(interaction: ButtonInteraction): string {
+  const member = interaction.member;
+  if (member && isCachedMember(member)) return member.displayName;
+  const nick = member && 'nick' in member ? member.nick : undefined;
+  return nick ?? interaction.user.globalName ?? interaction.user.username;
+}
+
 async function handleRulingButton(
   interaction: ButtonInteraction,
   decoded: CustomId,
@@ -273,21 +301,67 @@ async function handleRulingButton(
     const result = await appendMatchEvent(prisma, random, match.id, event, interaction.id);
     const players = buildPlayerDirectory(match);
     const chart = result.state.songs[songIndex]!.chart;
-    const refereeDisplayName = interaction.user.username;
+    const refDisplayName = refereeDisplayName(interaction);
 
     if (match.alertMsgId) {
       const outcome =
         rulingResult === 'VOID' ? 'voided' : `awarded to ${displayName(players, rulingResult)}`;
-      await alert.resolve({ messageId: match.alertMsgId }, buildResolvedAlert(refereeDisplayName, outcome));
+      await alert.resolve({ messageId: match.alertMsgId }, buildResolvedAlert(refDisplayName, outcome));
       await prisma.match.update({ where: { id: match.id }, data: { alertMsgId: null } });
     }
 
     const ref: ThreadRef = { matchId: match.id, threadId: match.threadId! };
-    await matchChannel.postLogMessage(
-      ref,
-      renderRulingLog(songIndex, chart, rulingResult, refereeDisplayName, players),
-    );
+    await matchChannel.postLogMessage(ref, renderRulingLog(songIndex, chart, rulingResult, refDisplayName, players));
 
+    await applyAppendResult(prisma, matchChannel, alert, match, format, event, result);
+  } catch (err) {
+    if (err instanceof IllegalActionError) {
+      await interaction.followUp({
+        ephemeral: true,
+        content: `That's not available anymore — ${describeStale(err)}.`,
+      });
+      return;
+    }
+    throw err;
+  }
+}
+
+const PROTECT_VETO_RESET_REASON = 'Reset by a referee via the match thread button.';
+
+async function handleResetButton(
+  interaction: ButtonInteraction,
+  decoded: CustomId,
+  prisma: PrismaClient,
+  random: RandomPort,
+  matchChannel: MatchChannelPort,
+  alert: AlertPort,
+): Promise<void> {
+  await interaction.deferUpdate();
+
+  const match = await loadMatch(prisma, decoded.matchId);
+  if (!match) {
+    await interaction.followUp({ ephemeral: true, content: 'This match no longer exists.' });
+    return;
+  }
+
+  const guild = await prisma.guild.findUnique({ where: { id: match.tournament.guildId } });
+  const tierConfig: TierRoleConfig = guild ?? { refereeRoleId: null, toRoleId: null, adminRoleId: null };
+  if (!hasTier(rolesOfMember(interaction.member), tierConfig, Tier.REFEREE)) {
+    await interaction.followUp({ ephemeral: true, content: 'Only a referee can reset Protect/Veto.' });
+    return;
+  }
+
+  const event: Omit<MatchEvent, 'seq'> = {
+    actorId: interaction.user.id,
+    type: 'PROTECT_VETO_RESET',
+    payload: { reason: PROTECT_VETO_RESET_REASON },
+  };
+  const format = requireFormat(match.formatKey);
+
+  try {
+    const result = await appendMatchEvent(prisma, random, match.id, event, interaction.id);
+    const ref: ThreadRef = { matchId: match.id, threadId: match.threadId! };
+    await matchChannel.postLogMessage(ref, renderResetLog(refereeDisplayName(interaction)));
     await applyAppendResult(prisma, matchChannel, alert, match, format, event, result);
   } catch (err) {
     if (err instanceof IllegalActionError) {

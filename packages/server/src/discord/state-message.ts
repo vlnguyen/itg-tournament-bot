@@ -81,6 +81,21 @@ function renderNotYetImplemented(pending: PendingAction): RenderedMessage {
   };
 }
 
+/**
+ * "A referee may reset the sequence until song 1 has been played" — legal
+ * for exactly the pending kinds this button appears on (`isLegal` enforces
+ * the same window independently). One extra row, so it never crowds out
+ * the player-facing component above it.
+ */
+function resetButtonRow(matchId: string): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(encodeCustomId({ matchId, action: Action.RESET_PV }))
+      .setLabel('Reset Protect/Veto (referee)')
+      .setStyle(ButtonStyle.Danger),
+  );
+}
+
 function renderSeedChoice(matchId: string, actorId: EntrantId, players: PlayerDirectory): RenderedMessage {
   const embed = new EmbedBuilder()
     .setTitle('Choose your Protect order')
@@ -99,7 +114,7 @@ function renderSeedChoice(matchId: string, actorId: EntrantId, players: PlayerDi
       .setStyle(ButtonStyle.Secondary),
   );
 
-  return { embeds: [embed], components: [row] };
+  return { embeds: [embed], components: [row, resetButtonRow(matchId)] };
 }
 
 function renderProtectVeto(
@@ -132,7 +147,7 @@ function renderProtectVeto(
     );
 
   const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
-  return { embeds: [embed], components: [row] };
+  return { embeds: [embed], components: [row, resetButtonRow(matchId)] };
 }
 
 function renderSubmitScore(

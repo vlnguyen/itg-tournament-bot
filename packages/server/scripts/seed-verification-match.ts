@@ -74,10 +74,15 @@ async function main(): Promise<void> {
     await loginDiscordClient(client, token);
     console.log(`Logged in as ${client.user?.tag}`);
 
-    // Resolve real usernames for a legible thread name, mirroring — not
+    // Resolve real *guild* display names (nickname, if set — never the
+    // global username) for a legible thread name, mirroring — not
     // implementing — "the bot resolves each remaining entrant's name as
     // Discord shows it" from DESIGN.md's "Snapshotting the display name".
-    const users = await Promise.all(args.entrantUserIds.map((id) => client.users.fetch(id)));
+    // `Entrant.displayName` is itself documented as a snapshot taken at
+    // registration; this harness's registration and bracket generation
+    // happen back to back, so fetching here doubles as that snapshot.
+    const guild = await client.guilds.fetch(args.guildId);
+    const members = await Promise.all(args.entrantUserIds.map((id) => guild.members.fetch(id)));
 
     // Upsert, not create — re-running the harness against the same test
     // server should update the channel/role pointers rather than fail.
@@ -106,12 +111,12 @@ async function main(): Promise<void> {
       },
     });
 
-    for (const [i, user] of users.entries()) {
+    for (const [i, member] of members.entries()) {
       await prisma.entrant.create({
         data: {
           tournamentId: tournament.id,
-          discordUserId: user.id,
-          displayName: user.username,
+          discordUserId: member.id,
+          displayName: member.displayName,
           seed: i + 1,
           checkedIn: true,
         },
@@ -131,7 +136,7 @@ async function main(): Promise<void> {
       });
     }
 
-    console.log(`Seeded tournament ${tournament.id} with entrants ${users.map((u) => u.tag).join(', ')}`);
+    console.log(`Seeded tournament ${tournament.id} with entrants ${members.map((m) => m.displayName).join(', ')}`);
 
     await materializeBracket(prisma, cryptoRandomPort, tournament.id);
     console.log('Bracket materialized.');

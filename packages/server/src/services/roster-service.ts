@@ -53,10 +53,17 @@ async function joinOrReactivate(tx: Tx, tournamentId: string, discordUserId: str
 
 export type JoinResult = JoinOutcome | { kind: 'NO_TOURNAMENT' } | { kind: 'WINDOW_CLOSED'; phase: TournamentState };
 
+/**
+ * A `DRAFT` tournament is treated identically to no tournament at all — see
+ * DESIGN.md, "`/tournament status`". A draft is a TO still setting up:
+ * nothing about it is public yet, so naming its phase back to a player who
+ * merely guessed at `/join` would announce a tournament before its
+ * organizer chose to.
+ */
 export async function joinTournament(prisma: PrismaClient, guildId: string, discordUserId: string): Promise<JoinResult> {
   return prisma.$transaction(async (tx) => {
     const tournament = await findActiveTournament(tx, guildId);
-    if (!tournament) return { kind: 'NO_TOURNAMENT' };
+    if (!tournament || tournament.state === 'DRAFT') return { kind: 'NO_TOURNAMENT' };
     if (tournament.state !== 'REGISTRATION_OPEN') return { kind: 'WINDOW_CLOSED', phase: tournament.state };
     return joinOrReactivate(tx, tournament.id, discordUserId);
   });
@@ -98,10 +105,11 @@ export type CheckinResult =
   | { kind: 'WINDOW_CLOSED'; phase: TournamentState }
   | { kind: 'NOT_REGISTERED' };
 
+/** `DRAFT` reads as no tournament at all — same reasoning as `joinTournament`, above. */
 export async function checkin(prisma: PrismaClient, guildId: string, discordUserId: string): Promise<CheckinResult> {
   return prisma.$transaction(async (tx) => {
     const tournament = await findActiveTournament(tx, guildId);
-    if (!tournament) return { kind: 'NO_TOURNAMENT' };
+    if (!tournament || tournament.state === 'DRAFT') return { kind: 'NO_TOURNAMENT' };
     if (tournament.state !== 'CHECKIN_OPEN') return { kind: 'WINDOW_CLOSED', phase: tournament.state };
 
     const entrant = await tx.entrant.findUnique({ where: entrantWhere(tournament.id, discordUserId) });
@@ -230,11 +238,17 @@ export type LeaveResult =
   | { kind: 'TOURNAMENT_RUNNING' }
   | { kind: 'NOT_REGISTERED' };
 
-/** "`/leave` works from the moment registration opens until the tournament starts... Once the tournament starts, leaving requires a referee." */
+/**
+ * "`/leave` works from the moment registration opens until the tournament
+ * starts... Once the tournament starts, leaving requires a referee."
+ * `DRAFT` reads as no tournament at all, same as `joinTournament` — nobody
+ * can have joined a draft, so this would only ever bottom out at
+ * `NOT_REGISTERED` anyway, but that still confirms a tournament exists.
+ */
 export async function leaveTournament(prisma: PrismaClient, guildId: string, discordUserId: string): Promise<LeaveResult> {
   return prisma.$transaction(async (tx) => {
     const tournament = await findActiveTournament(tx, guildId);
-    if (!tournament) return { kind: 'NO_TOURNAMENT' };
+    if (!tournament || tournament.state === 'DRAFT') return { kind: 'NO_TOURNAMENT' };
     if (tournament.state === 'RUNNING') return { kind: 'TOURNAMENT_RUNNING' };
 
     const entrant = await tx.entrant.findUnique({ where: entrantWhere(tournament.id, discordUserId) });

@@ -56,18 +56,29 @@ export function buildResultSummaryEmbed(
   const [a, b] = participantIds;
   const decidedBy = DECIDED_BY[outcome.by];
 
+  // A forfeit or DQ is legal at any point before the match is DONE,
+  // including before a single song has entered play — Protect/Veto still
+  // in progress, or not even that far. `songs` is then empty, and
+  // `EmbedBuilder.setDescription` rejects an empty string outright, so a
+  // description is only ever built from a non-empty list.
+  const description = songs.length > 0 ? songs.map((s) => songLine(s, participantIds, nameOf)).join('\n') : 'No songs were played.';
+
   return new EmbedBuilder()
     .setTitle(`Match complete — ${nameOf(winner.entrantId)} wins ${points[a] ?? 0}–${points[b] ?? 0}${decidedBy ? ` (${decidedBy})` : ''}`)
     .setColor(LOG_COLOR.RESULT_SUMMARY)
-    .setDescription(songs.map((s) => songLine(s, participantIds, nameOf)).join('\n'));
+    .setDescription(description);
 }
 
 /**
  * "One public line per finished match, outside any thread." See
  * DESIGN.md's `PlayerNotificationPort`/`MatchChannelPort` design and the
  * Phase 4 plan's "byes excluded, forfeits/DQs worded as advancement" —
- * byes never reach this (no thread, no confirmation to trigger it), and a
- * forfeit/DQ/walkover has no real scoreline worth reporting.
+ * byes never reach this (no thread, no confirmation to trigger it). Worded
+ * as advancement uniformly, whether the set was actually played out or
+ * ended by ruling, forfeit, DQ or walkover: the score in parentheses is
+ * whatever `points` holds either way — 0–0 for a match that never saw a
+ * song — so the line never claims a scoreline that didn't happen while
+ * still always naming who's through.
  */
 export function buildResultAnnouncement(
   bracket: BracketSide,
@@ -78,13 +89,11 @@ export function buildResultAnnouncement(
   nameOf: NameLookup,
 ): RenderedMessage {
   const winner = outcome.placements.find((p) => p.place === 1)!;
-  const loser = outcome.placements.find((p) => p.entrantId !== winner.entrantId);
+  const [a, b] = participantIds;
+  const loserId = a === winner.entrantId ? b : a;
   const label = roundLabel(bracket, round);
 
-  const isAdvancementOnly = outcome.by === 'FORFEIT' || outcome.by === 'DQ' || outcome.by === 'WALKOVER';
-  const result = isAdvancementOnly
-    ? `**${nameOf(winner.entrantId)}** advances`
-    : `**${nameOf(winner.entrantId)}** defeats **${nameOf(loser!.entrantId)}** ${points[winner.entrantId] ?? 0}–${points[loser!.entrantId] ?? 0}`;
-
-  return { content: `🏁 ${label} — ${result}` };
+  return {
+    content: `🏁 ${label} · ${nameOf(a)} vs ${nameOf(b)} - ${nameOf(winner.entrantId)} advances (${points[winner.entrantId] ?? 0}-${points[loserId] ?? 0})`,
+  };
 }

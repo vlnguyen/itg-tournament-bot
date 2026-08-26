@@ -2,7 +2,7 @@ import type { Prisma } from '@prisma/client';
 import type { ChartSnapshot } from '@itg/shared';
 import { draw } from '../domain/draw.js';
 import { formatRegistry } from '../domain/golden/registry.js';
-import { generateBracket, type MatchRef } from '../domain/bracket.js';
+import { generateBracket, liveSourceCount, type GeneratedBracket, type MatchRef } from '../domain/bracket.js';
 import { grandFinalNeedsReset, routeCompletedMatch } from '../domain/advancement.js';
 import { emptyState } from '../domain/types.js';
 import type { MatchEvent, MatchFormat, MatchState } from '../domain/types.js';
@@ -216,6 +216,13 @@ function currentChartIdOf(state: MatchState): string | null {
  * never the reverse. Two concurrent completions feeding the same
  * downstream match both only ever want that match's lock *after* their own
  * distinct source match's lock, so this can't cycle into a deadlock.
+ *
+ * Returns whether the tournament reached `COMPLETE` as a direct or
+ * *indirect* result of this call — the grand final's own decision, a reset
+ * that turned out not to be needed, or a walkover several fills downstream
+ * (a tournament-scope DQ can cascade through more than one match in a
+ * single transaction) can each be the actual trigger, so this always
+ * reflects the recursive cascade's outcome, never just this one match's.
  */
 export async function persistAndCascade(
   tx: Tx,
@@ -226,7 +233,7 @@ export async function persistAndCascade(
   random: RandomPort,
   before: MatchState,
   after: MatchState,
-): Promise<void> {
+): Promise<boolean> {
   const pending = format.pendingAction(after);
   const outcomeAfter = format.outcome(after);
   const outcomeBefore = format.outcome(before);
@@ -243,7 +250,7 @@ export async function persistAndCascade(
     },
   });
 
-  if (!outcomeAfter) return;
+  if (!outcomeAfter) return false;
 
   // The `points`/`place` columns on `MatchParticipant` are this outcome,
   // written once as it commits — never recomputed live, same as `winnerId`.
@@ -254,11 +261,11 @@ export async function persistAndCascade(
     });
   }
 
-  if (outcomeBefore) return; // already decided before this append — cascade already ran once.
+  if (outcomeBefore) return false; // already decided before this append — cascade already ran once.
 
   if (ref.bracket === 'GRAND_FINAL' && ref.round === 2) {
     await tx.tournament.update({ where: { id: tournamentId }, data: { state: 'COMPLETE' } });
-    return;
+    return true;
   }
 
   const entrantCount = await entrantCountAtStart(tx, tournamentId);
@@ -274,17 +281,20 @@ export async function persistAndCascade(
           tournamentId_bracket_round_slot: { tournamentId, bracket: 'GRAND_FINAL', round: 2, slot: ref.slot },
         },
       });
-      await startSeatedMatch(tx, tournamentId, random, reset.id);
-    } else {
-      await tx.tournament.update({ where: { id: tournamentId }, data: { state: 'COMPLETE' } });
+      // The reset can itself decide the tournament immediately — one of the
+      // two finalists withdrawing between game 1 and the reset makes
+      // `startSeatedMatch` walk it over on the spot — so its own completion
+      // signal is what this reports, not an assumed `false`.
+      return startSeatedMatch(tx, tournamentId, random, reset.id);
     }
-    return;
+    await tx.tournament.update({ where: { id: tournamentId }, data: { state: 'COMPLETE' } });
+    return true;
   }
 
   if (!bracket.grandFinalRef) {
     // Exactly two entrants: this single match decided the tournament outright.
     await tx.tournament.update({ where: { id: tournamentId }, data: { state: 'COMPLETE' } });
-    return;
+    return true;
   }
 
   const placements = outcomeAfter.placements
@@ -322,9 +332,12 @@ export async function persistAndCascade(
     touched.add(target.id);
   }
 
+  let tournamentCompleted = false;
   for (const id of touched) {
-    await maybeStartMatch(tx, tournamentId, random, id);
+    const completed = await maybeStartMatch(tx, tournamentId, random, id, bracket);
+    tournamentCompleted ||= completed;
   }
+  return tournamentCompleted;
 }
 
 /**
@@ -340,7 +353,7 @@ async function startSeatedMatch(
   tournamentId: string,
   random: RandomPort,
   matchId: string,
-): Promise<void> {
+): Promise<boolean> {
   const match = await tx.match.findUniqueOrThrow({ where: { id: matchId } });
   const format = requireFormat(match.formatKey);
   const ref: MatchRef = { bracket: match.bracket, round: match.round, slot: match.slot };
@@ -368,34 +381,73 @@ async function startSeatedMatch(
       type: 'WALKOVER',
       payload: { winnerId: winner.entrantId },
     });
-    await persistAndCascade(tx, tournamentId, ref, matchId, format, random, state0, walked);
-    return;
+    return persistAndCascade(tx, tournamentId, ref, matchId, format, random, state0, walked);
   }
 
   const settled = await settleBotLoop(tx, tournamentId, random, matchId, created, format);
-  await persistAndCascade(tx, tournamentId, ref, matchId, format, random, state0, settled);
+  return persistAndCascade(tx, tournamentId, ref, matchId, format, random, state0, settled);
 }
 
 /**
  * Called whenever a match's `MatchParticipant` count might have just
- * reached two — after an advancement fill, or after materializing round 1.
- * A genuine bye (one structurally empty slot) is a different call entirely
- * — see `bracket-service.ts` — this only ever fires for a match with two
- * real seats.
+ * reached its structural maximum — after an advancement fill, or after
+ * materializing round 1. That maximum is two for almost every match, but a
+ * losers-bracket slot fed even in part by a winners-round-1 bye can have
+ * only **one** ever-fillable source — `liveSourceCount` (bracket.ts) is
+ * what tells the two apart. A round-1 bye is a different call entirely,
+ * resolved at generation time — see `bracket-service.ts`.
+ *
+ * `bracket` is supplied by the caller — `persistAndCascade` and
+ * `materializeBracket` each already compute it for their own purposes —
+ * rather than recomputed here, since it is a pure function of
+ * `entrantCount` alone and every caller already has it in hand.
+ *
+ * Idempotent by checking `status` fresh: `persistAndCascade`'s single
+ * `touched` set can legitimately name the same match twice in one
+ * cascade — once because it received a fill directly, again because a
+ * *different* fill's own recursive cascade (a chain of one-live-source
+ * walkovers, several deep) reached and started that same match first. A
+ * match already past `PENDING` has already been started by one path or
+ * the other; the second visit is a no-op rather than a second
+ * `MATCH_CREATED`.
  */
 export async function maybeStartMatch(
   tx: Tx,
   tournamentId: string,
   random: RandomPort,
   matchId: string,
-): Promise<void> {
-  const count = await tx.matchParticipant.count({ where: { matchId } });
-  if (count !== 2) return;
+  bracket: GeneratedBracket,
+): Promise<boolean> {
   const match = await tx.match.findUniqueOrThrow({ where: { id: matchId } });
+  if (match.status !== 'PENDING') return false;
   // The reset waits on the grand final's own outcome, even once both
   // finalists are seeded into it ahead of time.
-  if (match.bracket === 'GRAND_FINAL' && match.round === 2) return;
-  await startSeatedMatch(tx, tournamentId, random, matchId);
+  if (match.bracket === 'GRAND_FINAL' && match.round === 2) return false;
+
+  const ref: MatchRef = { bracket: match.bracket, round: match.round, slot: match.slot };
+  const expected = liveSourceCount(bracket, ref);
+  if (expected === 0) return false; // structurally unreachable — every source is a bye or downstream of one
+
+  const participants = await tx.matchParticipant.findMany({ where: { matchId }, include: { entrant: true } });
+  if (participants.length < expected) return false; // still waiting on a source that can still arrive
+
+  if (expected === 2) return startSeatedMatch(tx, tournamentId, random, matchId);
+
+  // One structurally live source: this slot's other occupant can never
+  // arrive (a winners-round-1 bye, or a slot downstream of one), so the
+  // lone occupant advances the moment they're seated — "byes need no
+  // special case" (bracket-service.ts), one hop further into the graph.
+  // Advances unconditionally, even if withdrawn: there is no "other real
+  // participant" here to walk over *to*, so a withdrawn sole occupant
+  // still becomes this match's `winnerId` and moves on exactly as
+  // `startWithSeats` already does for a round-1 bye — but the moment they
+  // next share a real, two-participant match, `startSeatedMatch`'s own
+  // `withdrawn.length === 1` check (unchanged) walks straight over them.
+  // The grand final always has two live sources (see the property test),
+  // so that real check is always reached before it matters who takes the
+  // tournament.
+  const [sole] = participants;
+  return startWithSeats(tx, tournamentId, random, matchId, [{ entrantId: sole!.entrantId, seed: sole!.entrant.seed! }], sole!.entrantId);
 }
 
 /** Exposed for `bracket-service.ts`'s bye resolution, which seats only one participant. */
@@ -406,7 +458,7 @@ export async function startWithSeats(
   matchId: string,
   seatedParticipants: { entrantId: string; seed: number }[],
   walkoverWinnerId: string,
-): Promise<void> {
+): Promise<boolean> {
   const match = await tx.match.findUniqueOrThrow({ where: { id: matchId } });
   const format = requireFormat(match.formatKey);
   const ref: MatchRef = { bracket: match.bracket, round: match.round, slot: match.slot };
@@ -421,5 +473,5 @@ export async function startWithSeats(
     type: 'WALKOVER',
     payload: { winnerId: walkoverWinnerId },
   });
-  await persistAndCascade(tx, tournamentId, ref, matchId, format, random, state0, walked);
+  return persistAndCascade(tx, tournamentId, ref, matchId, format, random, state0, walked);
 }

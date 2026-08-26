@@ -42,3 +42,20 @@ export async function requireOrganizerTier(interaction: ChatInputCommandInteract
   });
   return false;
 }
+
+/**
+ * Same shape as `requireOrganizerTier`, gated one tier down. `/dq` is a
+ * referee ruling — see REQUIREMENTS.md's role table: "Rule on matches to
+ * unblock them... disqualify a player at either scope."
+ */
+export async function requireRefereeTier(interaction: ChatInputCommandInteraction, guildRow: GuildRow | null): Promise<boolean> {
+  const tierConfig = guildRow ?? EMPTY_TIER_CONFIG;
+  if (hasTier(rolesOfMember(interaction.member), tierConfig, Tier.REFEREE)) return true;
+  await interaction.reply({
+    ephemeral: true,
+    content: guildRow?.refereeRoleId
+      ? 'You need **Referee** tier to run this command.'
+      : 'This server has no Referee role configured yet — ask someone with **Manage Server** to run `/setup roles`.',
+  });
+  return false;
+}

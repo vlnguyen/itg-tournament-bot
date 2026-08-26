@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import type { EntrantId, MatchEvent, MatchFormat, MatchState } from '../domain/types.js';
 import { toPublicMatch } from '../domain/projection.js';
+import { computeTournamentStandings } from '../services/advancement-service.js';
 import type { AppendResult, IllegalActionError } from '../services/match-service.js';
 import {
   renderProtectVetoLog,
@@ -9,11 +10,13 @@ import {
   renderTiebreakRevealLog,
 } from './log-messages.js';
 import { buildPlayerDirectory, type MatchWithParticipants } from './match-lookup.js';
-import type { AlertPort, MatchChannelPort, RenderedMessage, ThreadRef } from './ports.js';
+import type { AlertPort, MatchChannelPort, PlayerNotificationPort, RenderedMessage, ThreadRef } from './ports.js';
 import { buildEscalationAlert } from './render/escalation.js';
 import { buildMatchSongsEmbed } from './render/match-songs.js';
 import { buildResultAnnouncement, buildResultSummaryEmbed } from './render/result-summary.js';
+import { buildTournamentCompleteAnnouncement } from './render/tournament-complete.js';
 import { refereeTierRoleIds } from './tier.js';
+import { provisionReadyThreads } from './thread-provisioning.js';
 import { displayName, renderStateMessage, type PlayerDirectory } from './state-message.js';
 
 /**
@@ -75,6 +78,7 @@ export async function applyAppendResult(
   prisma: PrismaClient,
   matchChannel: MatchChannelPort,
   alert: AlertPort,
+  playerNotification: PlayerNotificationPort,
   match: MatchWithParticipants,
   format: MatchFormat,
   event: Omit<MatchEvent, 'seq'>,
@@ -145,11 +149,10 @@ export async function applyAppendResult(
   }
 
   // The set just closed — `SET_DECIDED` fires exactly once, the moment
-  // `outcome()` turns non-null (both confirmations landed, or a terminal
-  // event). "The result summary is a log message and the last thing the
-  // bot posts... the thread archives immediately afterward." See
-  // DESIGN.md, "Ending the match". No further state message: there is
-  // nothing left pending.
+  // `outcome()` turns non-null (both confirmations landed, a referee ruling
+  // ended it, or a forfeit/DQ did). "The result summary is a log message
+  // and the last thing the bot posts... the thread archives immediately
+  // afterward." See DESIGN.md, "Ending the match".
   if (result.effects.some((e) => e.kind === 'SET_DECIDED')) {
     const publicMatch = toPublicMatch(format, result.state);
     const [p0, p1] = match.participants;
@@ -163,7 +166,34 @@ export async function applyAppendResult(
     const announcement = buildResultAnnouncement(match.bracket, match.round, outcome, publicMatch.points, participantIds, nameOf);
     await matchChannel.publishResult(ref, announcement);
 
+    // Whatever was last on the state message — Protect/Veto, a score-submit
+    // button, "Confirm result," anything — is now stale: nothing is pending
+    // any more. Replaced with a plain, component-free message before
+    // archiving, the same cleanup `handleCancel` (tournament.ts) already
+    // does for its own out-of-band ending, so no live prompt survives a
+    // player action ending the match either.
+    await matchChannel.postMatchState(ref, { content: 'This match is decided — see the result above.' });
     await matchChannel.archiveThread(ref);
+
+    // This match was the one that decided the whole tournament — the grand
+    // final, its reset, or (a 2-entrant field) the only match there is.
+    // `tournamentCompleted` reflects the full cascade, not just this match,
+    // so this also fires correctly when a tournament-scope DQ's walkover
+    // chain is what actually closed it out. Standings mirror the match
+    // result feed the same way: posted to the results channel, then
+    // forwarded to general by `publishResult` itself.
+    if (result.tournamentCompleted) {
+      const standings = await computeTournamentStandings(prisma, match.tournamentId);
+      await matchChannel.publishResult(ref, buildTournamentCompleteAnnouncement(match.tournament.name, standings));
+      return;
+    }
+
+    // Advancement may have just seated two real players into a new match —
+    // ordinary advancement, or a walkover cascade several matches deep.
+    // Nothing else provisions a thread for that: `provisionReadyThreads` is
+    // otherwise only ever called once, right after `/tournament start`, so
+    // this is what makes every round *after* the first actually playable.
+    await provisionReadyThreads(prisma, matchChannel, playerNotification, match.tournamentId, match.tournament.name);
     return;
   }
 

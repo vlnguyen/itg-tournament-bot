@@ -140,7 +140,20 @@ export function createMatchChannelAdapter(client: Client, prisma: PrismaClient):
       if (!channel || channel.type !== ChannelType.GuildText) {
         throw new Error(`results channel ${guild.resultsChannelId} is not a text channel`);
       }
-      await channel.send(message);
+      const posted = await channel.send(message);
+
+      // "Each result line is then forwarded to the general channel, using
+      // Discord's native message forward... rather than a re-post." See
+      // DESIGN.md, "Provisioning the channels". Optional and best-effort —
+      // "if the forward fails the result still stands in the results
+      // channel, so it is logged and not retried."
+      if (guild.generalChannelId) {
+        try {
+          await posted.forward(guild.generalChannelId);
+        } catch (err) {
+          console.warn(`[discord] forwarding result to the general channel failed for guild ${guildId}`, err);
+        }
+      }
     },
   };
 }

@@ -104,6 +104,9 @@ async function handleAdd(interaction: ChatInputCommandInteraction, ctx: CommandC
     case 'JOINED': {
       await interaction.reply({ ephemeral: true, content: `Added **${playerName}** to the roster.` });
       await logToOrganizers(ctx.alert, interaction.guildId!, `📋 **${interaction.user.username}** added **${player.username}** to the roster.`);
+      // "Anything a player can do for themselves, a Tournament Organizer can
+      // do for them" — same public general-channel hype line `/join` posts.
+      await ctx.playerNotification.entrantJoined(interaction.guildId!, playerName);
       return;
     }
     case 'ALREADY_JOINED':
@@ -124,6 +127,8 @@ async function handleCheckin(interaction: ChatInputCommandInteraction, ctx: Comm
     case 'CHECKED_IN': {
       await interaction.reply({ ephemeral: true, content: `Checked in **${playerName}**.` });
       await logToOrganizers(ctx.alert, interaction.guildId!, `📋 **${interaction.user.username}** checked in **${player.username}**.`);
+      // Same public general-channel hype line `/checkin` posts.
+      await ctx.playerNotification.entrantCheckedIn(interaction.guildId!, playerName);
       return;
     }
     case 'ALREADY_CHECKED_IN':

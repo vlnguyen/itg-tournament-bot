@@ -6,7 +6,15 @@ import {
   estimateDurationMinutes,
 } from '../src/services/advancement-service.js';
 import { sequentialRandomPort } from '../src/services/ports.js';
-import { cleanupTournament, isReachable, makeTournament, playMatchToChampion, prisma, type TestTournament } from './support.js';
+import {
+  cleanupTournament,
+  driveToCompletion,
+  isReachable,
+  makeTournament,
+  playMatchToChampion,
+  prisma,
+  type TestTournament,
+} from './support.js';
 
 describe.skipIf(!(await isReachable()))('advancement-service', () => {
   afterAll(async () => {
@@ -20,27 +28,7 @@ describe.skipIf(!(await isReachable()))('advancement-service', () => {
       t = await makeTournament(`advancement-8-${Date.now()}`, 8, { perMatchAllocationMinutes: 20 });
       const random = sequentialRandomPort(t.guildId);
       await materializeBracket(prisma, random, t.tournamentId);
-
-      const seedOf = new Map(t.entrantIds.map((id, i) => [id, i + 1]));
-      // Play every currently-live match, lower seed always wins, until the
-      // tournament completes. Deterministic: no tiebreaks, no reset needed,
-      // since the winners-bracket champion (seed 1) always wins game 1 of
-      // the grand final too.
-      for (;;) {
-        const tournament = await prisma.tournament.findUniqueOrThrow({ where: { id: t.tournamentId } });
-        if (tournament.state === 'COMPLETE') break;
-        const live = await prisma.match.findMany({
-          where: { tournamentId: t.tournamentId, status: 'IN_PROGRESS' },
-          include: { participants: true },
-        });
-        if (live.length === 0) throw new Error('stalled before completion');
-        for (const m of live) {
-          const champion = m.participants.reduce((best, p) =>
-            seedOf.get(p.entrantId)! < seedOf.get(best.entrantId)! ? p : best,
-          ).entrantId;
-          await playMatchToChampion(m.id, champion, random);
-        }
-      }
+      await driveToCompletion(t.tournamentId, t.entrantIds, random);
     });
     afterAll(() => cleanupTournament(t));
 
@@ -79,7 +67,11 @@ describe.skipIf(!(await isReachable()))('advancement-service', () => {
       });
       const [dqd, survivor] = m.participants.map((p) => p.entrantId);
 
-      await disqualifyFromTournament(prisma, random, t.tournamentId, dqd!, 'referee-1');
+      const { resolvedMatch } = await disqualifyFromTournament(prisma, random, t.tournamentId, dqd!, 'referee-1');
+      expect(resolvedMatch?.matchId).toBe(m.id);
+      expect(resolvedMatch?.event.type).toBe('DQ_APPLIED');
+      expect(resolvedMatch?.result.state.terminal).toEqual({ winnerId: survivor, by: 'DQ' });
+      expect(resolvedMatch?.result.tournamentCompleted).toBe(false); // a 4-entrant field — three more rounds to go
 
       const resolved = await prisma.match.findUniqueOrThrow({ where: { id: m.id } });
       expect(resolved.status).toBe('COMPLETE');
@@ -122,7 +114,8 @@ describe.skipIf(!(await isReachable()))('advancement-service', () => {
       // DQ that seated-but-not-yet-opposed winner. Nothing to resolve yet:
       // they have no live match (WR1 is already COMPLETE) and WR2 isn't
       // seated with two, so nothing fires immediately.
-      await disqualifyFromTournament(prisma, random, t.tournamentId, m0Winner, 'referee-1');
+      const { resolvedMatch } = await disqualifyFromTournament(prisma, random, t.tournamentId, m0Winner, 'referee-1');
+      expect(resolvedMatch).toBeNull();
       const stillPending = await prisma.match.findUniqueOrThrow({ where: { id: wr2.id } });
       expect(stillPending.status).toBe('PENDING');
 
@@ -138,5 +131,42 @@ describe.skipIf(!(await isReachable()))('advancement-service', () => {
       expect(resolvedWr2.events.map((e) => e.type)).toEqual(['MATCH_CREATED', 'WALKOVER']);
       await cleanupTournament(t);
     });
+
+    // Same shapes as the match-scope /dq coverage in match-service.test.ts —
+    // 3 has one winners-round-1 bye, 4 has none, 5 has three (including a
+    // fully-dead losers-bracket slot) — but driven through the withdraw-and-
+    // cascade path instead of a plain match-scope ruling.
+    it(
+      'withdraws a real WR1 participant and the tournament still reaches COMPLETE',
+      { timeout: 20000 },
+      async () => {
+        for (const n of [3, 4, 5]) {
+          const t = await makeTournament(`advancement-dq-mid-${n}-${Date.now()}`, n);
+          const random = sequentialRandomPort(t.guildId);
+          await materializeBracket(prisma, random, t.tournamentId);
+          try {
+            const real = await prisma.match.findFirstOrThrow({
+              where: { tournamentId: t.tournamentId, bracket: 'WINNERS', round: 1, status: 'IN_PROGRESS' },
+              include: { participants: true },
+              orderBy: { slot: 'asc' },
+            });
+            const dqd = real.participants[0]!.entrantId;
+
+            const { resolvedMatch } = await disqualifyFromTournament(prisma, random, t.tournamentId, dqd, 'referee-1');
+            expect(resolvedMatch?.matchId, `n=${n}`).toBe(real.id);
+
+            const entrant = await prisma.entrant.findUniqueOrThrow({ where: { id: dqd } });
+            expect(entrant.status, `n=${n}`).toBe('WITHDRAWN');
+
+            await driveToCompletion(t.tournamentId, t.entrantIds, random);
+
+            const finished = await prisma.tournament.findUniqueOrThrow({ where: { id: t.tournamentId } });
+            expect(finished.state, `n=${n}`).toBe('COMPLETE');
+          } finally {
+            await cleanupTournament(t);
+          }
+        }
+      },
+    );
   });
 });

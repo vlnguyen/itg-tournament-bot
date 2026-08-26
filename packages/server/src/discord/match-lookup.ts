@@ -3,12 +3,12 @@ import type { PlayerDirectory } from './state-message.js';
 
 export type MatchWithParticipants = Match & {
   participants: (MatchParticipant & { entrant: Entrant })[];
-  tournament: { guildId: string };
+  tournament: { guildId: string; name: string };
 };
 
 const include = {
   participants: { include: { entrant: true } },
-  tournament: { select: { guildId: true } },
+  tournament: { select: { guildId: true, name: true } },
 } as const;
 
 export async function loadMatch(prisma: PrismaClient, matchId: string): Promise<MatchWithParticipants | null> {

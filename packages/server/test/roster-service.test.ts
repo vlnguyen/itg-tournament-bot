@@ -73,6 +73,18 @@ describe.skipIf(!(await isReachable()))('roster-service', () => {
       }
     });
 
+    it('rejects as NO_TOURNAMENT, not naming the phase, while the tournament is still a draft', async () => {
+      const guildId = `rs-join-draft-${Date.now()}`;
+      await makeGuild(guildId);
+      try {
+        await createTournament(prisma, guildId, 'T', TO);
+        const result = await joinTournament(prisma, guildId, 'p1');
+        expect(result).toEqual({ kind: 'NO_TOURNAMENT' });
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
     it('rejects, naming the phase, once registration has closed', async () => {
       const guildId = `rs-join-closed-${Date.now()}`;
       try {
@@ -131,6 +143,18 @@ describe.skipIf(!(await isReachable()))('roster-service', () => {
   });
 
   describe('checkin', () => {
+    it('rejects as NO_TOURNAMENT, not naming the phase, while the tournament is still a draft', async () => {
+      const guildId = `rs-checkin-draft-${Date.now()}`;
+      await makeGuild(guildId);
+      try {
+        await createTournament(prisma, guildId, 'T', TO);
+        const result = await checkin(prisma, guildId, 'p1');
+        expect(result).toEqual({ kind: 'NO_TOURNAMENT' });
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
     it('rejects, naming the phase, before check-in opens', async () => {
       const guildId = `rs-checkin-early-${Date.now()}`;
       try {
@@ -182,6 +206,18 @@ describe.skipIf(!(await isReachable()))('roster-service', () => {
   });
 
   describe('leaveTournament', () => {
+    it('rejects as NO_TOURNAMENT while the tournament is still a draft', async () => {
+      const guildId = `rs-leave-draft-${Date.now()}`;
+      await makeGuild(guildId);
+      try {
+        await createTournament(prisma, guildId, 'T', TO);
+        const result = await leaveTournament(prisma, guildId, 'p1');
+        expect(result).toEqual({ kind: 'NO_TOURNAMENT' });
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
     it('rejects once the tournament is running', async () => {
       const guildId = `rs-leave-running-${Date.now()}`;
       try {

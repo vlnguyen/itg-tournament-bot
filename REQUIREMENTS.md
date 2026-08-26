@@ -124,9 +124,8 @@ Tiebreak songs are ordinary scoring songs — the set is always decided by a pla
 - The final winner of the set must be **confirmed by both players**.
 - **No-shows and disqualifications are never automated.** If a player is absent or unresponsive, the bot alerts the organizer alert channel; a **referee** decides the outcome and applies it.
 - If a competitor **leaves the Discord server** mid-tournament, the bot alerts the organizer alert channel. A **referee** applies the **disqualification**.
-- A **forfeit** is always an **ordinary loss**: the opponent advances and the forfeiting player drops to the losers bracket. A second such loss eliminates them, exactly as a played loss would.
 - A **disqualification** asks the referee to choose its scope:
-  - **this match only** — behaves exactly like a forfeit, dropping the player to the losers bracket; or
+  - **this match only** — an **ordinary loss**: the opponent advances and the disqualified player drops to the losers bracket, exactly as a played loss would. A second such loss eliminates them. This is also how a plain **forfeit** — a no-show, or a player conceding — is applied; there is no separate action for it, since the outcome is identical either way; or
   - **withdraw from the tournament** — the player is removed from **both brackets** at once and every remaining opponent receives a walkover automatically.
 
   The second option exists so a player who has left the server, or is otherwise gone for good, can be handled in a single referee action rather than being disqualified again in the losers bracket.
@@ -237,7 +236,7 @@ Specifically, the bot **never**:
 
 **Byes are exempt.** A player receiving a round 1 bye has no opponent to be matched against, so there is no match outcome to agree on and nothing for a referee to rule. The bot advances them as a matter of bracket structure.
 
-Forfeits and disqualifications exist as **referee-initiated** actions (`/forfeit`, `/dq`, and the web UI) — the boundary is that the bot never reaches those outcomes by itself, no matter how long a player is silent.
+Forfeits and disqualifications exist as **referee-initiated** actions (`/dq` and the web UI) — the boundary is that the bot never reaches those outcomes by itself, no matter how long a player is silent.
 
 The bot also **does not nudge players**. A player waiting on an unresponsive opponent handles that themselves. The bot's only role in a stalled match is to **alert the organizers** so someone can move it along.
 
@@ -297,7 +296,7 @@ These are explicitly assigned and confer permissions. The first two are **server
 
 | Role | Scope | Capabilities |
 | --- | --- | --- |
-| Referee | One Discord server | Rule on matches to unblock them — award or void a song, force a result on an escalation, reset Protect/Veto before song 1, forfeit a match, disqualify a player at either scope. All within the limits in Bracket Immutability. **Cannot create, start, or close a tournament** |
+| Referee | One Discord server | Rule on matches to unblock them — award or void a song, force a result on an escalation, reset Protect/Veto before song 1, disqualify a player at either scope (a plain forfeit is a disqualification scoped to the current match). All within the limits in Bracket Immutability. **Cannot create, start, or close a tournament** |
 | Tournament Organizer (TO) | One Discord server | Everything a Referee can do, plus create and configure tournaments, manage song packs, open and close registration and check-in, seed the bracket, start and cancel a tournament |
 | Bot Administrator | The whole deployment | View every Discord server the bot has been added to, and the tournaments and brackets belonging to each |
 
@@ -321,8 +320,7 @@ Tiers are cumulative, so each action below lists the **minimum** tier required. 
 | Void a song | Referee |
 | Correct a score on the song currently in progress | Referee |
 | Reset Protect/Veto, before song 1 has been played | Referee |
-| Forfeit a match (`/forfeit`) | Referee |
-| Disqualify a player, either scope (`/dq`) | Referee |
+| Disqualify a player, either scope, including a plain forfeit (`/dq`) | Referee |
 | Dismiss a timer, departure, or permission alert | Referee |
 | Read any match thread and review any match | Referee |
 
@@ -472,11 +470,12 @@ The web backend remains the system of record for structured data — every chart
 | `/checkin` | A registered entrant | Confirm attendance during the check-in window |
 | `/leave` | An entrant | Withdraw from the tournament, any time before it starts |
 | `/pack` | Any server member | Get a link to the current tournament's song pack |
+| `/tournament status` | Any server member | See the current tournament, its stage, and which of `/join`, `/checkin`, `/leave` work right now |
+| `/commands` | Any server member | List every command, grouped by the minimum role that can run it |
 | `/roster` | Tournament Organizer | Add, check in, un-check-in or remove an entrant on their behalf |
 | `/setup` | Discord's Manage Guild | Server setup — point the bot at the matches, organizer alert, results and general channels, and the Discord role for each tier. Re-runnable |
 | `/setup status` | Discord's Manage Guild | Re-run the configuration and permission diagnostic without changing anything |
-| `/dq` | Referee | Disqualify a player, choosing whether it applies to this match only or withdraws them from the tournament |
-| `/forfeit` | Referee | Award a match to a player whose opponent is absent or unresponsive |
+| `/dq` | Referee | Disqualify a player, choosing whether it applies to this match only (which also covers a plain forfeit — a no-show, or a player conceding) or withdraws them from the tournament |
 
 `/setup` is gated on Manage Guild alone, not a tier — a freshly-invited server has no tier roles yet, so this also doubles as the permanent recovery path if the roles are later deleted or misconfigured, with nothing else to fall back to.
 
@@ -591,7 +590,7 @@ The public tournament view carries a **tab showing that tournament's song pack**
 
 ## Results and History
 
-- On completion the bot posts **final standings** in Discord — the winner and the full placement order. Players the bracket cannot separate **share a placement**, and the next placement skips accordingly — 5th, 5th, 7th, 7th. It goes to the results channel and is forwarded to the general channel, exactly as each match result was.
+- On completion the bot posts **final standings** in Discord — the winner down through **8th place**. Players the bracket cannot separate **share a placement**, and the next placement skips accordingly — 5th, 5th, 7th, 7th. It goes to the results channel and is forwarded to the general channel, exactly as each match result was. The full placement order, uncapped, lives on the permanent results page — see below.
 - The **public results page persists** after the event as a permanent archive at a URL that never changes and is never reused.
 - **Match history is public.** Any visitor can browse any player's past matches and scores on that server without signing in. A player page shows their matches — opponent, round, score, link to the detail — and their win-loss record for that server.
 - **Player pages are excluded from search engine indexing.** Brackets and match pages are indexed, because an event is a public thing worth finding. A permanent page ranking for a person's name and listing every match they lost is not the same thing, and entering a tournament is not consent to it. Player pages stay fully browsable by link.

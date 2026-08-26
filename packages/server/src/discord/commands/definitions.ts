@@ -51,6 +51,7 @@ const tournament = new SlashCommandBuilder()
       .setDescription('Create a new tournament in this server')
       .addStringOption((o) => o.setName('name').setDescription('Tournament name').setRequired(true)),
   )
+  .addSubcommand((sub) => sub.setName('status').setDescription('See the current tournament and what you can do right now'))
   .addSubcommand((sub) => sub.setName('open-registration').setDescription('Open registration — /join starts working'))
   .addSubcommand((sub) => sub.setName('close-registration').setDescription('Close registration — /join stops working'))
   .addSubcommand((sub) => sub.setName('open-checkin').setDescription('Open check-in and notify registered players'))
@@ -99,21 +100,18 @@ const leave = new SlashCommandBuilder().setName('leave').setDescription('Withdra
 
 const dq = new SlashCommandBuilder()
   .setName('dq')
-  .setDescription('Disqualify a player (referee)')
+  .setDescription('Disqualify a player, or forfeit them out of this match (referee)')
   .addUserOption((o) => o.setName('player').setDescription('The player to disqualify').setRequired(true))
   .addStringOption((o) =>
     o
       .setName('scope')
-      .setDescription('Just this match, or the whole tournament')
+      .setDescription('This match (also how you apply a plain forfeit), or the whole tournament')
       .setRequired(true)
       .addChoices({ name: 'This match', value: 'match' }, { name: 'Whole tournament', value: 'tournament' }),
   );
 
-const forfeit = new SlashCommandBuilder()
-  .setName('forfeit')
-  .setDescription('Forfeit a player out of this match (referee)')
-  .addUserOption((o) => o.setName('player').setDescription('The player who is forfeiting').setRequired(true));
-
 const pack = new SlashCommandBuilder().setName('pack').setDescription('Show a summary of the tournament’s chart pack');
 
-export const commandDefinitions = [setup, tournament, roster, join, checkin, leave, dq, forfeit, pack];
+const commands = new SlashCommandBuilder().setName('commands').setDescription('List every command, grouped by who can run it');
+
+export const commandDefinitions = [setup, tournament, roster, join, checkin, leave, dq, pack, commands];

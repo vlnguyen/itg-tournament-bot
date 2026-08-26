@@ -1,7 +1,9 @@
 import type { ChatInputCommandInteraction } from 'discord.js';
 import type { CommandContext } from './context.js';
+import { handleCommands } from './help.js';
 import { handleCheckin, handleJoin, handleLeave } from './registration.js';
 import { handleRoster } from './roster.js';
+import { handleDq } from './rulings.js';
 import { handleSetup } from './setup.js';
 import { handleTournament } from './tournament.js';
 
@@ -27,6 +29,10 @@ export async function dispatchChatInputCommand(
       return handleLeave(interaction, ctx);
     case 'roster':
       return handleRoster(interaction, ctx);
+    case 'dq':
+      return handleDq(interaction, ctx);
+    case 'commands':
+      return handleCommands(interaction, ctx);
     default:
       return notImplemented(interaction);
   }

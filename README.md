@@ -26,17 +26,3 @@ The split is deliberate: **requirements state the rule, the design explains why 
 ## Planned stack
 
 TypeScript throughout. NestJS with discord.js in a single process, PostgreSQL via Prisma, React built with Vite and served statically by Nest. Mantine for UI, TanStack Query for client data, zod schemas shared between server and browser. Deployed with Docker Compose alongside Postgres.
-
-## TODO (remove this section once the work below is complete)
-
-Mid-implementation of the `/dq` and `/forfeit` slash commands (referee-only; last two commands in REQUIREMENTS.md's inventory table still unimplemented). Left off partway through, with the tree in a clean, typechecking, fully-passing state — nothing broken, just not finished. Remaining steps, in order:
-
-1. **Rewire `packages/server/src/discord/interactions.ts`** to import `applyAppendResult`, `describeStale`, and `CANCELLED_MATCH_MESSAGE` from the new `packages/server/src/discord/match-event-effects.ts` (already extracted, already used by nothing yet), and delete interactions.ts's now-duplicated local copies of those three plus `renderActionLog`. The extraction exists specifically so the referee command handlers below can reuse this logic without an import cycle back through `commands/router.ts`.
-2. **Extend `disqualifyFromTournament`** in `packages/server/src/services/advancement-service.ts` to return which live match (if any) it resolved — currently it silently updates the DB with no Discord-side rendering (no thread log post, no result summary, no archive). Return enough (`matchId`, the `MatchEvent` it appended, the `AppendResult`) for a command handler to call `applyAppendResult` afterward, the same pattern `cancelTournament` already uses (returning `cancelledMatchIds` for its caller to act on).
-3. **Build the command layer**:
-   - `discord/commands/authz.ts` needs a `requireRefereeTier` helper alongside the existing `requireOrganizerTier`.
-   - `discord/log-messages.ts` needs `renderDqLog` and `renderForfeitLog`.
-   - New `discord/commands/rulings.ts` implementing `/dq` (match-scope resolves the match via `loadMatchByThreadId` on the invoking thread; tournament-scope resolves the tournament via `findActiveTournament` and calls `disqualifyFromTournament`) and `/forfeit` (resolves the *opponent* of the named player as `winnerId` — the command's `player` option is the one forfeiting, but `FORFEIT_APPLIED`'s payload wants the winner).
-   - Wire both into `discord/commands/router.ts`.
-4. **Tests**: update the two existing `disqualifyFromTournament` tests in `packages/server/test/advancement-service.test.ts` for its new return shape; add coverage for `/dq` and `/forfeit`.
-5. **Close out**: typecheck, run the full suite, update DESIGN.md/REQUIREMENTS.md, restart the bot and verify live, then commit.

@@ -20,9 +20,13 @@ import { formatThreadName } from './thread-name.js';
  * non-withdrawn participants, per `services/engine.ts`) with no `threadId`
  * yet, **within the given tournament** — scoped explicitly, never a bare
  * scan of every match in the database, since this runs on a shared
- * Postgres instance alongside whatever else is using it. Nothing runs this
- * off a real lifecycle command this phase; it's called explicitly after
- * `materializeBracket`, same as the verification harness calls both.
+ * Postgres instance alongside whatever else is using it. Called from two
+ * places: once explicitly after `materializeBracket` (round 1, `/tournament
+ * start` — `commands/tournament.ts`), and again from `applyAppendResult`
+ * (`match-event-effects.ts`) every time a match decides, since advancement
+ * can seat two real players into a new match at any later round too.
+ * Idempotency is what makes calling it opportunistically like that safe —
+ * a round with nothing newly ready just finds an empty `ready` list.
  */
 export async function provisionReadyThreads(
   prisma: PrismaClient,

@@ -39,6 +39,11 @@ async function postToGeneralChannel(client: Client, prisma: PrismaClient, guildI
   }
 }
 
+/** A deep link straight to a channel — lands a DM recipient inside the server, not just told to go find it. */
+function channelLink(guildId: string, channelId: string): string {
+  return `https://discord.com/channels/${guildId}/${channelId}`;
+}
+
 /**
  * "Match-ready lands twice: a mention in the thread, and a direct
  * message... The thread mention is the notification of record — nothing
@@ -71,12 +76,19 @@ export function createPlayerNotificationAdapter(client: Client, prisma: PrismaCl
         `Check-in is now open for **${tournamentName}**. Registered players: check your DMs, or use \`/checkin\`.`,
       );
 
+      // `/checkin` is a guild-scoped command — it can't be run from the DM
+      // itself, so the DM needs a way back into the server. The general
+      // channel is the natural landing spot when one is configured; without
+      // it, the player is on their own to find their way back in.
+      const guild = await prisma.guild.findUnique({ where: { id: guildId } });
+      const landingLink = guild?.generalChannelId ? `\n${channelLink(guildId, guild.generalChannelId)}` : '';
+
       const unreachable: string[] = [];
       for (const userId of playerIds) {
         const reached = await tryDm(
           client,
           userId,
-          `Check-in is now open for **${tournamentName}** — use \`/checkin\` to confirm you're playing.`,
+          `Check-in is now open for **${tournamentName}** — use \`/checkin\` to confirm you're playing.${landingLink}`,
         );
         if (!reached) unreachable.push(userId);
       }

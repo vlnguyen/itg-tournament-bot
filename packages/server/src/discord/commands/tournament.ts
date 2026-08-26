@@ -21,6 +21,7 @@ import {
 import { requireOrganizerTier } from './authz.js';
 import type { CommandContext } from './context.js';
 import { logToOrganizers } from './organizer-log.js';
+import { PHASE_LABEL } from './registration.js';
 import { runFullDiagnostic, type RequiredTierRole } from './setup.js';
 
 /**
@@ -37,10 +38,15 @@ export async function handleTournament(interaction: ChatInputCommandInteraction,
     return;
   }
 
+  // Public — anyone can check what's going on and what they can do right
+  // now, so this runs before the organizer-tier gate below, the same way
+  // `/roster list` is carved out ahead of that command's own gate.
+  const sub = interaction.options.getSubcommand();
+  if (sub === 'status') return handleStatus(interaction, ctx);
+
   const guildRow = await ctx.prisma.guild.findUnique({ where: { id: interaction.guildId! } });
   if (!(await requireOrganizerTier(interaction, guildRow))) return;
 
-  const sub = interaction.options.getSubcommand();
   if (sub === 'create') return handleCreate(interaction, ctx);
 
   // Every subcommand but `create` has no tournament-id argument (see
@@ -111,6 +117,41 @@ let debugPackCache: ChartInput[] | null = null;
 function loadDebugPack(): ChartInput[] {
   debugPackCache ??= JSON.parse(readFileSync(DEBUG_PACK_PATH, 'utf8')) as ChartInput[];
   return debugPackCache;
+}
+
+/**
+ * `/tournament status` — the one lifecycle-adjacent command with no tier
+ * gate. Names the phase in the same words `PHASE_LABEL` already gives a
+ * rejected `/join`/`/checkin`, then adds whichever of those two is actually
+ * actionable right now, paired with `/leave` since it works alongside both
+ * — "any time before it starts," DESIGN.md's "Leaving". Check-in closed
+ * gets its own callout: nothing is actionable there, but it is the one
+ * phase that means "the bracket is coming imminently."
+ *
+ * `DRAFT` is treated as no tournament at all. A draft is a TO still setting
+ * up — nothing public has happened yet, `/join` doesn't work, and naming it
+ * would announce a tournament to the server before its organizer chose to.
+ */
+async function handleStatus(interaction: ChatInputCommandInteraction, ctx: CommandContext): Promise<void> {
+  const tournament = await findActiveTournament(ctx.prisma, interaction.guildId!);
+  if (!tournament || tournament.state === 'DRAFT') {
+    await interaction.reply({ ephemeral: true, content: 'No tournament right now in this server.' });
+    return;
+  }
+
+  const lines = [`**${tournament.name}** — ${PHASE_LABEL[tournament.state]}.`];
+  switch (tournament.state) {
+    case 'REGISTRATION_OPEN':
+      lines.push('`/join` to register — or `/leave` if you change your mind.');
+      break;
+    case 'CHECKIN_OPEN':
+      lines.push("`/checkin` to confirm you're playing — or `/leave` if you can't make it.");
+      break;
+    case 'CHECKIN_CLOSED':
+      lines.push('Seeds are locked in — the tournament is about to start.');
+      break;
+  }
+  await interaction.reply({ ephemeral: true, content: lines.join('\n') });
 }
 
 /** "If a tournament is created then that is the tournament the bot is now holding" — released only by `/tournament cancel` or reaching `COMPLETE`. */

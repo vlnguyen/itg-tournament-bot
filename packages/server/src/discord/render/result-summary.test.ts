@@ -72,17 +72,39 @@ describe('buildResultSummaryEmbed', () => {
     const embed = buildResultSummaryEmbed([song(0, 'alice')], { alice: 3, bob: 1 }, ruled, participantIds, nameOf);
     expect(embed.data.title).toContain('(by referee ruling)');
   });
+
+  it('does not throw building an embed for a DQ/forfeit before any song was played', () => {
+    // `EmbedBuilder.setDescription('')` throws — a DQ or forfeit is legal at
+    // any point before the match is DONE, including mid Protect/Veto, when
+    // `songs` is still empty. Regression for exactly that crash.
+    const dqBeforeAnySong: MatchOutcome = { ...outcome, by: 'DQ' };
+    expect(() => buildResultSummaryEmbed([], { alice: 0, bob: 0 }, dqBeforeAnySong, participantIds, nameOf)).not.toThrow();
+    const embed = buildResultSummaryEmbed([], { alice: 0, bob: 0 }, dqBeforeAnySong, participantIds, nameOf);
+    expect(embed.data.description).toBe('No songs were played.');
+  });
 });
 
 describe('buildResultAnnouncement', () => {
-  it('reports the round label, winner, loser, and score for an ordinary decision', () => {
+  it('reports the flag, round label, both names, the winner, and the score for an ordinary decision', () => {
     const message = buildResultAnnouncement('WINNERS', 2, outcome, { alice: 3, bob: 1 }, participantIds, nameOf);
-    expect(message.content).toBe('🏁 WR2 — **Alice** defeats **Bob** 3–1');
+    expect(message.content).toBe('🏁 WR2 · Alice vs Bob - Alice advances (3-1)');
   });
 
-  it('words a forfeit as advancement rather than a scoreline', () => {
+  it('uses the same "advances (score)" wording for a forfeit, not a defeats-scoreline', () => {
     const forfeited: MatchOutcome = { ...outcome, by: 'FORFEIT' };
     const message = buildResultAnnouncement('WINNERS', 2, forfeited, { alice: 0, bob: 0 }, participantIds, nameOf);
-    expect(message.content).toBe('🏁 WR2 — **Alice** advances');
+    expect(message.content).toBe('🏁 WR2 · Alice vs Bob - Alice advances (0-0)');
+  });
+
+  it('names both players in seat order regardless of who won', () => {
+    const bobWins: MatchOutcome = {
+      placements: [
+        { entrantId: 'alice', place: 2, points: 1 },
+        { entrantId: 'bob', place: 1, points: 3 },
+      ],
+      by: 'AGREEMENT',
+    };
+    const message = buildResultAnnouncement('LOSERS', 3, bobWins, { alice: 1, bob: 3 }, participantIds, nameOf);
+    expect(message.content).toBe('🏁 LR3 · Alice vs Bob - Bob advances (3-1)');
   });
 });

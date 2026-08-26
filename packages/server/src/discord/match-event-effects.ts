@@ -3,6 +3,7 @@ import type { EntrantId, MatchEvent, MatchFormat, MatchState } from '../domain/t
 import { toPublicMatch } from '../domain/projection.js';
 import { computeTournamentStandings } from '../services/advancement-service.js';
 import type { AppendResult, IllegalActionError } from '../services/match-service.js';
+import type { RealtimeBroadcastPort } from '../services/ports.js';
 import {
   renderProtectVetoLog,
   renderSeedChoiceLog,
@@ -79,6 +80,7 @@ export async function applyAppendResult(
   matchChannel: MatchChannelPort,
   alert: AlertPort,
   playerNotification: PlayerNotificationPort,
+  realtime: RealtimeBroadcastPort,
   match: MatchWithParticipants,
   format: MatchFormat,
   event: Omit<MatchEvent, 'seq'>,
@@ -87,6 +89,13 @@ export async function applyAppendResult(
   const players = buildPlayerDirectory(match);
   const ref: ThreadRef = { matchId: match.id, threadId: match.threadId! };
   const before = match.state as unknown as MatchState;
+
+  // "Domain services emit an internal event after committing a MatchEvent;
+  // RealtimeModule fans it out" — DESIGN.md, "Realtime". Unconditional,
+  // ahead of every branch below: the bracket and any open match-detail
+  // view need to hear about every commit, not just the ones that also
+  // produce a Discord-side effect.
+  realtime.publish(match.tournamentId, match.id, result.state.seq, toPublicMatch(format, result.state));
 
   // A permanent record of the action itself — the state message's own
   // draw-status field is disposable and will move on to a different

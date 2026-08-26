@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ChartSnapshot } from './chart.js';
+import { BracketSide, TournamentState } from './enums.js';
 
 /**
  * The wire shape `toPublicMatch`/`toBracketMatch`
@@ -154,3 +155,38 @@ export const BracketMatch = z.object({
   winnerId: EntrantId.nullable(),
 });
 export type BracketMatch = z.infer<typeof BracketMatch>;
+
+/**
+ * `GET /api/tournaments/:id` — the bracket snapshot, the resync fetch per
+ * DESIGN.md, "Realtime". Structural placement (`bracket`/`round`/`slot`,
+ * needed to lay the tree out) plus the live `BracketMatch` projection —
+ * deliberately not the fuller `PublicMatch` per match, per DESIGN.md's
+ * "Rendering the bracket": shipping full match detail for every cell in a
+ * snapshot covering the whole bracket is the waste that section calls out.
+ * A single realtime frame is scoped to one match, so it carries the fuller
+ * `PublicMatch` instead — see `RealtimeFrame` below.
+ */
+export const TournamentSnapshotMatch = z.object({
+  id: z.string().min(1),
+  bracket: BracketSide,
+  round: z.number().int().positive(),
+  slot: z.number().int().nonnegative(),
+  match: BracketMatch,
+});
+export type TournamentSnapshotMatch = z.infer<typeof TournamentSnapshotMatch>;
+
+export const TournamentSnapshot = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  state: TournamentState,
+  matches: z.array(TournamentSnapshotMatch),
+});
+export type TournamentSnapshot = z.infer<typeof TournamentSnapshot>;
+
+/** The shape of every websocket frame — `{ matchId, seq, projection }`, per DESIGN.md, "Realtime". */
+export const RealtimeFrame = z.object({
+  matchId: z.string().min(1),
+  seq: z.number().int().nonnegative(),
+  projection: PublicMatch,
+});
+export type RealtimeFrame = z.infer<typeof RealtimeFrame>;

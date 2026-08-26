@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { REALTIME_PORT } from '../realtime/realtime.tokens.js';
 import { DiscordBootstrapService } from './discord-bootstrap.service.js';
 import { DISCORD_CLIENT } from './discord.tokens.js';
 
@@ -18,17 +19,20 @@ describe('DiscordBootstrapService DI wiring', () => {
   it('resolves every constructor dependency to the real provided instance, not undefined', async () => {
     const fakePrisma = { tournament: { findFirst: async () => null } };
     const fakeClient = { on: () => undefined, guilds: { cache: new Map() } };
+    const fakeRealtime = { publish: () => undefined };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         DiscordBootstrapService,
         { provide: DISCORD_CLIENT, useValue: fakeClient },
         { provide: PrismaService, useValue: fakePrisma },
+        { provide: REALTIME_PORT, useValue: fakeRealtime },
       ],
     }).compile();
 
     const service = moduleRef.get(DiscordBootstrapService);
     expect((service as unknown as { client: unknown }).client).toBe(fakeClient);
     expect((service as unknown as { prisma: unknown }).prisma).toBe(fakePrisma);
+    expect((service as unknown as { realtime: unknown }).realtime).toBe(fakeRealtime);
   });
 });

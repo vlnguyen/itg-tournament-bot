@@ -147,7 +147,7 @@ async function handleMatchScopeDq(interaction: ChatInputCommandInteraction, ctx:
     const refName = refereeDisplayName(interaction);
 
     await ctx.matchChannel.postLogMessage(ref, renderDqLog(participant.entrantId as EntrantId, 'MATCH', refName, players));
-    await applyAppendResult(ctx.prisma, ctx.matchChannel, ctx.alert, ctx.playerNotification, match, format, event, result);
+    await applyAppendResult(ctx.prisma, ctx.matchChannel, ctx.alert, ctx.playerNotification, ctx.realtime, match, format, event, result);
 
     await interaction.editReply(`Disqualified **${playerName}** from this match.`);
     await logToOrganizers(ctx.alert, interaction.guildId!, `⛔ **${interaction.user.username}** disqualified **${playerName}** from a match.`);
@@ -189,7 +189,7 @@ async function handleTournamentScopeDq(interaction: ChatInputCommandInteraction,
       const refName = refereeDisplayName(interaction);
 
       await ctx.matchChannel.postLogMessage(ref, renderDqLog(entrant.id as EntrantId, 'TOURNAMENT', refName, players));
-      await applyAppendResult(ctx.prisma, ctx.matchChannel, ctx.alert, ctx.playerNotification, match, format, resolvedMatch.event, resolvedMatch.result);
+      await applyAppendResult(ctx.prisma, ctx.matchChannel, ctx.alert, ctx.playerNotification, ctx.realtime, match, format, resolvedMatch.event, resolvedMatch.result);
     }
   }
 

@@ -2,7 +2,9 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { Client, Events } from 'discord.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { REALTIME_PORT } from '../realtime/realtime.tokens.js';
 import { cryptoRandomPort } from '../services/ports.js';
+import type { RealtimeBroadcastPort } from '../services/ports.js';
 import { createAlertAdapter } from './alert-adapter.js';
 import { loginDiscordClient } from './client.js';
 import { DISCORD_CLIENT } from './discord.tokens.js';
@@ -30,6 +32,7 @@ export class DiscordBootstrapService implements OnApplicationBootstrap, OnModule
     // instead of a resolvable startup error.
     @Inject(DISCORD_CLIENT) private readonly client: Client,
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(REALTIME_PORT) private readonly realtime: RealtimeBroadcastPort,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -39,8 +42,16 @@ export class DiscordBootstrapService implements OnApplicationBootstrap, OnModule
     const matchChannel = createMatchChannelAdapter(this.client, this.prisma);
     const alert = createAlertAdapter(this.client, this.prisma);
     const playerNotification = createPlayerNotificationAdapter(this.client, this.prisma);
-    registerInteractionHandlers(this.client, this.prisma, cryptoRandomPort, matchChannel, alert, playerNotification);
-    registerMessageListener(this.client, this.prisma, cryptoRandomPort, matchChannel);
+    registerInteractionHandlers(
+      this.client,
+      this.prisma,
+      cryptoRandomPort,
+      matchChannel,
+      alert,
+      playerNotification,
+      this.realtime,
+    );
+    registerMessageListener(this.client, this.prisma, cryptoRandomPort, matchChannel, this.realtime);
 
     // A guild joined while already running gets its commands the moment it's
     // available — no separate registration script or restart to remember.

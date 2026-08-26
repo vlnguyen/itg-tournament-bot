@@ -96,6 +96,27 @@ export async function findActiveTournament(tx: Tx, guildId: string): Promise<Tou
   return tx.tournament.findFirst({ where: { guildId, state: { notIn: ['COMPLETE', 'CANCELLED'] } } });
 }
 
+/**
+ * "A server's landing page redirects to whichever tournament is currently
+ * active, or to the most recent one when nothing is running." See
+ * DESIGN.md, "Permanent URLs". Distinct from `findActiveTournament`: this
+ * is the *public* notion of "current," so `DRAFT` is excluded — "nothing
+ * public has happened yet... naming it would announce a tournament before
+ * its organizer chose to," per `discord/commands/tournament.ts`'s
+ * `handleStatus`. Falls back to the most recently created non-`DRAFT`
+ * tournament (`COMPLETE` or `CANCELLED`) when nothing is currently running.
+ */
+export async function resolvePublicLandingTournament(tx: Tx, guildId: string): Promise<Tournament | null> {
+  const running = await tx.tournament.findFirst({
+    where: { guildId, state: { notIn: ['DRAFT', 'COMPLETE', 'CANCELLED'] } },
+  });
+  if (running) return running;
+  return tx.tournament.findFirst({
+    where: { guildId, state: { not: 'DRAFT' } },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
 async function requireState(tx: Tx, tournamentId: string, expected: TournamentState): Promise<Tournament> {
   const t = await tx.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
   if (t.state !== expected) {

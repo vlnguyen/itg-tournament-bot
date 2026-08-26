@@ -1,0 +1,41 @@
+.cell {
+  list-style: none;
+}
+
+.link {
+  display: block;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+  padding: var(--mantine-spacing-xs);
+  text-decoration: none;
+  color: inherit;
+  min-width: 200px;
+}
+
+.link:hover,
+.link:focus-visible {
+  border-color: var(--mantine-color-blue-6);
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--mantine-color-blue-6);
+  outline-offset: 2px;
+}
+
+.stateLabel {
+  font-size: var(--mantine-font-size-xs);
+  color: var(--mantine-color-dimmed);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* State is never colour-only — this is a secondary visual reinforcement of
+   text already in .stateLabel, not the only cue. */
+.cell[data-awaiting='true'] .stateLabel {
+  color: var(--mantine-color-orange-6);
+  font-weight: 600;
+}
+
+.winner {
+  font-weight: 700;
+}

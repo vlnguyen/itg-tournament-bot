@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
+import { GuildsController } from './guilds.controller.js';
 import { MatchesController } from './matches.controller.js';
 import { TournamentsController } from './tournaments.controller.js';
 
 @Module({
-  controllers: [TournamentsController, MatchesController],
+  controllers: [TournamentsController, MatchesController, GuildsController],
 })
 export class ApiModule {}

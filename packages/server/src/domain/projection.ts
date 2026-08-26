@@ -58,6 +58,16 @@ export type PublicTiebreakRound =
     };
 
 export interface PublicMatch {
+  /**
+   * `state.seq` — the resync ordering the realtime layer needs. See
+   * DESIGN.md, "Realtime": every frame carries `{ matchId, seq, projection
+   * }` so a client can "drop any [frame] whose seq is not greater than
+   * what it holds." Carrying it in the projection itself (not only
+   * alongside it in the frame) is what lets a REST-fetched snapshot seed
+   * that comparison too — otherwise a client that just refetched has
+   * nothing to compare a late, reordered frame against.
+   */
+  seq: number;
   participants: { entrantId: EntrantId; seed: number }[];
   a?: EntrantId | undefined;
   b?: EntrantId | undefined;
@@ -90,6 +100,7 @@ function toPublicTiebreak(t: TiebreakRound): PublicTiebreakRound {
 
 export function toPublicMatch(format: MatchFormat, state: MatchState): PublicMatch {
   return {
+    seq: state.seq,
     participants: state.participants,
     a: state.a,
     b: state.b,
@@ -120,8 +131,21 @@ export function toPublicMatch(format: MatchFormat, state: MatchState): PublicMat
 export type BracketMatchStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETE';
 
 export interface BracketMatch {
+  /** Same resync role as `PublicMatch.seq` — see that field's comment. */
+  seq: number;
   participants: { entrantId: EntrantId; seed: number }[];
   status: BracketMatchStatus;
+  /**
+   * `pendingAction(state).kind === 'AWAITING_TO'` — the fifth bracket-cell
+   * state DESIGN.md's "What a bracket cell shows" calls for ("pending, in
+   * progress, awaiting organizer, complete, walkover") that `status` alone
+   * can't carry: an escalation is still `IN_PROGRESS` by that enum, just
+   * blocked. Mirrors the same cached `Match.awaitingTo` column the
+   * organizer alert queue already reads.
+   */
+  awaitingTo: boolean;
+  /** The sixth state, "walkover" — `outcome.by`, so a cell can tell a walkover apart from an ordinary agreed finish once `status` is `COMPLETE`. */
+  outcomeBy: MatchOutcome['by'] | null;
   points: Record<EntrantId, number>;
   currentChartId: string | null;
   winnerId: EntrantId | null;
@@ -148,8 +172,11 @@ export function toBracketMatch(format: MatchFormat, state: MatchState): BracketM
   const outcome = format.outcome(state);
   const active = state.songs.find((s) => !s.result);
   return {
+    seq: state.seq,
     participants: state.participants,
     status: deriveMatchStatus(format, state),
+    awaitingTo: format.pendingAction(state).kind === 'AWAITING_TO',
+    outcomeBy: outcome?.by ?? null,
     points: state.points,
     currentChartId: active?.chart.chartId ?? null,
     winnerId: outcome?.placements.find((p) => p.place === 1)?.entrantId ?? null,

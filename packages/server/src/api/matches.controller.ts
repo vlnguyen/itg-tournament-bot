@@ -1,6 +1,7 @@
 import type { PublicMatch as PublicMatchWire } from '@itg/shared';
 import { PublicMatch as PublicMatchSchema } from '@itg/shared';
 import { Controller, Get, Inject, NotFoundException, Param } from '@nestjs/common';
+import { entrantDisplayNames } from './entrant-names.js';
 import { toPublicMatch } from '../domain/projection.js';
 import { emptyState } from '../domain/types.js';
 import type { MatchState } from '../domain/types.js';
@@ -26,6 +27,15 @@ export class MatchesController {
 
     const format = requireFormat(match.formatKey);
     const state = (match.state as unknown as MatchState | null) ?? emptyState();
-    return PublicMatchSchema.parse(toPublicMatch(format, state));
+    const pub = toPublicMatch(format, state);
+    const names = await entrantDisplayNames(
+      this.prisma,
+      pub.participants.map((p) => p.entrantId),
+    );
+
+    return PublicMatchSchema.parse({
+      ...pub,
+      participants: pub.participants.map((p) => ({ ...p, displayName: names.get(p.entrantId) ?? p.entrantId })),
+    });
   }
 }

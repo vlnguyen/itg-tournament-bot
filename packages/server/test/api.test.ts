@@ -1,7 +1,8 @@
 import { NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { PublicMatch, TournamentSnapshot } from '@itg/shared';
+import { generateBracket, matchKey, PublicMatch, TournamentSnapshot } from '@itg/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { GuildsController } from '../src/api/guilds.controller.js';
 import { MatchesController } from '../src/api/matches.controller.js';
 import { TournamentsController } from '../src/api/tournaments.controller.js';
 import { materializeBracket } from '../src/services/bracket-service.js';
@@ -22,19 +23,33 @@ describe.skipIf(!(await isReachable()))('public REST routes', () => {
   let t: TestTournament;
   let matchesController: MatchesController;
   let tournamentsController: TournamentsController;
+  let guildsController: GuildsController;
 
   beforeAll(async () => {
     t = await makeTournament(`api-${Date.now()}`, 4);
     await materializeBracket(prisma, sequentialRandomPort('api'), t.tournamentId);
 
     const moduleRef = await Test.createTestingModule({
-      controllers: [MatchesController, TournamentsController],
+      controllers: [MatchesController, TournamentsController, GuildsController],
       providers: [{ provide: PrismaService, useValue: prisma }],
     }).compile();
     matchesController = moduleRef.get(MatchesController);
     tournamentsController = moduleRef.get(TournamentsController);
+    guildsController = moduleRef.get(GuildsController);
   });
   afterAll(() => cleanupTournament(t));
+
+  describe('GET /api/guilds/:guildId/landing-tournament', () => {
+    it('resolves to the guild\'s running tournament', async () => {
+      const body = await guildsController.getLandingTournament(t.guildId);
+      expect(body.tournamentId).toBe(t.tournamentId);
+    });
+
+    it('returns null for a guild that has never had one', async () => {
+      const body = await guildsController.getLandingTournament('no-such-guild');
+      expect(body.tournamentId).toBeNull();
+    });
+  });
 
   describe('GET /api/matches/:id', () => {
     it('returns a schema-valid PublicMatch for a started round-1 match', async () => {
@@ -67,6 +82,7 @@ describe.skipIf(!(await isReachable()))('public REST routes', () => {
     it('returns a schema-valid snapshot covering every generated match', async () => {
       const body = await tournamentsController.getTournament(t.tournamentId);
       expect(() => TournamentSnapshot.parse(body)).not.toThrow();
+      expect(body.entrantCount).toBe(4);
 
       const allMatches = await prisma.match.findMany({ where: { tournamentId: t.tournamentId } });
       expect(body.matches).toHaveLength(allMatches.length);
@@ -78,6 +94,16 @@ describe.skipIf(!(await isReachable()))('public REST routes', () => {
 
     it('404s for an id that does not exist', async () => {
       await expect(tournamentsController.getTournament('does-not-exist')).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('entrantCount reproduces the exact match set the server generated — the bracket UI\'s connector graph', async () => {
+      const body = await tournamentsController.getTournament(t.tournamentId);
+      const generated = generateBracket(body.entrantCount);
+      const returnedKeys = new Set(body.matches.map((m) => matchKey({ bracket: m.bracket, round: m.round, slot: m.slot })));
+      for (const gm of generated.matches) {
+        expect(returnedKeys.has(matchKey(gm.ref))).toBe(true);
+      }
+      expect(returnedKeys.size).toBe(generated.matches.length);
     });
   });
 });

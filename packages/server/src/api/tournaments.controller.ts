@@ -1,11 +1,12 @@
 import type { TournamentSnapshot as TournamentSnapshotWire } from '@itg/shared';
 import { TournamentSnapshot as TournamentSnapshotSchema } from '@itg/shared';
 import { Controller, Get, Inject, NotFoundException, Param } from '@nestjs/common';
+import { entrantDisplayNamesForTournament } from './entrant-names.js';
 import { toBracketMatch } from '../domain/projection.js';
 import { emptyState } from '../domain/types.js';
 import type { MatchState } from '../domain/types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { requireFormat } from '../services/engine.js';
+import { entrantCountAtStart, requireFormat } from '../services/engine.js';
 
 /**
  * `GET /api/tournaments/:id` — the bracket snapshot, DESIGN.md's "resync
@@ -23,16 +24,31 @@ export class TournamentsController {
     const tournament = await this.prisma.tournament.findUnique({ where: { id } });
     if (!tournament) throw new NotFoundException(`no tournament ${id}`);
 
-    const matches = await this.prisma.match.findMany({ where: { tournamentId: id } });
+    const [matches, entrantCount, names] = await Promise.all([
+      this.prisma.match.findMany({ where: { tournamentId: id } }),
+      entrantCountAtStart(this.prisma, id),
+      entrantDisplayNamesForTournament(this.prisma, id),
+    ]);
 
     return TournamentSnapshotSchema.parse({
       id: tournament.id,
       name: tournament.name,
       state: tournament.state,
+      entrantCount,
       matches: matches.map((m) => {
         const format = requireFormat(m.formatKey);
         const state = (m.state as unknown as MatchState | null) ?? emptyState();
-        return { id: m.id, bracket: m.bracket, round: m.round, slot: m.slot, match: toBracketMatch(format, state) };
+        const bracketMatch = toBracketMatch(format, state);
+        return {
+          id: m.id,
+          bracket: m.bracket,
+          round: m.round,
+          slot: m.slot,
+          match: {
+            ...bracketMatch,
+            participants: bracketMatch.participants.map((p) => ({ ...p, displayName: names.get(p.entrantId) ?? p.entrantId })),
+          },
+        };
       }),
     });
   }

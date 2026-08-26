@@ -34,7 +34,15 @@ export const SongSource = z.enum([
 ]);
 export type SongSource = z.infer<typeof SongSource>;
 
-const Participant = z.object({ entrantId: EntrantId, seed: z.number().int().positive() });
+/**
+ * `displayName` isn't part of `toPublicMatch`/`toBracketMatch`'s output —
+ * `MatchState.participants` only ever carries `{ entrantId, seed }`, since
+ * the pure domain layer has no idea `Entrant` rows exist. The API layer
+ * joins it in before responding, same fallback as the Discord side's own
+ * `PlayerDirectory` (`match-lookup.ts`): `entrant.displayName ??
+ * entrant.discordUserId`.
+ */
+const Participant = z.object({ entrantId: EntrantId, seed: z.number().int().positive(), displayName: z.string() });
 
 export const PublicSong = z.object({
   index: z.number().int().nonnegative(),
@@ -118,15 +126,20 @@ export const PendingAction = z.union([
 ]);
 export type PendingAction = z.infer<typeof PendingAction>;
 
+export const MatchOutcomeBy = z.enum(['AGREEMENT', 'RULING', 'FORFEIT', 'DQ', 'WALKOVER']);
+export type MatchOutcomeBy = z.infer<typeof MatchOutcomeBy>;
+
 export const MatchOutcome = z.object({
   placements: z.array(
     z.object({ entrantId: EntrantId, place: z.number().int().positive(), points: z.number().int().nonnegative() }),
   ),
-  by: z.enum(['AGREEMENT', 'RULING', 'FORFEIT', 'DQ', 'WALKOVER']),
+  by: MatchOutcomeBy,
 });
 export type MatchOutcome = z.infer<typeof MatchOutcome>;
 
 export const PublicMatch = z.object({
+  /** Resync ordering — see `RealtimeFrame` and `deriveBracketMatch` below for why this has to travel with the projection itself. */
+  seq: z.number().int().nonnegative(),
   participants: z.array(Participant),
   a: EntrantId.optional(),
   b: EntrantId.optional(),
@@ -148,8 +161,13 @@ export const BracketMatchStatus = z.enum(['PENDING', 'IN_PROGRESS', 'COMPLETE'])
 export type BracketMatchStatus = z.infer<typeof BracketMatchStatus>;
 
 export const BracketMatch = z.object({
+  seq: z.number().int().nonnegative(),
   participants: z.array(Participant),
   status: BracketMatchStatus,
+  /** The fifth bracket-cell state DESIGN.md's "What a bracket cell shows" calls for — an open escalation, still `IN_PROGRESS` by `status` alone. */
+  awaitingTo: z.boolean(),
+  /** The sixth — "walkover" apart from an ordinary agreed finish, once `status` is `COMPLETE`. */
+  outcomeBy: MatchOutcomeBy.nullable(),
   points: z.record(EntrantId, z.number().int()),
   currentChartId: z.string().nullable(),
   winnerId: EntrantId.nullable(),
@@ -179,6 +197,13 @@ export const TournamentSnapshot = z.object({
   id: z.string().min(1),
   name: z.string(),
   state: TournamentState,
+  /**
+   * Seeded entrant count at bracket generation — `entrantCountAtStart`
+   * server-side. The client feeds this straight into `generateBracket`
+   * (also `@itg/shared`) to get the same connector graph the server
+   * generated, rather than shipping the graph itself over the wire.
+   */
+  entrantCount: z.number().int().nonnegative(),
   matches: z.array(TournamentSnapshotMatch),
 });
 export type TournamentSnapshot = z.infer<typeof TournamentSnapshot>;
@@ -190,3 +215,27 @@ export const RealtimeFrame = z.object({
   projection: PublicMatch,
 });
 export type RealtimeFrame = z.infer<typeof RealtimeFrame>;
+
+/**
+ * A frame carries `PublicMatch`, not `BracketMatch` — see `RealtimeFrame`'s
+ * comment. When a frame lands for a match the client is showing on the
+ * bracket, this is what patches that cell: the same narrowing
+ * `toBracketMatch` does server-side, just computed from the wire-shape
+ * `PublicMatch` a frame already has in hand instead of a `MatchState` the
+ * client never sees. A frame is only ever sent after at least one event has
+ * landed, so `status` only needs to distinguish `IN_PROGRESS`/`COMPLETE` —
+ * `PENDING` is exclusively an initial-snapshot state.
+ */
+export function deriveBracketMatch(pub: PublicMatch): BracketMatch {
+  const active = pub.songs.find((s) => !s.result);
+  return {
+    seq: pub.seq,
+    participants: pub.participants,
+    status: pub.outcome ? 'COMPLETE' : 'IN_PROGRESS',
+    awaitingTo: pub.pending.kind === 'AWAITING_TO',
+    outcomeBy: pub.outcome?.by ?? null,
+    points: pub.points,
+    currentChartId: active?.chart.chartId ?? null,
+    winnerId: pub.outcome?.placements.find((p) => p.place === 1)?.entrantId ?? null,
+  };
+}

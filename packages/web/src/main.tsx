@@ -13,7 +13,7 @@ if (!rootElement) throw new Error('#root element is missing from index.html');
 
 createRoot(rootElement).render(
   <StrictMode>
-    <MantineProvider>
+    <MantineProvider defaultColorScheme="dark">
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
       </QueryClientProvider>

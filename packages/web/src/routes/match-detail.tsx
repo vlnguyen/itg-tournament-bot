@@ -1,6 +1,8 @@
 import type { PublicMatch } from '@itg/shared';
-import { Alert, Badge, Center, Group, Loader, Stack, Table, Text, Title } from '@mantine/core';
+import { Alert, Badge, Center, Divider, Group, Loader, Stack, Table, Text, Title } from '@mantine/core';
 import { useParams } from 'react-router-dom';
+import { RefereeOverrides } from '../components/referee-overrides.js';
+import { useCurrentUser } from '../hooks/use-current-user.js';
 import { useMatch } from '../hooks/use-match.js';
 import { useRealtimeTournament } from '../hooks/use-realtime-tournament.js';
 
@@ -64,6 +66,7 @@ function pendingDescription(pub: PublicMatch): string {
 export default function MatchDetail(): JSX.Element {
   const { tournamentId, matchId } = useParams<{ tournamentId: string; matchId: string }>();
   const { data: pub, isPending, isError } = useMatch(matchId!);
+  const { data: discordUserId } = useCurrentUser();
   useRealtimeTournament(tournamentId!);
 
   if (isPending) {
@@ -175,6 +178,13 @@ export default function MatchDetail(): JSX.Element {
             .join(', ')}{' '}
           — {pub.outcome.by.toLowerCase()}
         </Alert>
+      )}
+
+      {discordUserId && (
+        <>
+          <Divider />
+          <RefereeOverrides matchId={matchId!} pub={pub} />
+        </>
       )}
     </Stack>
   );

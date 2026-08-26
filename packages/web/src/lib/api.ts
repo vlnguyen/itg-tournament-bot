@@ -1,4 +1,17 @@
-import { ChartImport, ChartSnapshot, LandingTournament, PlayerPage, PublicMatch, Standings, TournamentSnapshot } from '@itg/shared';
+import {
+  ChartImport,
+  ChartSnapshot,
+  LandingTournament,
+  LifecycleRequest,
+  LifecycleStatus,
+  PlayerPage,
+  PublicMatch,
+  Roster,
+  RulingRequest,
+  RunView,
+  Standings,
+  TournamentSnapshot,
+} from '@itg/shared';
 import { z } from 'zod';
 
 /**
@@ -34,6 +47,75 @@ export async function fetchLandingTournament(guildId: string): Promise<LandingTo
   const res = await fetch(`/api/guilds/${guildId}/landing-tournament`);
   if (!res.ok) throw new ApiError(res.status, `GET /api/guilds/${guildId}/landing-tournament -> ${res.status}`);
   return LandingTournament.parse(await res.json());
+}
+
+const CurrentUser = z.object({ discordUserId: z.string().nullable() });
+
+/** `discordUserId: null` is a valid, non-error response — signed out, not a fetch failure. */
+export async function fetchCurrentUser(): Promise<string | null> {
+  const res = await fetch('/api/auth/me');
+  if (!res.ok) throw new ApiError(res.status, `GET /api/auth/me -> ${res.status}`);
+  return CurrentUser.parse(await res.json()).discordUserId;
+}
+
+export async function fetchRunView(tournamentId: string): Promise<RunView> {
+  const res = await fetch(`/api/tournaments/${tournamentId}/run-view`);
+  if (!res.ok) throw new ApiError(res.status, `GET /api/tournaments/${tournamentId}/run-view -> ${res.status}`);
+  return RunView.parse(await res.json());
+}
+
+const ErrorBody = z.object({ message: z.union([z.string(), z.array(z.unknown())]) });
+
+/** Nest's default exception filter body — `message` is a string for a plain `BadRequestException(str)`, an array of zod issues for `BadRequestException(err.issues)`. Either way, something readable to show next to the control that failed beats a bare status code. */
+async function describeError(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = ErrorBody.parse(await res.json());
+    return typeof body.message === 'string' ? body.message : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export async function submitRuling(matchId: string, ruling: RulingRequest): Promise<PublicMatch> {
+  const res = await fetch(`/api/matches/${matchId}/rulings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(ruling),
+  });
+  if (!res.ok) throw new ApiError(res.status, await describeError(res, `POST /api/matches/${matchId}/rulings -> ${res.status}`));
+  return PublicMatch.parse(await res.json());
+}
+
+export async function fetchRoster(tournamentId: string): Promise<Roster> {
+  const res = await fetch(`/api/tournaments/${tournamentId}/roster`);
+  if (!res.ok) throw new ApiError(res.status, await describeError(res, `GET /api/tournaments/${tournamentId}/roster -> ${res.status}`));
+  return Roster.parse(await res.json());
+}
+
+export async function submitSeeding(tournamentId: string, order: string[]): Promise<Roster> {
+  const res = await fetch(`/api/tournaments/${tournamentId}/seeding`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order }),
+  });
+  if (!res.ok) throw new ApiError(res.status, await describeError(res, `POST /api/tournaments/${tournamentId}/seeding -> ${res.status}`));
+  return Roster.parse(await res.json());
+}
+
+export async function fetchLifecycleStatus(tournamentId: string): Promise<LifecycleStatus> {
+  const res = await fetch(`/api/tournaments/${tournamentId}/lifecycle`);
+  if (!res.ok) throw new ApiError(res.status, await describeError(res, `GET /api/tournaments/${tournamentId}/lifecycle -> ${res.status}`));
+  return LifecycleStatus.parse(await res.json());
+}
+
+export async function submitLifecycleAction(tournamentId: string, request: LifecycleRequest): Promise<LifecycleStatus> {
+  const res = await fetch(`/api/tournaments/${tournamentId}/lifecycle`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new ApiError(res.status, await describeError(res, `POST /api/tournaments/${tournamentId}/lifecycle -> ${res.status}`));
+  return LifecycleStatus.parse(await res.json());
 }
 
 export async function fetchStandings(tournamentId: string): Promise<Standings> {

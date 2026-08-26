@@ -1,5 +1,6 @@
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { findPublicCurrentTournament } from '../../services/tournament-service.js';
+import { webUrl } from '../../web-url.js';
 import type { CommandContext } from './context.js';
 
 /**
@@ -22,7 +23,6 @@ export async function handlePack(interaction: ChatInputCommandInteraction, ctx: 
     return;
   }
 
-  const base = process.env['PUBLIC_BASE_URL'];
-  const url = base ? `${base}/t/${tournament.id}/pack` : `/t/${tournament.id}/pack`;
+  const url = webUrl(`/t/${tournament.id}/pack`);
   await interaction.reply({ ephemeral: true, content: `**${tournament.name}**'s song pack: ${url}` });
 }

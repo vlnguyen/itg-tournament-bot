@@ -12,6 +12,12 @@ import { getSocket } from '../lib/socket.js';
  * reconnect; this hook only needs to re-join the socket room when the
  * underlying connection comes back, which `subscribe` on every `connect`
  * event covers, including the first one.
+ *
+ * Also invalidates the run view — "both panes are fed by the same
+ * websocket subscription as the public bracket," DESIGN.md, "The run
+ * view." A frame doesn't carry enough to patch `RunView` in place (elapsed
+ * time, alert ordering, `since` strings are all server-computed), so this
+ * just triggers a refetch; harmless when no run-view query is mounted.
  */
 export function useRealtimeTournament(tournamentId: string): void {
   const queryClient = useQueryClient();
@@ -32,6 +38,7 @@ export function useRealtimeTournament(tournamentId: string): void {
       queryClient.setQueryData<PublicMatch>(['match', frame.matchId], (current) =>
         applyFrameToMatchDetail(current, frame),
       );
+      void queryClient.invalidateQueries({ queryKey: ['run-view', tournamentId] });
     };
     socket.on('frame', onFrame);
 

@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { Client } from 'discord.js';
+import { Client, GuildMember, PermissionFlagsBits } from 'discord.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { DISCORD_CLIENT } from '../discord/discord.tokens.js';
 import { hasTier, Tier, tierOf, type TierRoleConfig } from '../discord/tier.js';
@@ -44,25 +44,65 @@ export class TierService {
     return hasTier(roleIds, tierConfig, required);
   }
 
+  /**
+   * "Reconfiguring the server itself is gated on Discord's own Manage
+   * Guild permission rather than a third bound role." See DESIGN.md,
+   * "Bootstrap: the one place Discord permissions gate anything" — the
+   * same check `/setup` makes via `interaction.memberPermissions`, just
+   * resolved from the gateway cache instead of a live interaction.
+   * `GuildMember.permissions` is already the effective *guild-level*
+   * permission set (role-based), which is exactly what Manage Guild is —
+   * no channel-overwrite resolution needed, unlike the bot's own
+   * per-channel permissions (`permission-diagnostic.ts`).
+   */
+  async hasManageGuild(guildId: string, discordUserId: string): Promise<boolean> {
+    const member = await this.memberOf(guildId, discordUserId);
+    return member?.permissions.has(PermissionFlagsBits.ManageGuild) ?? false;
+  }
+
+  /**
+   * "The name the server shows" — same resolution as
+   * `member-display-name.ts`'s `fetchDisplayNameById` (nickname, else
+   * global name, else username, else the raw id as a last resort so this
+   * never throws), just reusing `memberOf`'s cache-first lookup instead of
+   * a bare `guild.members.fetch`. This is what a web-originated action
+   * should attribute itself as everywhere a Discord-originated one already
+   * does — a referee ruling's thread log line, a lifecycle transition's
+   * organizer-alert entry — rather than the `User` table's cached OAuth
+   * name, which is global, not this guild's, and can be null for anyone
+   * who signed in but was never given a nickname.
+   */
+  async resolveDisplayName(guildId: string, discordUserId: string): Promise<string> {
+    const member = await this.memberOf(guildId, discordUserId);
+    if (member) return member.displayName;
+
+    const user = await this.client.users.fetch(discordUserId).catch(() => null);
+    return user?.globalName ?? user?.username ?? discordUserId;
+  }
+
   private async tierConfigFor(guildId: string): Promise<TierRoleConfig> {
     const guildRow = await this.prisma.guild.findUnique({ where: { id: guildId } });
     return guildRow ?? EMPTY_TIER_CONFIG;
   }
 
-  /** Cache first — a fetch only crosses the gateway when a member's roles were never observed. */
-  private async memberRoleIds(guildId: string, discordUserId: string): Promise<string[]> {
+  /** Cache first — a fetch only crosses the gateway when a member was never observed. */
+  private async memberOf(guildId: string, discordUserId: string): Promise<GuildMember | null> {
     const guild = this.client.guilds.cache.get(guildId);
-    if (!guild) return [];
+    if (!guild) return null;
 
     const cached = guild.members.cache.get(discordUserId);
-    if (cached) return [...cached.roles.cache.keys()];
+    if (cached) return cached;
 
     try {
-      const fetched = await guild.members.fetch(discordUserId);
-      return [...fetched.roles.cache.keys()];
+      return await guild.members.fetch(discordUserId);
     } catch {
-      // Not a member of this guild — left, never joined, or the fetch failed. No tier.
-      return [];
+      // Not a member of this guild — left, never joined, or the fetch failed.
+      return null;
     }
+  }
+
+  private async memberRoleIds(guildId: string, discordUserId: string): Promise<string[]> {
+    const member = await this.memberOf(guildId, discordUserId);
+    return member ? [...member.roles.cache.keys()] : [];
   }
 }

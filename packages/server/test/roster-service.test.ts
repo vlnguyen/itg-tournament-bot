@@ -1,8 +1,10 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import {
   checkin,
+  getRoster,
   joinTournament,
   leaveTournament,
+  reorderSeeds,
   rosterAdd,
   rosterCheckin,
   rosterRemove,
@@ -400,6 +402,113 @@ describe.skipIf(!(await isReachable()))('roster-service', () => {
 
         const p2 = await entrantOf(tournamentId, 'p2');
         expect(p2.seed).toBe(1); // renormalized despite no alert
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+  });
+
+  describe('getRoster / reorderSeeds', () => {
+    it('getRoster returns [] when the guild has no active tournament', async () => {
+      const guildId = `rs-seed-none-${Date.now()}`;
+      await makeGuild(guildId);
+      try {
+        expect(await getRoster(prisma, guildId)).toEqual([]);
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('getRoster lists a checked-in entrant in the seeded group even before any seed has ever been assigned', async () => {
+      // `rosterCheckin` alone never touches `seed` — this is the case
+      // `getRoster` must group on `checkedIn`, not `seed !== null`, to
+      // get right.
+      const guildId = `rs-seed-unassigned-${Date.now()}`;
+      try {
+        await toCheckinOpen(guildId);
+        await rosterAdd(prisma, guildId, 'p1', TO);
+        await rosterCheckin(prisma, guildId, 'p1', TO);
+
+        const roster = await getRoster(prisma, guildId);
+        expect(roster).toHaveLength(1);
+        expect(roster[0]!.discordUserId).toBe('p1');
+        expect(roster[0]!.checkedIn).toBe(true);
+        expect(roster[0]!.seed).toBeNull();
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('getRoster puts checked-in entrants first in seed order, then not-checked-in entrants in join order', async () => {
+      const guildId = `rs-seed-list-${Date.now()}`;
+      try {
+        const tournamentId = await toCheckinOpen(guildId);
+        await rosterAdd(prisma, guildId, 'p1', TO);
+        await rosterAdd(prisma, guildId, 'p2', TO);
+        await rosterAdd(prisma, guildId, 'p3', TO);
+        await rosterCheckin(prisma, guildId, 'p2', TO);
+        await rosterCheckin(prisma, guildId, 'p1', TO);
+        // Assigns seeds 1 (p2), 2 (p1) in check-in order — irrelevant to
+        // this test beyond giving the seeded group something to sort by.
+        await reorderSeeds(prisma, guildId, [(await entrantOf(tournamentId, 'p2')).id, (await entrantOf(tournamentId, 'p1')).id], TO);
+
+        const roster = await getRoster(prisma, guildId);
+        expect(roster.map((e) => e.discordUserId)).toEqual(['p2', 'p1', 'p3']);
+        expect(roster.find((e) => e.discordUserId === 'p3')!.seed).toBeNull();
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('reorderSeeds rejects once the tournament is RUNNING', async () => {
+      const guildId = `rs-seed-late-${Date.now()}`;
+      try {
+        const tournamentId = await toCheckinOpen(guildId);
+        await rosterAdd(prisma, guildId, 'p1', TO);
+        await rosterCheckin(prisma, guildId, 'p1', TO);
+        await closeCheckin(prisma, tournamentId, TO);
+        await prisma.tournament.update({ where: { id: tournamentId }, data: { state: 'RUNNING' } });
+
+        const result = await reorderSeeds(prisma, guildId, [(await entrantOf(tournamentId, 'p1')).id], TO);
+        expect(result.kind).toBe('TOO_LATE');
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('reorderSeeds rejects a set that does not exactly match the checked-in roster', async () => {
+      const guildId = `rs-seed-invalid-${Date.now()}`;
+      try {
+        const tournamentId = await toCheckinOpen(guildId);
+        await rosterAdd(prisma, guildId, 'p1', TO);
+        await rosterAdd(prisma, guildId, 'p2', TO);
+        await rosterCheckin(prisma, guildId, 'p1', TO);
+        await rosterCheckin(prisma, guildId, 'p2', TO);
+
+        // Missing p2 — a stale client that loaded before p2 checked in.
+        const result = await reorderSeeds(prisma, guildId, [(await entrantOf(tournamentId, 'p1')).id], TO);
+        expect(result.kind).toBe('INVALID_ORDER');
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('reorderSeeds writes the exact submitted order as seeds 1..N, drag or typed either way', async () => {
+      const guildId = `rs-seed-reorder-${Date.now()}`;
+      try {
+        const tournamentId = await toCheckinOpen(guildId);
+        await rosterAdd(prisma, guildId, 'p1', TO);
+        await rosterAdd(prisma, guildId, 'p2', TO);
+        await rosterAdd(prisma, guildId, 'p3', TO);
+        for (const id of ['p1', 'p2', 'p3']) await rosterCheckin(prisma, guildId, id, TO);
+
+        const [e1, e2, e3] = await Promise.all(['p1', 'p2', 'p3'].map((id) => entrantOf(tournamentId, id)));
+        const result = await reorderSeeds(prisma, guildId, [e3!.id, e1!.id, e2!.id], TO);
+        expect(result.kind).toBe('REORDERED');
+
+        expect((await entrantOf(tournamentId, 'p3')).seed).toBe(1);
+        expect((await entrantOf(tournamentId, 'p1')).seed).toBe(2);
+        expect((await entrantOf(tournamentId, 'p2')).seed).toBe(3);
       } finally {
         await dropGuild(guildId);
       }

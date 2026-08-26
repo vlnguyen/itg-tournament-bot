@@ -1,5 +1,5 @@
 import { Prisma, type Guild, type PrismaClient, type Tournament, type TournamentState } from '@prisma/client';
-import { DEFAULT_TOURNAMENT_CONFIG } from '@itg/shared';
+import { DEFAULT_TOURNAMENT_CONFIG, type LifecycleAction, type LifecycleStatus } from '@itg/shared';
 import { Bo5ProtectVetoFormat } from '../domain/bo5.js';
 import { logAction } from './audit-log.js';
 import { materializeBracket } from './bracket-service.js';
@@ -143,7 +143,7 @@ async function requireStateIn(tx: Tx, tournamentId: string, expected: readonly T
 }
 
 /** "Guild configured" from the `DRAFT → REGISTRATION_OPEN` guard — every channel and tier role `/setup` binds, checked as plain DB fields. Live Discord permission resolution is a different check, run at tournament start and in `/setup status`. */
-function missingGuildConfig(guild: Guild | null): string[] {
+export function missingGuildConfig(guild: Guild | null): string[] {
   if (!guild) {
     return ['matches channel', 'organizer alert channel', 'results channel', 'Referee role', 'Tournament Organizer role'];
   }
@@ -447,4 +447,51 @@ export async function startTournament(
 
   const tournament = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
   return { tournament, packSizeWarning };
+}
+
+/**
+ * Legal next actions per state — a direct read of the `requireState`/
+ * `requireStateIn` calls each transition above already makes; kept as its
+ * own table here rather than derived, since scattering "is this legal"
+ * across each function's own guard would need a second query per action to
+ * answer "what's legal right now" instead of one. `START` never appears —
+ * see `LifecycleStatus`'s own comment in `@itg/shared` for why.
+ */
+const LEGAL_ACTIONS: Record<TournamentState, LifecycleAction[]> = {
+  DRAFT: ['OPEN_REGISTRATION', 'RENAME', 'CANCEL'],
+  REGISTRATION_OPEN: ['CLOSE_REGISTRATION', 'RENAME', 'CANCEL'],
+  REGISTRATION_CLOSED: ['OPEN_REGISTRATION', 'OPEN_CHECKIN', 'RENAME', 'CANCEL'],
+  CHECKIN_OPEN: ['CLOSE_REGISTRATION', 'CLOSE_CHECKIN', 'RENAME', 'CANCEL'],
+  CHECKIN_CLOSED: ['OPEN_CHECKIN', 'RENAME', 'CANCEL'],
+  RUNNING: ['RENAME', 'CANCEL'],
+  COMPLETE: [],
+  CANCELLED: [],
+};
+
+/**
+ * DESIGN.md, "Everything else": "current state, the transitions currently
+ * legal, and each one's guard shown as a checklist so a TO can see what is
+ * blocking a start before pressing it." `startGuards` covers everything
+ * checkable from Postgres alone — the live Discord permission preflight
+ * `/tournament start` also runs isn't included; see `LifecycleStatus`.
+ */
+export async function getLifecycleStatus(prisma: PrismaClient, tournamentId: string): Promise<LifecycleStatus> {
+  const tournament = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
+  const guild = await prisma.guild.findUnique({ where: { id: tournament.guildId } });
+
+  const [checkedInCount, chartCount] = await Promise.all([
+    prisma.entrant.count({ where: { tournamentId, status: 'ACTIVE', checkedIn: true } }),
+    prisma.chart.count({ where: { tournamentId } }),
+  ]);
+
+  return {
+    state: tournament.state,
+    name: tournament.name,
+    legalActions: LEGAL_ACTIONS[tournament.state],
+    startGuards: [
+      { label: 'Server is fully configured (channels and roles)', ok: missingGuildConfig(guild).length === 0 },
+      { label: 'At least 2 checked-in entrants', ok: checkedInCount >= 2 },
+      { label: 'Chart pack has at least 1 chart', ok: chartCount > 0 },
+    ],
+  };
 }

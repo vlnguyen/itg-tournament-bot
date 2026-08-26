@@ -21,6 +21,18 @@ export const EscalationReason = z.enum([
 ]);
 export type EscalationReason = z.infer<typeof EscalationReason>;
 
+/** "a winner disagreement" — shared so the Discord alert and the web run view's queue read identically. */
+export function escalationReasonLabel(reason: EscalationReason): string {
+  switch (reason) {
+    case 'WINNER_DISAGREEMENT':
+      return 'a winner disagreement';
+    case 'SETTINGS_VIOLATION':
+      return 'a reported settings violation';
+    case 'SET_RESULT_DISAGREEMENT':
+      return 'a disagreement over who won the set';
+  }
+}
+
 export const SongResultBy = z.enum(['AGREEMENT', 'RULING']);
 export type SongResultBy = z.infer<typeof SongResultBy>;
 

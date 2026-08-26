@@ -1,5 +1,5 @@
 import type { ChartSnapshot as ChartSnapshotWire } from '@itg/shared';
-import { ChartImport, ChartSnapshot as ChartSnapshotSchema } from '@itg/shared';
+import { canImportPack, ChartImport, ChartSnapshot as ChartSnapshotSchema } from '@itg/shared';
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post } from '@nestjs/common';
 import { ZodError } from 'zod';
 import { CurrentUser } from '../auth/current-user.decorator.js';
@@ -45,6 +45,10 @@ export class ChartsController {
 
     if (!discordUserId || !(await this.tierService.hasTier(tournament.guildId, discordUserId, Tier.TOURNAMENT_ORGANIZER))) {
       throw new ForbiddenException('You need Tournament Organizer tier to import charts.');
+    }
+
+    if (!canImportPack(tournament.state)) {
+      throw new BadRequestException(`Can't import a pack — the tournament is already ${tournament.state}.`);
     }
 
     // Re-validated here regardless of whatever the browser's own parser/

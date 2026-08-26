@@ -34,7 +34,7 @@ describe.skipIf(!(await isReachable()))('public REST routes', () => {
 
     const moduleRef = await Test.createTestingModule({
       controllers: [MatchesController, TournamentsController, GuildsController],
-      providers: [{ provide: PrismaService, useValue: prisma }],
+      providers: [{ provide: PrismaService, useValue: prisma }, { provide: TierService, useValue: { hasTier: async () => true } }],
     }).compile();
     matchesController = moduleRef.get(MatchesController);
     tournamentsController = moduleRef.get(TournamentsController);
@@ -140,7 +140,7 @@ describe.skipIf(!(await isReachable()))('standings and player pages, against a c
 
     const moduleRef = await Test.createTestingModule({
       controllers: [TournamentsController, PlayersController],
-      providers: [{ provide: PrismaService, useValue: prisma }],
+      providers: [{ provide: PrismaService, useValue: prisma }, { provide: TierService, useValue: { hasTier: async () => true } }],
     }).compile();
     tournamentsController = moduleRef.get(TournamentsController);
     playersController = moduleRef.get(PlayersController);
@@ -197,6 +197,11 @@ describe.skipIf(!(await isReachable()))('song pack import — GET/POST /api/tour
 
   beforeAll(async () => {
     t = await makeTournament(`api-charts-${Date.now()}`, 2);
+    // `makeTournament` seeds `RUNNING` (most fixtures here need a live
+    // bracket) — pack import needs a not-yet-started tournament, so this
+    // suite overrides it. The dedicated "once RUNNING" test below flips it
+    // back deliberately, and only after every other test has already run.
+    await prisma.tournament.update({ where: { id: t.tournamentId }, data: { state: 'DRAFT' } });
 
     const moduleRef = await Test.createTestingModule({
       controllers: [ChartsController],
@@ -246,5 +251,13 @@ describe.skipIf(!(await isReachable()))('song pack import — GET/POST /api/tour
     const after = await chartsController.getCharts(t.tournamentId);
     expect(after.length).toBe(before.length + 1);
     expect(after.some((c) => c.title === 'Test Song')).toBe(true);
+  });
+
+  it('POST rejects import once the tournament has started', async () => {
+    hasTierResult = true;
+    await prisma.tournament.update({ where: { id: t.tournamentId }, data: { state: 'RUNNING' } });
+    await expect(chartsController.importCharts(t.tournamentId, { charts: [validChart] }, 'organizer')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 });

@@ -1,7 +1,18 @@
-import { ActionIcon, AppShell, Group, Tooltip, useMantineColorScheme, useComputedColorScheme } from '@mantine/core';
-import { Outlet } from 'react-router-dom';
+import { ActionIcon, AppShell, Anchor, Button, Group, Text, Tooltip, useMantineColorScheme, useComputedColorScheme } from '@mantine/core';
+import { useQueryClient } from '@tanstack/react-query';
+import { Link, Outlet } from 'react-router-dom';
+import { useCurrentUser } from '../hooks/use-current-user.js';
 
-/** Sun/moon as plain inline SVG rather than an icon-library dependency — the app only needs these two. */
+/** Sun/moon/home as plain inline SVG rather than an icon-library dependency — Mantine itself ships no icons, and the app only needs these three. */
+function HomeIcon(): JSX.Element {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path d="M3 11l9-8 9 8" />
+      <path d="M5 10v10h14V10" />
+    </svg>
+  );
+}
+
 function SunIcon(): JSX.Element {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -35,13 +46,61 @@ function ColorSchemeToggle(): JSX.Element {
   );
 }
 
-/** The one persistent chrome every route shares — currently just the color-scheme toggle, per the user's request. */
+/**
+ * "Sign-in is information, never a gate" — DESIGN.md. Every page works
+ * fully signed out; this just shows whether a session exists and lets it
+ * be started or ended. `/api/auth/login` is a real navigation (it chains
+ * into Discord's own OAuth redirect), not a fetch.
+ */
+function SignInControl(): JSX.Element {
+  const { data: discordUserId, isPending } = useCurrentUser();
+  const queryClient = useQueryClient();
+
+  if (isPending) return <div />;
+
+  if (!discordUserId) {
+    return (
+      <Anchor href="/api/auth/login" size="sm">
+        Sign in
+      </Anchor>
+    );
+  }
+
+  return (
+    <Group gap="xs">
+      <Text size="sm" c="dimmed">
+        Signed in
+      </Text>
+      <Button
+        variant="subtle"
+        size="compact-sm"
+        onClick={async () => {
+          await fetch('/api/auth/logout', { method: 'POST' });
+          await queryClient.invalidateQueries({ queryKey: ['current-user'] });
+        }}
+      >
+        Sign out
+      </Button>
+    </Group>
+  );
+}
+
+/** The one persistent chrome every route shares — the color-scheme toggle and sign-in state. */
 export default function Layout(): JSX.Element {
   return (
     <AppShell header={{ height: 48 }} padding={0}>
       <AppShell.Header>
-        <Group justify="flex-end" h="100%" px="md">
-          <ColorSchemeToggle />
+        <Group justify="space-between" h="100%" px="md" gap="md">
+          <Anchor component={Link} to="/" underline="never" c="inherit">
+            <Group gap="xs">
+              <HomeIcon />
+              <Text fw={700}>ITG Tournament Bot</Text>
+            </Group>
+          </Anchor>
+          <Group gap="md">
+            <SignInControl />
+            <ColorSchemeToggle />
+          </Group>
         </Group>
       </AppShell.Header>
       <AppShell.Main>

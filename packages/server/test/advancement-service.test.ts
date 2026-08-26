@@ -56,6 +56,17 @@ describe.skipIf(!(await isReachable()))('advancement-service', () => {
     });
   });
 
+  describe('computeTournamentStandings before a bracket exists', () => {
+    it('returns [] rather than throwing when nobody is seeded yet', async () => {
+      const t = await makeTournament(`advancement-empty-${Date.now()}`, 0);
+      try {
+        expect(await computeTournamentStandings(prisma, t.tournamentId)).toEqual([]);
+      } finally {
+        await cleanupTournament(t);
+      }
+    });
+  });
+
   describe('tournament-scope disqualification', () => {
     it('forfeits a live match and advances the opponent', async () => {
       const t = await makeTournament(`advancement-dq-a-${Date.now()}`, 4);

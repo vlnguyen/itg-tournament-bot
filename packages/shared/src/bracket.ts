@@ -234,3 +234,14 @@ export function generateBracket(entrantCount: number): GeneratedBracket {
     grandFinalResetRef,
   };
 }
+
+/**
+ * How a round reads in prose — "Winners Round 1," not the grand final's
+ * own rounds, which read as names instead of numbers. Shared so the
+ * bracket UI's round headings and the run view's match labels (server
+ * side) can't drift apart.
+ */
+export function sectionLabel(bracket: BracketSide, round: number): string {
+  if (bracket === 'GRAND_FINAL') return round === 1 ? 'Grand Final' : 'Grand Final Reset';
+  return `${bracket === 'WINNERS' ? 'Winners' : 'Losers'} Round ${round}`;
+}

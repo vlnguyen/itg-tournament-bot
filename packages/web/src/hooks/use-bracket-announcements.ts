@@ -1,7 +1,7 @@
 import type { RealtimeFrame, TournamentSnapshot } from '@itg/shared';
 import { useEffect, useRef, useState } from 'react';
 import { describeFrame, type KnownMatchState } from '../lib/announcements.js';
-import { sectionLabel } from '../lib/section-label.js';
+import { sectionLabel } from '@itg/shared';
 import { getSocket } from '../lib/socket.js';
 import type { Verbosity } from './use-verbosity.js';
 

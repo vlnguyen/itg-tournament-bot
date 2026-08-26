@@ -291,3 +291,85 @@ export async function rosterRemove(
     return { kind: 'REMOVED', entrant: updated };
   });
 }
+
+// ---------------------------------------------------------------------------
+// seeding — the console's roster-as-seeding-interface
+// ---------------------------------------------------------------------------
+
+export type RosterEntry = Pick<Entrant, 'id' | 'discordUserId' | 'displayName' | 'checkedIn' | 'seed' | 'joinedAt'>;
+
+/**
+ * The whole active roster — checked-in entrants (the seeded group; ordered
+ * by seed, but a seed only exists once something has actually normalized
+ * or reordered it, so a checked-in entrant with no seed yet sorts after
+ * every real seed, by join order), then not-checked-in entrants in join
+ * order, per DESIGN.md's "Seeding": "the ordered list" and "unseeded
+ * entrants... in join order." One query per group; the client splits on
+ * `checkedIn`, not `seed`, since check-in and seed assignment are separate
+ * steps — `rosterCheckin` alone never assigns a seed.
+ */
+export async function getRoster(prisma: PrismaClient, guildId: string): Promise<RosterEntry[]> {
+  const tournament = await findActiveTournament(prisma, guildId);
+  if (!tournament) return [];
+
+  const [seeded, unseeded] = await Promise.all([
+    prisma.entrant.findMany({
+      where: { tournamentId: tournament.id, status: 'ACTIVE', checkedIn: true },
+      orderBy: [{ seed: { sort: 'asc', nulls: 'last' } }, { joinedAt: 'asc' }],
+    }),
+    prisma.entrant.findMany({
+      where: { tournamentId: tournament.id, status: 'ACTIVE', checkedIn: false },
+      orderBy: { joinedAt: 'asc' },
+    }),
+  ]);
+  return [...seeded, ...unseeded];
+}
+
+/** Seeding is only meaningful before the bracket exists — the same upper bound `ROSTER_ADD_STATES` uses. */
+const SEEDING_STATES: readonly TournamentState[] = ['REGISTRATION_OPEN', 'REGISTRATION_CLOSED', 'CHECKIN_OPEN', 'CHECKIN_CLOSED'];
+
+export type ReorderSeedsResult =
+  | { kind: 'REORDERED' }
+  | { kind: 'NO_TOURNAMENT' }
+  | { kind: 'TOO_LATE'; phase: TournamentState }
+  | { kind: 'INVALID_ORDER' };
+
+/**
+ * "Two ways to move someone, one underlying operation... both submit the
+ * same reorder, which writes the whole normalized order in one statement."
+ * `orderedEntrantIds` must be exactly the tournament's checked-in entrants,
+ * each once — a stale client (someone checked in or withdrew since this
+ * order was loaded) is rejected outright rather than partially applied, the
+ * same all-or-nothing posture `renormalizeSeeds` takes.
+ *
+ * One `UPDATE` per entrant rather than a set-based statement, same reason
+ * `renormalizeSeeds` gives: `(tournamentId, seed)`'s uniqueness is a
+ * `DEFERRABLE INITIALLY DEFERRED` constraint, checked only at commit, so
+ * the whole list can pass through transiently colliding seed values.
+ */
+export async function reorderSeeds(
+  prisma: PrismaClient,
+  guildId: string,
+  orderedEntrantIds: string[],
+  actorId: string,
+): Promise<ReorderSeedsResult> {
+  return prisma.$transaction(async (tx) => {
+    const tournament = await findActiveTournament(tx, guildId);
+    if (!tournament) return { kind: 'NO_TOURNAMENT' };
+    if (!SEEDING_STATES.includes(tournament.state)) return { kind: 'TOO_LATE', phase: tournament.state };
+
+    const checkedIn = await tx.entrant.findMany({ where: { tournamentId: tournament.id, status: 'ACTIVE', checkedIn: true } });
+    const checkedInIds = new Set(checkedIn.map((e) => e.id));
+    const givenIds = new Set(orderedEntrantIds);
+    const isExactMatch =
+      orderedEntrantIds.length === checkedIn.length && givenIds.size === checkedIn.length && [...checkedInIds].every((id) => givenIds.has(id));
+    if (!isExactMatch) return { kind: 'INVALID_ORDER' };
+
+    let seed = 1;
+    for (const id of orderedEntrantIds) {
+      await tx.entrant.update({ where: { id }, data: { seed: seed++ } });
+    }
+    await logAction(tx, actorId, 'SEEDING_REORDERED', 'Tournament', tournament.id, { order: orderedEntrantIds });
+    return { kind: 'REORDERED' };
+  });
+}

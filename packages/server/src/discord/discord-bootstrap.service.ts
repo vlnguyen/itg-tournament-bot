@@ -13,6 +13,7 @@ import { registerInteractionHandlers } from './interactions.js';
 import { createMatchChannelAdapter } from './match-channel-adapter.js';
 import { registerMessageListener } from './message-listener.js';
 import { createPlayerNotificationAdapter } from './player-notification-adapter.js';
+import { parseAdminDiscordIds, syncConfigAdmins } from '../services/admin-service.js';
 
 /**
  * The bot bootstrap sequence, unchanged from the pre-Nest `main.ts` — this
@@ -38,6 +39,12 @@ export class DiscordBootstrapService implements OnApplicationBootstrap, OnModule
   async onApplicationBootstrap(): Promise<void> {
     const token = process.env.DISCORD_TOKEN;
     if (!token) throw new Error('DISCORD_TOKEN is not set in .env');
+
+    // "Config admins are re-applied additively at boot... editing the
+    // config and redeploying always restores access — the lockout
+    // recovery path the requirements specify." See DESIGN.md,
+    // "Authentication and Authorization".
+    await syncConfigAdmins(this.prisma, parseAdminDiscordIds(process.env.ADMIN_DISCORD_IDS));
 
     const matchChannel = createMatchChannelAdapter(this.client, this.prisma);
     const alert = createAlertAdapter(this.client, this.prisma);

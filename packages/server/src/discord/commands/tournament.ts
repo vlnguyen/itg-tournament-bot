@@ -18,6 +18,7 @@ import {
   TournamentSlotOccupiedError,
   TournamentTransitionError,
 } from '../../services/tournament-service.js';
+import { tournamentUrl } from '../../web-url.js';
 import { requireOrganizerTier } from './authz.js';
 import type { CommandContext } from './context.js';
 import { logToOrganizers } from './organizer-log.js';
@@ -159,14 +160,15 @@ async function handleCreate(interaction: ChatInputCommandInteraction, ctx: Comma
   const name = interaction.options.getString('name', true);
   try {
     const t = await createTournament(ctx.prisma, interaction.guildId!, name, interaction.user.id);
+    const url = tournamentUrl(t.id);
     await interaction.reply({
       ephemeral: true,
-      content: `Created **${t.name}** (draft). Run \`/tournament open-registration\` when you're ready for \`/join\` to start working.`,
+      content: `Created **${t.name}** (draft) — ${url}\nRun \`/tournament open-registration\` when you're ready for \`/join\` to start working.`,
     });
     // Alert-channel messages name the actor by their raw Discord username —
     // that channel is organizer-private, unlike the general channel, which
     // uses the server display name. See `player-notification-adapter.ts`.
-    await logToOrganizers(ctx.alert, interaction.guildId!, `🆕 **${interaction.user.username}** created tournament **${t.name}**.`);
+    await logToOrganizers(ctx.alert, interaction.guildId!, `🆕 **${interaction.user.username}** created tournament **${t.name}** — ${url}`);
 
     // DEBUG — see the block above.
     try {

@@ -17,7 +17,7 @@ import { appendMatchEvent, IllegalActionError } from '../services/match-service.
 import type { RandomPort } from '../services/ports.js';
 import { Action, SCORE_MODAL_EX_FIELD } from './actions.js';
 import type { CommandContext } from './commands/context.js';
-import { dispatchChatInputCommand } from './commands/router.js';
+import { dispatchAutocomplete, dispatchChatInputCommand } from './commands/router.js';
 import { decodeCustomId, encodeCustomId, type CustomId } from './custom-id.js';
 import { renderResetLog, renderRulingLog, renderSetRulingLog } from './log-messages.js';
 import { applyAppendResult, CANCELLED_MATCH_MESSAGE, describeStale } from './match-event-effects.js';
@@ -68,6 +68,11 @@ async function handle(
 ): Promise<void> {
   if (interaction.isChatInputCommand()) {
     await dispatchChatInputCommand(interaction, commandCtx);
+    return;
+  }
+
+  if (interaction.isAutocomplete()) {
+    await dispatchAutocomplete(interaction, commandCtx);
     return;
   }
 

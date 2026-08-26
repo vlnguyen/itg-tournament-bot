@@ -101,13 +101,19 @@ const leave = new SlashCommandBuilder().setName('leave').setDescription('Withdra
 const dq = new SlashCommandBuilder()
   .setName('dq')
   .setDescription('Disqualify a player, or forfeit them out of this match (referee)')
-  .addUserOption((o) => o.setName('player').setDescription('The player to disqualify').setRequired(true))
   .addStringOption((o) =>
     o
       .setName('scope')
       .setDescription('This match (also how you apply a plain forfeit), or the whole tournament')
       .setRequired(true)
       .addChoices({ name: 'This match', value: 'match' }, { name: 'Whole tournament', value: 'tournament' }),
+  )
+  .addStringOption((o) =>
+    o
+      .setName('player')
+      .setDescription('The player to disqualify')
+      .setRequired(true)
+      .setAutocomplete(true),
   );
 
 const pack = new SlashCommandBuilder().setName('pack').setDescription('Show a summary of the tournament’s chart pack');

@@ -6,7 +6,8 @@ import Layout from './components/layout.js';
  * drop for seeding) never load on the public/mobile surface — see
  * DESIGN.md, "The Web Client". URL scheme per DESIGN.md, "Permanent
  * URLs"/"Player pages": `/t/:tournamentId` never changes or gets reused;
- * `/g/:guildId` is the server landing page that redirects into it.
+ * `/g/:guildId` is the server's own page — active tournament, history, or
+ * first-run setup — not a redirect into one.
  *
  * Every page nests under `Layout`, the one piece of chrome shared across
  * the whole app (currently just the color-scheme toggle) — not lazy, since
@@ -17,7 +18,7 @@ export const router = createBrowserRouter([
     element: <Layout />,
     children: [
       { path: '/', lazy: () => import('./routes/public-home').then((m) => ({ Component: m.default })) },
-      { path: '/g/:guildId', lazy: () => import('./routes/guild-landing').then((m) => ({ Component: m.default })) },
+      { path: '/g/:guildId', lazy: () => import('./routes/guild-overview').then((m) => ({ Component: m.default })) },
       { path: '/t/:tournamentId', lazy: () => import('./routes/tournament-bracket').then((m) => ({ Component: m.default })) },
       {
         path: '/t/:tournamentId/matches/:matchId',

@@ -14,7 +14,7 @@ export const STATE_LABEL: Record<TournamentState, string> = {
   CANCELLED: 'Cancelled',
 };
 
-const STATE_COLOR: Partial<Record<TournamentState, string>> = {
+export const STATE_COLOR: Partial<Record<TournamentState, string>> = {
   DRAFT: 'gray',
   RUNNING: 'yellow',
   COMPLETE: 'green',

@@ -67,21 +67,16 @@ function SignInControl(): JSX.Element {
   }
 
   return (
-    <Group gap="xs">
-      <Text size="sm" c="dimmed">
-        Signed in
-      </Text>
-      <Button
-        variant="subtle"
-        size="compact-sm"
-        onClick={async () => {
-          await fetch('/api/auth/logout', { method: 'POST' });
-          await queryClient.invalidateQueries({ queryKey: ['current-user'] });
-        }}
-      >
-        Sign out
-      </Button>
-    </Group>
+    <Button
+      variant="subtle"
+      size="compact-sm"
+      onClick={async () => {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        await queryClient.invalidateQueries({ queryKey: ['current-user'] });
+      }}
+    >
+      Sign out
+    </Button>
   );
 }
 

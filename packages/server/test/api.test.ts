@@ -42,15 +42,16 @@ describe.skipIf(!(await isReachable()))('public REST routes', () => {
   });
   afterAll(() => cleanupTournament(t));
 
-  describe('GET /api/guilds/:guildId/landing-tournament', () => {
-    it('resolves to the guild\'s running tournament', async () => {
-      const body = await guildsController.getLandingTournament(t.guildId);
-      expect(body.tournamentId).toBe(t.tournamentId);
+  describe('GET /api/guilds/:guildId/overview', () => {
+    it("names the guild's running tournament as active, with no history yet", async () => {
+      const body = await guildsController.getOverview(t.guildId);
+      expect(body.activeTournament?.id).toBe(t.tournamentId);
+      expect(body.history).toEqual([]);
     });
 
-    it('returns null for a guild that has never had one', async () => {
-      const body = await guildsController.getLandingTournament('no-such-guild');
-      expect(body.tournamentId).toBeNull();
+    it('returns an empty overview for a guild that has never had one', async () => {
+      const body = await guildsController.getOverview('no-such-guild');
+      expect(body).toEqual({ activeTournament: null, history: [] });
     });
   });
 

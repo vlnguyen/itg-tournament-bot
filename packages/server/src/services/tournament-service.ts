@@ -97,6 +97,16 @@ export async function findActiveTournament(tx: Tx, guildId: string): Promise<Tou
 }
 
 /**
+ * The one case where a `DRAFT` tournament is meant to surface — the
+ * first-run wizard pointing its own organizer back at it to continue
+ * setup. Never call this from a path a non-organizer can reach; see
+ * `FirstRunStatus` in `@itg/shared` for why.
+ */
+export async function findDraftTournament(tx: Tx, guildId: string): Promise<Tournament | null> {
+  return tx.tournament.findFirst({ where: { guildId, state: 'DRAFT' } });
+}
+
+/**
  * The *public* notion of "the guild's current tournament" — distinct from
  * `findActiveTournament`: `DRAFT` is excluded, since "nothing public has
  * happened yet... naming it would announce a tournament before its
@@ -111,17 +121,14 @@ export async function findPublicCurrentTournament(tx: Tx, guildId: string): Prom
 }
 
 /**
- * "A server's landing page redirects to whichever tournament is currently
- * active, or to the most recent one when nothing is running." See
- * DESIGN.md, "Permanent URLs". Falls back to the most recently created
- * non-`DRAFT` tournament (`COMPLETE` or `CANCELLED`) when nothing is
- * currently running — the one place a past tournament is a valid answer.
+ * Every tournament this guild has actually finished or called off, newest
+ * first — the `/g/:guildId` page's history section. `DRAFT` is excluded
+ * for the same reason `findPublicCurrentTournament` excludes it, and
+ * `RUNNING`/etc. are excluded because those are "active," not "history."
  */
-export async function resolvePublicLandingTournament(tx: Tx, guildId: string): Promise<Tournament | null> {
-  const running = await findPublicCurrentTournament(tx, guildId);
-  if (running) return running;
-  return tx.tournament.findFirst({
-    where: { guildId, state: { not: 'DRAFT' } },
+export async function getTournamentHistory(tx: Tx, guildId: string): Promise<Tournament[]> {
+  return tx.tournament.findMany({
+    where: { guildId, state: { in: ['COMPLETE', 'CANCELLED'] } },
     orderBy: { createdAt: 'desc' },
   });
 }

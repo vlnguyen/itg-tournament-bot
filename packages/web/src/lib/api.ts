@@ -1,7 +1,9 @@
 import {
   ChartImport,
   ChartSnapshot,
-  LandingTournament,
+  CreateTournamentResult,
+  FirstRunStatus,
+  GuildOverview,
   LifecycleRequest,
   LifecycleStatus,
   PlayerPage,
@@ -43,10 +45,29 @@ export async function fetchMatch(matchId: string): Promise<PublicMatch> {
   return PublicMatch.parse(await res.json());
 }
 
-export async function fetchLandingTournament(guildId: string): Promise<LandingTournament> {
-  const res = await fetch(`/api/guilds/${guildId}/landing-tournament`);
-  if (!res.ok) throw new ApiError(res.status, `GET /api/guilds/${guildId}/landing-tournament -> ${res.status}`);
-  return LandingTournament.parse(await res.json());
+/** The `/g/:guildId` page itself — an active tournament, some history, or both empty. Never 404s; see the controller's comment. */
+export async function fetchGuildOverview(guildId: string): Promise<GuildOverview> {
+  const res = await fetch(`/api/guilds/${guildId}/overview`);
+  if (!res.ok) throw new ApiError(res.status, `GET /api/guilds/${guildId}/overview -> ${res.status}`);
+  return GuildOverview.parse(await res.json());
+}
+
+/** Always `canManage: false` for a signed-out request — never an error. See `FirstRunStatus`'s comment in `@itg/shared`. */
+export async function fetchFirstRunStatus(guildId: string): Promise<FirstRunStatus> {
+  const res = await fetch(`/api/guilds/${guildId}/first-run`);
+  if (!res.ok) throw new ApiError(res.status, `GET /api/guilds/${guildId}/first-run -> ${res.status}`);
+  return FirstRunStatus.parse(await res.json());
+}
+
+/** The web equivalent of `/tournament create` — Tournament Organizer tier and the one-tournament-per-guild slot are both enforced server-side; a rejection's message names why. */
+export async function createTournamentForGuild(guildId: string, name: string): Promise<string> {
+  const res = await fetch(`/api/guilds/${guildId}/tournaments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new ApiError(res.status, await describeError(res, `POST /api/guilds/${guildId}/tournaments -> ${res.status}`));
+  return CreateTournamentResult.parse(await res.json()).tournamentId;
 }
 
 const CurrentUser = z.object({ discordUserId: z.string().nullable() });

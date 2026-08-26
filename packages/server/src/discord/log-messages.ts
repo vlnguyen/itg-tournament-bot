@@ -115,3 +115,22 @@ export function renderTiebreakRevealLog(
 export function renderResetLog(refereeDisplayName: string): RenderedMessage {
   return { content: `🔄 **${refereeDisplayName}** reset the Protect/Veto sequence. The Draw stands.` };
 }
+
+/**
+ * `/dq` — either scope. "This match only" is also how a plain forfeit is
+ * applied — there is no separate command for it; "withdraw from the
+ * tournament" cascades walkovers through both brackets, which
+ * `applyAppendResult`'s caller renders separately once
+ * `disqualifyFromTournament` reports which match (if any) it resolved.
+ */
+export function renderDqLog(
+  playerId: EntrantId,
+  scope: 'MATCH' | 'TOURNAMENT',
+  refereeDisplayName: string,
+  players: PlayerDirectory,
+): RenderedMessage {
+  const scopeLabel = scope === 'TOURNAMENT' ? 'from the tournament' : 'from this match';
+  return {
+    content: `⛔ **${displayName(players, playerId)}** disqualified ${scopeLabel} — ruling by **${refereeDisplayName}**`,
+  };
+}

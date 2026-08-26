@@ -1,8 +1,9 @@
 import type { PrismaClient } from '@prisma/client';
+import type { MatchEvent } from '../domain/types.js';
 import { generateBracket, type MatchRef } from '../domain/bracket.js';
 import { computeStandings, criticalPathRounds, type StandingsInput } from '../domain/advancement.js';
 import type { RandomPort } from './ports.js';
-import { appendMatchEventTx } from './match-service.js';
+import { appendMatchEventTx, type AppendResult } from './match-service.js';
 import { entrantCountAtStart } from './engine.js';
 
 /**
@@ -23,27 +24,41 @@ import { entrantCountAtStart } from './engine.js';
  * already-decided path resolves itself lazily, exactly once, right when it
  * matters — there is no separate sweep to keep in sync with that logic.
  */
+export interface DisqualifyFromTournamentResult {
+  /**
+   * The match this DQ resolved as a live forfeit, if any — `null` when the
+   * entrant wasn't mid-set (e.g. seated but not yet opposed, or not seated
+   * at all). Handed back rather than acted on here, the same pattern
+   * `cancelTournament` uses with `cancelledMatchIds`, so the Discord-side
+   * caller can render the thread log, escalation resolution and archive
+   * through the same `applyAppendResult` every other ruling goes through.
+   */
+  resolvedMatch: { matchId: string; event: Omit<MatchEvent, 'seq'>; result: AppendResult } | null;
+}
+
 export async function disqualifyFromTournament(
   prisma: PrismaClient,
   random: RandomPort,
   tournamentId: string,
   entrantId: string,
   actorId: string,
-): Promise<void> {
-  await prisma.$transaction(async (tx) => {
+): Promise<DisqualifyFromTournamentResult> {
+  return prisma.$transaction(async (tx) => {
     await tx.entrant.update({ where: { id: entrantId }, data: { status: 'WITHDRAWN' } });
 
     const live = await tx.matchParticipant.findFirst({
       where: { entrantId, match: { tournamentId, status: 'IN_PROGRESS' } },
       select: { matchId: true },
     });
-    if (live) {
-      await appendMatchEventTx(tx, random, live.matchId, {
-        actorId,
-        type: 'DQ_APPLIED',
-        payload: { playerId: entrantId, scope: 'TOURNAMENT' },
-      });
-    }
+    if (!live) return { resolvedMatch: null };
+
+    const event: Omit<MatchEvent, 'seq'> = {
+      actorId,
+      type: 'DQ_APPLIED',
+      payload: { playerId: entrantId, scope: 'TOURNAMENT' },
+    };
+    const result = await appendMatchEventTx(tx, random, live.matchId, event);
+    return { resolvedMatch: { matchId: live.matchId, event, result } };
   });
 }
 

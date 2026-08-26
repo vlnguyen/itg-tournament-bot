@@ -25,6 +25,12 @@ export interface AppendResult {
    * new happened as a result of *this* call.
    */
   effects: DomainEffect[];
+  /**
+   * Whether the tournament reached `COMPLETE` as a direct or indirect
+   * result of this append — see `persistAndCascade` (engine.ts). `false`
+   * on a dedupe-hit, same reasoning as `effects`.
+   */
+  tournamentCompleted: boolean;
 }
 
 /**
@@ -53,7 +59,7 @@ export async function appendMatchEventTx(
       // already recorded." Checked first rather than caught after, since
       // we're already inside the locked transaction either way.
       const { state, format } = await lockAndLoadMatch(tx, matchId);
-      return { state, outcome: format.outcome(state), effects: [] };
+      return { state, outcome: format.outcome(state), effects: [], tournamentCompleted: false };
     }
   }
 
@@ -66,9 +72,9 @@ export async function appendMatchEventTx(
 
   const afterAction = await appendOne(tx, matchId, state, format, event, dedupeKey);
   const settled = await settleBotLoop(tx, match.tournamentId, random, matchId, afterAction, format);
-  await persistAndCascade(tx, match.tournamentId, ref, matchId, format, random, state, settled);
+  const tournamentCompleted = await persistAndCascade(tx, match.tournamentId, ref, matchId, format, random, state, settled);
 
-  return { state: settled, outcome: format.outcome(settled), effects: format.effects(state, settled) };
+  return { state: settled, outcome: format.outcome(settled), effects: format.effects(state, settled), tournamentCompleted };
 }
 
 export async function appendMatchEvent(

@@ -6,6 +6,7 @@ import { appendMatchEvent, IllegalActionError } from '../src/services/match-serv
 import { sequentialRandomPort } from '../src/services/ports.js';
 import {
   cleanupTournament,
+  driveToCompletion,
   isReachable,
   makeTournament,
   playMatchToChampion,
@@ -166,12 +167,13 @@ describe.skipIf(!(await isReachable()))('match-service', () => {
           payload: { by: p.actor, drawIndex: p.choices[0]! },
         });
       }
+      let lastResult: Awaited<ReturnType<typeof appendMatchEvent>> | undefined;
       for (;;) {
         const p = await currentPending(matchId);
         if (p.kind === 'DONE') break;
         if (p.kind === 'CONFIRM_RESULT') {
           for (const actorId of p.actors) {
-            await appendMatchEvent(prisma, random, matchId, {
+            lastResult = await appendMatchEvent(prisma, random, matchId, {
               actorId,
               type: 'SET_RESULT_CONFIRMED',
               payload: { by: actorId, choice: champion },
@@ -212,9 +214,160 @@ describe.skipIf(!(await isReachable()))('match-service', () => {
       expect(match.winnerId).toBe(champion);
       const tournament = await prisma.tournament.findUniqueOrThrow({ where: { id: t.tournamentId } });
       expect(tournament.state).toBe('COMPLETE');
+      // The append that actually decided it reports the tournament
+      // completion too — the signal `applyAppendResult` uses to post the
+      // final-standings announcement alongside the ordinary result.
+      expect(lastResult!.tournamentCompleted).toBe(true);
     } finally {
       await cleanupTournament(t);
     }
+  });
+
+  // No Discord command reaches `FORFEIT_APPLIED` any more — `/dq` scoped to
+  // "this match" covers a plain forfeit too, see the DQ_APPLIED test below —
+  // but the event stays legal and correctly advances the winner, reserved
+  // for the organizer console's own forfeit action once it ships.
+  it('resolves the match via FORFEIT_APPLIED and advances the winner', async () => {
+    const { t, random, matchId } = await twoPlayerMatch(`match-forfeit-${Date.now()}`);
+    try {
+      const [winner, loser] = t.entrantIds;
+      const result = await appendMatchEvent(prisma, random, matchId, {
+        actorId: 'referee-1',
+        type: 'FORFEIT_APPLIED',
+        payload: { winnerId: winner! },
+      });
+
+      const match = await prisma.match.findUniqueOrThrow({ where: { id: matchId } });
+      expect(match.status).toBe('COMPLETE');
+      expect(match.winnerId).toBe(winner);
+      const domainState = match.state as unknown as MatchState;
+      expect(domainState.terminal).toEqual({ winnerId: winner, by: 'FORFEIT' });
+      expect(result.tournamentCompleted).toBe(true); // 2-entrant field — this one match was the whole tournament
+
+      // Rejected once the match is already decided — the same guard every
+      // other terminal ruling gets.
+      await expect(
+        appendMatchEvent(prisma, random, matchId, {
+          actorId: 'referee-1',
+          type: 'DQ_APPLIED',
+          payload: { playerId: loser!, scope: 'MATCH' },
+        }),
+      ).rejects.toThrow(IllegalActionError);
+    } finally {
+      await cleanupTournament(t);
+    }
+  });
+
+  it('resolves the match via DQ_APPLIED scope MATCH and advances the survivor — the match-scope /dq path', async () => {
+    const { t, random, matchId } = await twoPlayerMatch(`match-dq-${Date.now()}`);
+    try {
+      const [dqd, survivor] = t.entrantIds;
+      const result = await appendMatchEvent(prisma, random, matchId, {
+        actorId: 'referee-1',
+        type: 'DQ_APPLIED',
+        payload: { playerId: dqd!, scope: 'MATCH' },
+      });
+
+      const match = await prisma.match.findUniqueOrThrow({ where: { id: matchId } });
+      expect(match.status).toBe('COMPLETE');
+      expect(match.winnerId).toBe(survivor);
+      const domainState = match.state as unknown as MatchState;
+      expect(domainState.terminal).toEqual({ winnerId: survivor, by: 'DQ' });
+      expect(result.tournamentCompleted).toBe(true); // 2-entrant field — this one match was the whole tournament
+    } finally {
+      await cleanupTournament(t);
+    }
+  });
+
+  describe('a losers-bracket slot fed by a winners-round-1 bye', () => {
+    const findMatch = (
+      tournamentId: string,
+      bracket: 'WINNERS' | 'LOSERS' | 'GRAND_FINAL',
+      round: number,
+      slot: number,
+    ) =>
+      prisma.match.findUniqueOrThrow({
+        where: { tournamentId_bracket_round_slot: { tournamentId, bracket, round, slot } },
+        include: { events: { orderBy: { seq: 'asc' } } },
+      });
+
+    // The exact shape "RIP 12.5" hit live: 3 entrants means WR1 has a bye
+    // (seed 1) alongside a real match (seed 2 vs seed 3). LR1's only slot
+    // is fed by that bye's nonexistent loser and WR1's real loser — one
+    // structurally live source, not two — so it must resolve the moment
+    // its one possible occupant is seated, not wait forever for a second.
+    it('walks the lone occupant over immediately, and the tournament reaches COMPLETE', async () => {
+      const t = await makeTournament(`match-lr-bye-${Date.now()}`, 3);
+      const random = sequentialRandomPort(t.guildId);
+      await materializeBracket(prisma, random, t.tournamentId);
+      const [seed1, seed2, seed3] = t.entrantIds;
+
+      try {
+        const wr1s0 = await findMatch(t.tournamentId, 'WINNERS', 1, 0);
+        expect(wr1s0.status).toBe('COMPLETE'); // the bye, resolved at materialization
+        expect(wr1s0.winnerId).toBe(seed1);
+
+        const wr1s1 = await findMatch(t.tournamentId, 'WINNERS', 1, 1);
+        await playMatchToChampion(wr1s1.id, seed2!, random); // seed3 drops to LR1
+
+        const lr1 = await findMatch(t.tournamentId, 'LOSERS', 1, 0);
+        expect(lr1.status).toBe('COMPLETE'); // resolved without ever reaching two participants
+        expect(lr1.winnerId).toBe(seed3);
+        expect(lr1.events.map((e) => e.type)).toEqual(['MATCH_CREATED', 'WALKOVER']);
+        const lr1Participants = await prisma.matchParticipant.findMany({ where: { matchId: lr1.id } });
+        expect(lr1Participants).toHaveLength(1); // its dead slot was never seated at all
+
+        const wr2 = await findMatch(t.tournamentId, 'WINNERS', 2, 0);
+        await playMatchToChampion(wr2.id, seed1!, random); // seed2 drops to the losers final
+
+        const lr2 = await findMatch(t.tournamentId, 'LOSERS', 2, 0);
+        const lr2Participants = await prisma.matchParticipant.findMany({ where: { matchId: lr2.id } });
+        expect(lr2Participants.map((p) => p.entrantId).sort()).toEqual([seed2, seed3].sort());
+        await playMatchToChampion(lr2.id, seed2!, random);
+
+        const gf1 = await findMatch(t.tournamentId, 'GRAND_FINAL', 1, 0);
+        await playMatchToChampion(gf1.id, seed1!, random); // winners finalist takes it in one — no reset
+
+        const finished = await prisma.tournament.findUniqueOrThrow({ where: { id: t.tournamentId } });
+        expect(finished.state).toBe('COMPLETE');
+      } finally {
+        await cleanupTournament(t);
+      }
+    });
+  });
+
+  describe('match-scope /dq mid-bracket', () => {
+    // 3 has a single winners-round-1 bye (the exact "RIP 12.5" shape); 4 has
+    // none at all; 5 has three, including the fully-dead losers-bracket slot
+    // from the property test. A DQ partway through must not stall any of them.
+    it('DQs a real WR1 participant and the tournament still reaches COMPLETE', { timeout: 20000 }, async () => {
+      for (const n of [3, 4, 5]) {
+        const t = await makeTournament(`match-dq-mid-${n}-${Date.now()}`, n);
+        const random = sequentialRandomPort(t.guildId);
+        await materializeBracket(prisma, random, t.tournamentId);
+        try {
+          const real = await prisma.match.findFirstOrThrow({
+            where: { tournamentId: t.tournamentId, bracket: 'WINNERS', round: 1, status: 'IN_PROGRESS' },
+            include: { participants: true },
+            orderBy: { slot: 'asc' },
+          });
+          const dqd = real.participants[0]!.entrantId;
+
+          await appendMatchEvent(prisma, random, real.id, {
+            actorId: 'referee-1',
+            type: 'DQ_APPLIED',
+            payload: { playerId: dqd, scope: 'MATCH' },
+          });
+
+          await driveToCompletion(t.tournamentId, t.entrantIds, random);
+
+          const finished = await prisma.tournament.findUniqueOrThrow({ where: { id: t.tournamentId } });
+          expect(finished.state, `n=${n}`).toBe('COMPLETE');
+        } finally {
+          await cleanupTournament(t);
+        }
+      }
+    });
   });
 
   describe('the grand final and its reset', () => {

@@ -124,9 +124,8 @@ Tiebreak songs are ordinary scoring songs — the set is always decided by a pla
 - The final winner of the set must be **confirmed by both players**.
 - **No-shows and disqualifications are never automated.** If a player is absent or unresponsive, the bot alerts the organizer alert channel; a **referee** decides the outcome and applies it.
 - If a competitor **leaves the Discord server** mid-tournament, the bot alerts the organizer alert channel. A **referee** applies the **disqualification**.
-- A **forfeit** is always an **ordinary loss**: the opponent advances and the forfeiting player drops to the losers bracket. A second such loss eliminates them, exactly as a played loss would.
 - A **disqualification** asks the referee to choose its scope:
-  - **this match only** — behaves exactly like a forfeit, dropping the player to the losers bracket; or
+  - **this match only** — an **ordinary loss**: the opponent advances and the disqualified player drops to the losers bracket, exactly as a played loss would. A second such loss eliminates them. This is also how a plain **forfeit** — a no-show, or a player conceding — is applied; there is no separate action for it, since the outcome is identical either way; or
   - **withdraw from the tournament** — the player is removed from **both brackets** at once and every remaining opponent receives a walkover automatically.
 
   The second option exists so a player who has left the server, or is otherwise gone for good, can be handled in a single referee action rather than being disqualified again in the losers bracket.
@@ -237,7 +236,7 @@ Specifically, the bot **never**:
 
 **Byes are exempt.** A player receiving a round 1 bye has no opponent to be matched against, so there is no match outcome to agree on and nothing for a referee to rule. The bot advances them as a matter of bracket structure.
 
-Forfeits and disqualifications exist as **referee-initiated** actions (`/forfeit`, `/dq`, and the web UI) — the boundary is that the bot never reaches those outcomes by itself, no matter how long a player is silent.
+Forfeits and disqualifications exist as **referee-initiated** actions (`/dq` and the web UI) — the boundary is that the bot never reaches those outcomes by itself, no matter how long a player is silent.
 
 The bot also **does not nudge players**. A player waiting on an unresponsive opponent handles that themselves. The bot's only role in a stalled match is to **alert the organizers** so someone can move it along.
 
@@ -287,28 +286,29 @@ A player who later renames themselves keeps all their history, because the ID ne
 
 ### Granted roles
 
-These are explicitly assigned and confer permissions. The first three are **server-scoped tiers, granted by assigning a Discord role**; the fourth is deployment-scoped and unrelated to Discord roles.
+These are explicitly assigned and confer permissions. The first two are **server-scoped tiers, granted by assigning a Discord role**; the third is deployment-scoped and unrelated to Discord roles.
 
-**The three server tiers are cumulative.** A Server Administrator can do everything a Tournament Organizer can, who can do everything a Referee can. Every capability listed below is therefore a **minimum** — naming a tier never excludes the tiers above it.
+**The two server tiers are cumulative.** A Tournament Organizer can do everything a Referee can. Every capability listed below is therefore a **minimum** — naming a tier never excludes the tier above it.
+
+**Reconfiguring the server is not a tier at all.** It is gated directly on Discord's own **Manage Guild** permission — there is no bound "Server Administrator" role to assign, and holding Manage Guild confers no tournament or match authority by itself. Whoever has it may run `/setup`, full stop; ruling on a match or running a tournament still requires the relevant tier role regardless.
 
 **Bot Administrator is not part of that chain.** It is deployment-scoped and confers no authority over any tournament: a Bot Administrator without a tier role in a given server can view that server's brackets and rule on nothing.
 
 | Role | Scope | Capabilities |
 | --- | --- | --- |
-| Referee | One Discord server | Rule on matches to unblock them — award or void a song, force a result on an escalation, reset Protect/Veto before song 1, forfeit a match, disqualify a player at either scope. All within the limits in Bracket Immutability. **Cannot create, start, or close a tournament** |
+| Referee | One Discord server | Rule on matches to unblock them — award or void a song, force a result on an escalation, reset Protect/Veto before song 1, disqualify a player at either scope (a plain forfeit is a disqualification scoped to the current match). All within the limits in Bracket Immutability. **Cannot create, start, or close a tournament** |
 | Tournament Organizer (TO) | One Discord server | Everything a Referee can do, plus create and configure tournaments, manage song packs, open and close registration and check-in, seed the bracket, start and cancel a tournament |
-| Server Administrator | One Discord server | Everything a TO can do, plus reconfigure the bot for that server — the channels and roles chosen during `/setup` |
 | Bot Administrator | The whole deployment | View every Discord server the bot has been added to, and the tournaments and brackets belonging to each |
 
 **Referee exists so refereeing can be delegated.** Running an event needs more hands than running the tournament does, and someone trusted to unblock a stalled match need not be trusted to cancel the tournament.
 
-**A server may collapse the tiers.** Pointing two or three of the tier slots at the same Discord role is a supported configuration, for servers that want the same people involved at every level.
+**A server may collapse the tiers.** Pointing both tier slots at the same Discord role is a supported configuration, for servers that want the same people involved at every level.
 
-**"Server Administrator" and "Bot Administrator" are unrelated.** The first is a per-server tier; the second is a deployment-wide role held by whoever operates the bot. Neither implies the other.
+**"Administrator" names only the deployment-scoped Bot Administrator role.** There is no server-scoped role by that name — reconfiguring a server is Manage Guild, above, not a tier — so nothing else should ever be labelled plain "Administrator."
 
 ### What each role may do
 
-Tiers are cumulative, so each action below lists the **minimum** tier required. Anything a Referee may do, a Tournament Organizer and Server Administrator may also do.
+Tiers are cumulative, so each action below lists the **minimum** tier required. Anything a Referee may do, a Tournament Organizer may also do.
 
 **In a match** — the referee's domain. Everything the organizers do during a running tournament sits here, and none of it needs a tier above Referee.
 
@@ -320,8 +320,7 @@ Tiers are cumulative, so each action below lists the **minimum** tier required. 
 | Void a song | Referee |
 | Correct a score on the song currently in progress | Referee |
 | Reset Protect/Veto, before song 1 has been played | Referee |
-| Forfeit a match (`/forfeit`) | Referee |
-| Disqualify a player, either scope (`/dq`) | Referee |
+| Disqualify a player, either scope, including a plain forfeit (`/dq`) | Referee |
 | Dismiss a timer, departure, or permission alert | Referee |
 | Read any match thread and review any match | Referee |
 
@@ -338,14 +337,14 @@ Tiers are cumulative, so each action below lists the **minimum** tier required. 
 | Seed entrants, at any point from the first `/join` onward | Tournament Organizer |
 | Review the final seed order and start the tournament | Tournament Organizer |
 | Start the tournament | Tournament Organizer |
-| Cancel a tournament that has not started | Tournament Organizer |
+| Cancel a tournament, including one already running | Tournament Organizer |
 
-**Configuring the server.**
+**Configuring the server** — gated on Discord's own Manage Guild permission, not a tier; see "Reconfiguring the server is not a tier at all" above.
 
 | Action | Minimum |
 | --- | --- |
-| Run `/setup` — choose channels and the role for each tier | Server Administrator, **or** Discord's Manage Guild |
-| Re-run the configuration diagnostic (`/setup status`) | Server Administrator |
+| Run `/setup` — choose channels and the role for each tier | Discord's Manage Guild |
+| Re-run the configuration diagnostic (`/setup status`) | Discord's Manage Guild |
 
 **Across the deployment** — unrelated to the server tiers.
 
@@ -471,13 +470,14 @@ The web backend remains the system of record for structured data — every chart
 | `/checkin` | A registered entrant | Confirm attendance during the check-in window |
 | `/leave` | An entrant | Withdraw from the tournament, any time before it starts |
 | `/pack` | Any server member | Get a link to the current tournament's song pack |
+| `/tournament status` | Any server member | See the current tournament, its stage, and which of `/join`, `/checkin`, `/leave` work right now |
+| `/commands` | Any server member | List every command, grouped by the minimum role that can run it |
 | `/roster` | Tournament Organizer | Add, check in, un-check-in or remove an entrant on their behalf |
-| `/setup` | Server Administrator, or anyone with Discord's Manage Guild | Server setup — point the bot at the matches, organizer alert, results and general channels, and the Discord role for each tier. Re-runnable |
-| `/setup status` | Server Administrator | Re-run the configuration and permission diagnostic without changing anything |
-| `/dq` | Referee | Disqualify a player, choosing whether it applies to this match only or withdraws them from the tournament |
-| `/forfeit` | Referee | Award a match to a player whose opponent is absent or unresponsive |
+| `/setup` | Discord's Manage Guild | Server setup — point the bot at the matches, organizer alert, results and general channels, and the Discord role for each tier. Re-runnable |
+| `/setup status` | Discord's Manage Guild | Re-run the configuration and permission diagnostic without changing anything |
+| `/dq` | Referee | Disqualify a player, choosing whether it applies to this match only (which also covers a plain forfeit — a no-show, or a player conceding) or withdraws them from the tournament |
 
-`/setup` accepts Manage Guild as well as the Server Administrator tier because the tier is *configured by* `/setup` — a freshly-invited server has no administrator role yet, and Manage Guild remains the recovery path if the roles are later deleted or misconfigured.
+`/setup` is gated on Manage Guild alone, not a tier — a freshly-invited server has no tier roles yet, so this also doubles as the permanent recovery path if the roles are later deleted or misconfigured, with nothing else to fall back to.
 
 Match play itself uses **components, not commands** — Protect, Veto, score submission, winner selection, and tiebreak song selection all happen inside the match thread. Where a component needs a typed value, it opens a **modal** rather than asking for a chat message; EX% entry is the only such case.
 
@@ -501,17 +501,18 @@ Referees can rule from any surface:
 - **From slash commands**, for anything the alert buttons do not cover.
 - **From the web UI**, which retains the full set of override capabilities.
 
-**Authorization.** Button interactions and organizer slash commands are authorized by resolving the acting user's **tier** — the highest of the three configured Discord roles they hold — and comparing it against what the action requires. Every ruling in the alert channel requires **Referee**; nothing there requires more. A user below the required tier receives an ephemeral rejection visible only to them.
+**Authorization.** Button interactions and organizer slash commands are authorized by resolving the acting user's **tier** — the highest of the two configured Discord roles they hold — and comparing it against what the action requires. Every ruling in the alert channel requires **Referee**; nothing there requires more. A user below the required tier receives an ephemeral rejection visible only to them.
 
-Only the specific roles named during `/setup` are consulted. No other Discord role and no native Discord permission grants authority over a tournament, so a server administrator who has not been given a tier role cannot rule on a match.
+Only the specific roles named during `/setup` are consulted. No other Discord role and no native Discord permission grants authority over a tournament — Manage Guild included — so someone who administers the server in Discord's own terms but has not been given a tier role still cannot rule on a match.
 
 Buttons remain *visible* to anyone who can read the channel; enforcement happens on the click. The organizer alert channel is expected to be permission-restricted in Discord as a first gate.
 
 ## Notifications
 
 - The bot **announces when check-in opens**, in the general channel, and **direct messages every registered player**. The channel post carries no mentions. Missing check-in means missing the tournament, so this is the one lifecycle event a player cannot be expected to discover on their own.
+- The bot also **announces in the general channel when registration opens** — a no-mentions post inviting anyone watching to `/join`. No direct message accompanies it: nobody is registered yet to DM.
 - The bot **notifies both players when a new match is ready** — that is, when their next-round opponent is determined and the thread has been created. It does this **twice**: by mentioning them in the thread, and by **direct message**.
-- A separate **organizer alert channel** receives escalations, timer alerts, and disputes.
+- A separate **organizer alert channel** receives escalations, timer alerts, and disputes — and, as a plain activity log, every tournament lifecycle transition and every roster change (`/join`, `/checkin`, `/leave`, and every `/roster` action), attributed to who did it.
 
 **The direct message is best-effort.** Discord lets a user refuse DMs from server members, and a bot cannot override that or detect it in advance — the send simply fails. The thread mention is therefore the notification of record, and a failed DM is logged and never retried. A player who has DMs closed loses nothing but the second nudge.
 
@@ -589,7 +590,7 @@ The public tournament view carries a **tab showing that tournament's song pack**
 
 ## Results and History
 
-- On completion the bot posts **final standings** in Discord — the winner and the full placement order. Players the bracket cannot separate **share a placement**, and the next placement skips accordingly — 5th, 5th, 7th, 7th. It goes to the results channel and is forwarded to the general channel, exactly as each match result was.
+- On completion the bot posts **final standings** in Discord — the winner down through **8th place**. Players the bracket cannot separate **share a placement**, and the next placement skips accordingly — 5th, 5th, 7th, 7th. It goes to the results channel and is forwarded to the general channel, exactly as each match result was. The full placement order, uncapped, lives on the permanent results page — see below.
 - The **public results page persists** after the event as a permanent archive at a URL that never changes and is never reused.
 - **Match history is public.** Any visitor can browse any player's past matches and scores on that server without signing in. A player page shows their matches — opponent, round, score, link to the detail — and their win-loss record for that server.
 - **Player pages are excluded from search engine indexing.** Brackets and match pages are indexed, because an event is a public thing worth finding. A permanent page ranking for a person's name and listing every match they lost is not the same thing, and entering a tournament is not consent to it. Player pages stay fully browsable by link.
@@ -599,7 +600,7 @@ The public tournament view carries a **tab showing that tournament's song pack**
 
 - **Full state is persisted.** A restart mid-Protect/Veto or mid-set resumes exactly where it left off.
 - A single bot instance serves **multiple Discord servers**, each with independent tournaments and song packs.
-- **One active tournament per Discord server.** A new tournament cannot start until the current one finishes.
+- **One tournament per Discord server, held from the moment it is created.** A new tournament cannot be created until the current one is cancelled or reaches completion — there is no separate "preparing the next one" state that doesn't count.
 - **Historical results are retained** and remain queryable after an event ends.
 - History is **scoped to the Discord server** it belongs to.
 - The bot administrator can see which servers the bot has been added to and view the tournaments and brackets belonging to each.

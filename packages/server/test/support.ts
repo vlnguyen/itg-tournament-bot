@@ -142,3 +142,31 @@ export async function playMatchToChampion(
     }
   }
 }
+
+/**
+ * Repeatedly plays every currently-live match to completion — lower seed
+ * always wins ("chalk") — until the tournament reaches `COMPLETE`.
+ * Deterministic: the lowest surviving seed keeps winning, including game 1
+ * of the grand final, so no tiebreak and no reset is ever needed. Whatever
+ * got the tournament to its current state (ordinary play so far, a DQ, a
+ * forfeit) is the caller's concern — this only ever acts on matches already
+ * `IN_PROGRESS`, so it composes with any of them.
+ */
+export async function driveToCompletion(tournamentId: string, entrantIds: readonly string[], random: RandomPort): Promise<void> {
+  const seedOf = new Map(entrantIds.map((id, i) => [id, i + 1]));
+  for (;;) {
+    const tournament = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
+    if (tournament.state === 'COMPLETE') return;
+    const live = await prisma.match.findMany({
+      where: { tournamentId, status: 'IN_PROGRESS' },
+      include: { participants: true },
+    });
+    if (live.length === 0) throw new Error('driveToCompletion: stalled before COMPLETE — no live match and no result');
+    for (const m of live) {
+      const champion = m.participants.reduce((best, p) =>
+        seedOf.get(p.entrantId)! < seedOf.get(best.entrantId)! ? p : best,
+      ).entrantId;
+      await playMatchToChampion(m.id, champion, random);
+    }
+  }
+}

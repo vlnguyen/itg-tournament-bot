@@ -4,6 +4,7 @@ import {
   type GeneratedBracket,
   type MatchRef,
   generateBracket,
+  liveSourceCount,
   matchKey,
   simulateBracket,
 } from './bracket.js';
@@ -186,5 +187,46 @@ describe('property: rematches are delayed as far as the structure permits', () =
     const lb2slot1 = results.get(matchKey({ bracket: 'LOSERS', round: 2, slot: 1 }))!;
     // slot 1 pairs LM1's survivor (6) against M4's loser (4) — not LM0's survivor (5).
     expect(lb2slot1).toEqual({ winner: 4, loser: 6 });
+  });
+
+  // `liveSourceCount` is a *static* prediction, made without knowing any
+  // result; `simulateBracket` is the dynamic ground truth once `chalk`
+  // decides every match. They must agree for every match, for every
+  // realistic entrant count — this is what lets `engine.ts` trust the
+  // static count to resolve a structural bye immediately, rather than
+  // waiting to see whether a second occupant ever actually arrives.
+  it('liveSourceCount predicts exactly which matches simulateBracket resolves with a real winner/loser', () => {
+    for (const n of REALISTIC_ENTRANT_COUNTS) {
+      const bracket = generateBracket(n);
+      const results = simulateBracket(bracket, chalk);
+      for (const m of bracket.matches) {
+        const result = results.get(matchKey(m.ref))!;
+        const expected = liveSourceCount(bracket, m.ref);
+        expect(result.winner !== null, `n=${n} ${matchKey(m.ref)}: winner nullness`).toBe(expected >= 1);
+        expect(result.loser !== null, `n=${n} ${matchKey(m.ref)}: loser nullness`).toBe(expected === 2);
+      }
+    }
+  });
+
+  it('a losers-bracket match can have fewer than two live sources only when a winners-round-1 bye is in play', () => {
+    // Cross-check against the earlier finding for n=5: LR1 slot 1 is fed by
+    // two winners-round-1 byes and so is never played at all (0), while
+    // slot 0 is fed by one real match and one bye (1) — this is the exact
+    // shape RIP 12.5 hit live, generalized rather than hand-verified once.
+    const bracket = generateBracket(5);
+    expect(liveSourceCount(bracket, { bracket: 'LOSERS', round: 1, slot: 0 })).toBe(1);
+    expect(liveSourceCount(bracket, { bracket: 'LOSERS', round: 1, slot: 1 })).toBe(0);
+  });
+
+  it('every winners-bracket match past round 1, and the grand final, always has two live sources', () => {
+    for (const n of REALISTIC_ENTRANT_COUNTS) {
+      const bracket = generateBracket(n);
+      for (const m of bracket.matches) {
+        const isWinnersPastRound1 = m.ref.bracket === 'WINNERS' && m.ref.round > 1;
+        const isGrandFinal = m.ref.bracket === 'GRAND_FINAL';
+        if (!isWinnersPastRound1 && !isGrandFinal) continue;
+        expect(liveSourceCount(bracket, m.ref), `n=${n} ${matchKey(m.ref)}`).toBe(2);
+      }
+    }
   });
 });

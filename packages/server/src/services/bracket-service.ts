@@ -68,7 +68,7 @@ export async function materializeBracket(
       }
 
       if (seated.length === 2) {
-        await maybeStartMatch(tx, tournamentId, random, target.id);
+        await maybeStartMatch(tx, tournamentId, random, target.id, bracket);
       } else {
         // Exactly one real seed and one BYE — a walkover, not a match. Two
         // BYE slots can't happen: `entrantCount >= 2` guarantees round 1's

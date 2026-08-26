@@ -272,15 +272,15 @@ All three are alert thresholds or estimates. Nothing inside a match format is co
 
 All three need raw SQL in a migration, and all three are worth the awkwardness because they enforce a requirement at the only level that cannot be bypassed by a bug in a service.
 
-**One active tournament per guild.** A partial unique index:
+**One tournament held per guild.** A partial unique index:
 
 ```sql
 CREATE UNIQUE INDEX one_active_tournament_per_guild
   ON "Tournament" ("guildId")
-  WHERE "state" NOT IN ('DRAFT', 'COMPLETE', 'CANCELLED');
+  WHERE "state" NOT IN ('COMPLETE', 'CANCELLED');
 ```
 
-Drafts do not occupy the slot — a TO can prepare the next event while one is running, which the requirement's "cannot *start* until the current one finishes" permits. Everything from open registration through the grand final does.
+A tournament occupies the slot **from the moment it is created** — `DRAFT` included — per REQUIREMENTS.md's "held from the moment it is created... no separate 'preparing the next one' state that doesn't count." `/tournament create` is the action that claims the slot, and only `COMPLETE` or `CANCELLED` release it. `createTournament` checks this first for a friendly `TournamentSlotOccupiedError`, naming what's already held; the index is what actually guarantees it under a race between two concurrent creates. A TO who wants to change a held draft's name before opening registration uses `/tournament rename` rather than discarding and recreating it — see "Tournament Lifecycle".
 
 **Sparse seed uniqueness.** `@@unique([tournamentId, seed])` allows multiple nulls, so unseeded entrants coexist while seeds are still being assigned and assigned seeds cannot collide. This is the SQL standard's nulls-are-distinct rule rather than a Postgres quirk — but **PostgreSQL 15 added `UNIQUE NULLS NOT DISTINCT`**, which inverts it. The design depends on the default; a migration that opts into the inversion would permit exactly one unseeded entrant per tournament, so the dependency is written down rather than assumed.
 
@@ -655,13 +655,19 @@ These run across every entrant count in a realistic range, not just powers of tw
 
 Bracket generation is one problem; moving players through it is another, and it is where the requirements' edge cases live.
 
-**Advancement runs in the same transaction as the event that decides the set.** With no `SET_COMMITTED` event to react to, the transaction that appends the second `SET_RESULT_CONFIRMED` sees `outcome()` turn non-null and advances before it commits — so "set decided ⟹ bracket advanced" is an invariant of the database rather than of a background job. The row count is small even for the withdrawal cascade below; a 64-entrant bracket holds 126 matches in total. Thread provisioning stays outside the transaction, because it is a network call, and is covered by the boot-time reconciler.
+**Advancement runs in the same transaction as the event that decides the set.** With no `SET_COMMITTED` event to react to, the transaction that appends the second `SET_RESULT_CONFIRMED` sees `outcome()` turn non-null and advances before it commits — so "set decided ⟹ bracket advanced" is an invariant of the database rather than of a background job. The row count is small even for the withdrawal cascade below; a 64-entrant bracket holds 126 matches in total. Thread provisioning stays outside the transaction, because it is a network call — `applyAppendResult` (`match-event-effects.ts`) runs it immediately afterward, on every match decision, not only at `/tournament start`; there is no boot-time reconciler yet, so a crash between the commit and that call is not currently repaired on restart.
 
 **Advancement is a bracket-side operation triggered by a committed set result**, and it routes by **placement** rather than by winner and loser. Place 1 is inserted into the successor winners-side match; place 2 into the successor losers-side match, or eliminated if they were already in the losers bracket. When a downstream match has all its participants, it becomes ready and the thread is provisioned.
 
 Double elimination is therefore the two-participant case of a general rule — *place 1 advances, place 2 drops* — rather than a shape the routing is written around. See Seating more than two players.
 
 **A bye is a walkover, not a match.** Round 1 matches with one null occupant are settled by a `WALKOVER` event at generation time — the requirement's stated exemption from the automation boundary. No thread is created.
+
+**A bye's effect on the losers bracket is not confined to round 1.** A winners-round-1 bye produces no loser, so whichever losers-bracket slot would have received it structurally never can — `liveSourceCount` (`bracket.ts`) computes, per match, how many of its two sources can *ever* resolve to a real occupant (0, 1, or 2), propagating through `WINNER_OF`/`LOSER_OF` edges exactly as `simulateBracket` already did for property testing; only the live-engine side was missing. A slot with one live source resolves the moment its one possible occupant is seated — `maybeStartMatch` (`engine.ts`) calls `startWithSeats` rather than waiting on a second seat that can't arrive — unconditionally, even if that occupant is withdrawn: there is no second real participant to walk over *to* here, so they still advance, and get walked over transparently at the next genuine two-participant match downstream, the same as a withdrawn entrant reaching any other match. A slot with zero live sources is never touched at all — nothing ever fills it, which is sufficient on its own, since nothing downstream ever depends on a fill that was never coming.
+
+At entrant counts where byes run deep relative to the round-1 field (5 and 9 are the sharpest examples in the property-test range), several losers-round-1 slots can land at zero live sources simultaneously — normal, not a bug: those pairings structurally never had anyone to hold them.
+
+**`maybeStartMatch` is idempotent on `Match.status`, not just on `threadId`.** A single cascade's `touched` set can legitimately name the same match twice — once because it received a fill directly, again because a *different* fill's own recursive walkover chain reached and started that same match first, several one-live-source slots deep. Re-checking `status !== 'PENDING'` before starting anything is what stops the second visit from appending a second `MATCH_CREATED` — this collision was latent before the point above made same-transaction, multi-hop walkover chains routine rather than rare.
 
 **Tournament-scope disqualification cascades.** `DQ_APPLIED` with scope `TOURNAMENT` sets the entrant to `WITHDRAWN` and then, in the same transaction, walks both brackets: every not-yet-started match where they occupy a slot resolves as a `WALKOVER` to the opponent, and each of those resolutions advances, which may itself fill another match containing them. The walk repeats until no match containing a withdrawn entrant remains unresolved. This is the single referee action the requirement asks for.
 
@@ -715,15 +721,15 @@ For the standard shape this equals `2⌈log₂ n⌉ + 1` rounds including both g
 
 A freshly-invited server has no configured tier roles, no tournament, and therefore no application-level authority. Something has to establish the first one.
 
-**`/setup` is gated on Manage Guild *or* the Server Administrator role.** Whoever added the bot runs it first and names the three tier roles; from then on the configured administrators can re-run it themselves. The Manage Guild path is narrow by necessity — the administrator role cannot authorize the command that decides which role is the administrator role — and it remains as the recovery route.
+**`/setup` is gated on Discord's own Manage Guild permission, full stop — there is no bound "Server Administrator" role to fall back to or from.** Whoever added the bot runs it first and names the two tier roles; Manage Guild is not a bootstrap-only fallback that a configured role later supersedes — it is the permanent, only gate, every time. "There is always one implied administrator through the server owner": whoever can manage the server in Discord's own terms already has everything `/setup` needs to grant, so tracking a separate bot-side administrator role would just be a second name for the same fact.
 
 **It is re-runnable, which makes it the per-server recovery path.** If a tier role is deleted, emptied, or misconfigured, anyone with Manage Guild can run `/setup` again and re-point the bot. That mirrors the config allowlist at the deployment level, giving two independent recovery routes at the right scopes — neither depending on the other, and neither requiring the operator to be a member of a server they are rescuing.
 
 **Bot administrators stay view-only.** Requirements define their capability as seeing across servers, and with self-service bootstrap and self-service recovery they never need to reach into a server's referee pool. The role keeps exactly the scope the requirements give it.
 
-### Three tiers of privilege
+### Two tiers of privilege, plus Manage Guild outside the ladder
 
-Authority is Discord role membership, resolved to one of three cumulative tiers. `/setup` points the bot at a role for each, stored on `Guild`.
+Authority is Discord role membership, resolved to one of two cumulative tiers. `/setup` points the bot at a role for each, stored on `Guild`. Reconfiguring the server itself (`/setup`) is a separate concern entirely, gated on Discord's own Manage Guild permission rather than a third bound role — see Bootstrap, above, and "Two things called administrator" below.
 
 **The capability list lives in REQUIREMENTS.md**, under *What each role may do*, and is not restated here. A second copy is a second thing to keep in step, and the one that drifts is always the copy — the same reasoning that removed commit events from the match log.
 
@@ -731,19 +737,21 @@ What belongs here is the mechanism:
 
 **Tiers are cumulative and totally ordered**, so a check is `tierOf(member) >= required` rather than a set intersection. `tierOf` returns the highest tier whose role the member holds, and `required` is a constant on the action — one comparison, no per-capability bookkeeping, and adding an action means naming its tier rather than editing a matrix.
 
-**The dividing line is refereeing versus running an event:** a referee unblocks matches but cannot create, start, or close a tournament. That falls out cleanly in implementation — everything reachable from the alert channel is Referee tier, everything in the lifecycle state machine is Tournament Organizer tier, and `/setup` is the only thing above it.
+**The dividing line is refereeing versus running an event:** a referee unblocks matches but cannot create, start, or close a tournament. That falls out cleanly in implementation — everything reachable from the alert channel is Referee tier, everything in the lifecycle state machine is Tournament Organizer tier, and `/setup` sits outside the ladder altogether, gated on Manage Guild instead of either.
 
 **Tournament-scope disqualification sits with referees, deliberately** — the one placement in that list worth arguing about. It is the most consequential thing at the tier, withdrawing an entrant and cascading walkovers through both brackets. It belongs there because it is conflict resolution rather than lifecycle: the tournament-scope option exists precisely so a player who has left for good is handled in one action instead of being disqualified again in the losers bracket, and making a referee escalate for it reintroduces the friction the option was added to remove. It is audit-logged like every other ruling.
 
+**`/commands` surfaces this ladder rather than documenting it separately.** It is `discord/commands/help.ts`, itself open to anyone, and reads its list straight off `commandDefinitions` (`definitions.ts`) so a description can never drift from what Discord actually shows in the picker — only *which group a command belongs to* is a small hand-kept map, checked by a test that cross-references it against `commandDefinitions` so an added command or subcommand with no group assigned fails loudly rather than silently vanishing from the list. `/tournament` and `/roster` are split subcommand by subcommand, since `status` and `list` are carved out ahead of their command's own organizer-tier check exactly as `/commands` itself is; every other command shares one gate for all its subcommands and gets one line.
+
 #### Two things called "administrator"
 
-The tiers above are **server-scoped**. Requirements also define a **Bot Administrator** that is deployment-scoped — able to see every server the bot is in — granted by the config allowlist and the `Admin` table, not by any Discord role.
+`Tier.SERVER_ADMINISTRATOR` still exists in the tier mechanism's code as a value, but `/setup` never binds a role to it — "there is always one implied administrator through the server owner," via Manage Guild, so there is nothing left for a third bound role to add. Requirements separately define a **Bot Administrator** that is deployment-scoped — able to see every server the bot is in — granted by the config allowlist and the `Admin` table, not by any Discord role, and unrelated to server reconfiguration entirely.
 
-They are unrelated and the collision is only in the word. This document uses **Server Administrator** for the tier and **Bot Administrator** for the deployment role, and nothing should be labelled plain "Administrator" in code or UI.
+Nothing should be labelled plain "Administrator" in code or UI — say **Bot Administrator** for the deployment role, and describe server reconfiguration as "Manage Guild," never as an administrator tier.
 
 #### Servers may collapse the tiers
 
-Nothing requires three distinct roles. A server can point two slots — or all three — at the same role and get exactly the flatter model it wants: one `@Staff` role in every slot reproduces the original single-tier design.
+Nothing requires two distinct roles. A server can point both slots at the same role and get exactly the flatter model it wants: one `@Staff` role in both slots reproduces the original single-tier design.
 
 This is an endorsed configuration, not a degenerate one. Plenty of servers want the same people involved at every level of running an event, and the tiers exist to let a server that needs the separation express it — not to impose hierarchy on one that does not. The capability model is fixed; how a server maps onto it is theirs.
 
@@ -783,9 +791,9 @@ Three parts of the design read differently once the role is understood as a pool
 
 ### What `/setup` does
 
-Requirements are explicit that it does not provision channels — it asks the organizer to create them, then points the bot at them. The same applies to the role.
+Requirements are explicit that it does not provision channels — it asks the organizer to create them, then points the bot at them. **Both channels and roles have since grown an optional create-it-for-me path** (see "Provisioning the channels" and "Provisioning the roles" below) — point-at-existing remains the always-available fallback for both, since selection is never filtered or rejected regardless of which path was used to get the thing being pointed at.
 
-1. Takes the matches channel, the organizer alert channel, and a role for each of the three tiers. The same role may be given for more than one tier.
+1. Takes the matches channel, the organizer alert channel, and a role for each of the two tiers. The same role may be given for both.
 2. **Accepts every selection.** No picker is filtered and no choice is rejected for lacking a permission.
 3. Writes the `Guild` row, then reports a diagnostic of everything still missing.
 
@@ -811,10 +819,14 @@ What it reports, per target:
 | Bot, in the organizer alert channel | View Channel, Send Messages, Embed Links, Read Message History | Raising and editing alerts |
 | Bot, in the results channel | View Channel, Send Messages, Embed Links | Posting the result feed |
 | Bot, in the general channel, if set | View Channel, Send Messages, Embed Links | Forwarding results |
-| Each tier role, in the matches channel | View Channel, Manage Threads | Seeing private match threads. Tier capability is ours; thread visibility is Discord's, and it does not inherit — a Server Administrator without `Manage Threads` can rule on a match they cannot read |
-| Referee-tier role | At least one member | A tournament started with an empty referee pool has no way to resolve a dispute |
+| Each tier role, in the matches channel | View Channel, Manage Threads | Seeing private match threads. Tier capability is ours; thread visibility is Discord's, and it does not inherit — a Tournament Organizer without `Manage Threads` can rule on a match they cannot read |
+| Referee tier or above | At least one member, counting across both roles | Tiers are cumulative — a Tournament Organizer can rule too — so a tournament started with nobody at Referee tier or above has no way to resolve a dispute |
 
 The last is a warning rather than a gap, since a server may legitimately configure roles before populating them.
+
+**Both the Referee and Tournament Organizer roles must be bound.** Neither is optional the way an empty pool is a warning: with no Tournament Organizer role, not one `/tournament` lifecycle command is reachable by anyone, and with no Referee role a disagreement has nobody to escalate to. `/setup status` and every `/setup channels`/`roles` reply reports either as missing outright until `/setup roles` binds it. Manage Guild has no equivalent requirement here — it isn't a bound role at all, and whoever holds it in Discord can always run `/setup` regardless.
+
+**The diagnostic always lists the current bindings**, success or not — which channel and role is pointed at what, or "not configured" — so a clean report is legible on its own rather than only useful when something is wrong.
 
 **Re-checking is one click.** The diagnostic carries a *Re-check* button, so the loop is fix-in-Discord → click → see what remains, without retyping the selections. The same report is available any time from `/setup status` and in the web wizard, which renders it as a live checklist rather than a one-shot message.
 
@@ -840,7 +852,7 @@ Everywhere else the adapter fails loud rather than pre-checking: a permission er
 
 Requirements call for a guided wizard walking a new server through configuration, building a song pack, and creating its first tournament.
 
-**It is a view over real records, not its own state machine.** Server configuration is the `Guild` row; the first tournament is a `Tournament` in `DRAFT`, which the lifecycle already defines and which explicitly does not occupy the server's active slot. A half-finished setup is therefore just a draft, resumable by construction — closing the tab loses nothing, and there is no wizard-progress table to keep in step with the records it describes.
+**It is a view over real records, not its own state machine.** Server configuration is the `Guild` row; the first tournament is a `Tournament` in `DRAFT`, which the lifecycle already defines. A half-finished setup is therefore just a draft, resumable by construction — closing the tab loses nothing, and there is no wizard-progress table to keep in step with the records it describes. It does claim the server's tournament slot the moment it exists, same as any other draft — nothing else can be created alongside it until it is renamed into shape, cancelled, or carried through to completion.
 
 ## Registration and Check-in
 
@@ -857,6 +869,12 @@ All three are usable from any channel and answer **ephemerally**, so a hundred p
 | Tournament running | Rejected | Rejected | Rejected — see a referee |
 
 "Already in that state" confirming rather than erroring is deliberate. A player who is not sure whether their `/join` landed will run it again, and an error is a worse answer than "you are in, seed 12."
+
+**`/tournament status` is the read-only fourth.** Unlike every other `/tournament` subcommand it carries no tier gate at all — dispatched in `discord/commands/tournament.ts` ahead of the `requireOrganizerTier` check, the same way `/roster list` sits ahead of its own. It names the tournament and its phase using the same `PHASE_LABEL` strings a rejected `/join` or `/checkin` already shows, so the wording never disagrees with what those commands themselves say. It then adds whichever of `/join`/`/leave` or `/checkin`/`/leave` is actually actionable in that phase — `/leave` pairs with both, since it works "any time before it starts" rather than only during one window (see "Leaving") — and calls out `CHECKIN_CLOSED` on its own, since nothing is actionable there but it is the one phase that means the bracket is coming imminently. No entrant counts or bracket detail: that level of dashboard belongs to the organizer console's run view, not a command anyone can run from any channel.
+
+**`DRAFT` reports as no tournament at all**, identically to the guild holding none — the one place `/tournament status` disagrees with `findActiveTournament`'s own notion of "active." A draft is a TO still setting up: `/join` doesn't work yet, nothing about it is public, and naming it here would announce a tournament to the server before its organizer chose to open it.
+
+**`joinTournament` (`roster-service.ts`) draws the same line.** A `WINDOW_CLOSED` reply ordinarily names the phase — "registration is closed," "the tournament is running" — so a player knows what changed. `DRAFT` is deliberately excluded from that: `joinTournament` returns `NO_TOURNAMENT` instead of `WINDOW_CLOSED { phase: 'DRAFT' }`, so `/join` before a TO has opened registration reads identically to `/join` in an empty server, for the same announce-before-ready reason `/tournament status` avoids it. `/checkin` and `/leave` don't need the same treatment — `/checkin`'s only reachable `WINDOW_CLOSED` phases start at `REGISTRATION_OPEN`, downstream of the tournament already being public, and `/leave` names no phase at all.
 
 ### Who is on the roster
 
@@ -899,13 +917,15 @@ It is a **superset of the player's own window**, which is the point. `/join` clo
 
 **Tier is Tournament Organizer, not Referee.** Roster composition is tournament management rather than unblocking a match, and it sits with the tier that opens and closes the windows in the first place.
 
-**On-behalf actions are indistinguishable in the data.** Checking a player in as an organizer writes exactly what `/checkin` writes; removing them writes exactly what `/leave` writes. Two things differ and neither is domain state: an `AuditLog` row, and the absence of a notification where the organizer acting *is* the person the notification would reach.
+**On-behalf actions are indistinguishable in the data, and now in their public effect too.** Checking a player in as an organizer writes exactly what `/checkin` writes, and posts the exact same general-channel hype line `entrantCheckedIn` posts for a self-service check-in; `/roster add` does the same against `entrantJoined`. Removing them writes exactly what `/leave` writes — which, like `/leave` itself, posts nothing public, so there is no asymmetry to close there. The one thing that still differs, and the only thing that should, is provenance: an `AuditLog` row records who actually did it.
 
 That is worth stating as a rule because the alternative is tempting and wrong. A separate "checked in by an organizer" flag, or a distinct status, would fork every downstream query — normalization, standings, the roster view — on a distinction that matters only for provenance. Provenance is what the audit log is for.
 
 **Its useful consequence is the one case with no self-service equivalent.** A player cannot check themselves in after check-in closes, so what should an organizer doing it produce? The rule answers it: **the state that would have existed had the player checked in during the window.** `checkedIn` true, status back to `ACTIVE`, and appended unseeded in join order so the next normalization folds them into the order — which is exactly the late-addition path, arrived at without needing a special "un-drop" operation. It is the recovery path when check-in is closed a minute early.
 
 **Late additions and re-check-ins re-run normalization**, exactly as late withdrawals do. They raise **no alert**, unlike a player's own `/leave`: the organizer already knows what they just did, and an alert reporting it is noise. That asymmetry is the whole reason the withdrawal alert exists — it reports a change the organizers did *not* make.
+
+**`/roster list` is the one subcommand with no tier gate** — read-only, so anyone can see who is on the roster, seeded entrants first in seed order then unseeded ones in join order. It reads `Entrant.displayName` when the tournament has a snapshot (`RUNNING` or later) and falls back to a live member fetch before that, same as every other pre-start display of a name.
 
 ### Snapshotting the display name
 
@@ -921,34 +941,55 @@ Opening check-in posts an **announcement in the general channel with no mentions
 
 This is the second and last use of direct messages, on the same rationale as match-ready: a window has opened that the player cannot otherwise discover, and missing it costs them the tournament. It is not a nudge about a pending action — the bot never sends a second one, and never chases anyone who has not checked in.
 
+**The check-in DM carries a deep link to the general channel, when one is configured.** `/checkin` is a guild-scoped command — useless from inside the DM it just arrived in — so the DM's job is not just to tell the player a window opened but to get them back into the server to act on it. Same reasoning `matchReady`'s DM already applies to its own thread link, pointed instead at the general channel, since there is no single "the" channel to send someone to otherwise. Omitted when no general channel is set, same as every other use of that optional target.
+
 **The gap this leaves is real and is handled by a human.** With no mentions in the channel and a DM that may fail, a player who has DMs closed and is not watching the server will miss the window. So the roster view marks each entrant with two things: **checked in**, and **DM undeliverable**. An organizer can see at a glance who was never reached and chase them directly. That is the correct division — the bot does not nudge, and a person who wants to is given the information to.
+
+**Opening registration gets the same general-channel announcement, minus the DM half.** There is nobody registered yet to direct-message — the whole point of the post is to reach people who have not joined. `PlayerNotificationPort.registrationOpened` and `checkinOpened` therefore share one `postToGeneralChannel` helper in the adapter and differ only in whether a DM pass follows.
+
+**Every individual `/join` and `/checkin` also posts to the general channel** — who just joined or checked in, plus a reminder of the command for anyone reading who hasn't yet (`entrantJoined`/`entrantCheckedIn`). Unlike the window-opening announcements, these fire once per entrant rather than once per tournament, so a large field is a burst of general-channel traffic — accepted as the cost of keeping registration visible in the channel competitors already watch, the same tradeoff "The duplication is the design, not redundancy to optimise away" makes for result forwarding.
+
+### Logging changes to organizers
+
+Every tournament lifecycle transition (`/tournament create`/`open-registration`/`close-registration`/`open-checkin`/`close-checkin`/`start`/`cancel`/`rename`) and every roster change (`/join`, `/checkin`, `/leave`, and each `/roster` action) posts one line to the organizer alert channel, attributed to who did it. This is a plain activity log, not an escalation — no ruling buttons, nothing to resolve — so the command layer reuses `AlertPort.raise` as a bare post via a small `logToOrganizers` helper rather than routing it through the resolve-in-place machinery "Two classes, one inbox" describes below. A no-op confirmation (already joined, already checked in) is not a change and is not logged.
+
+**Naming differs by audience.** The organizer alert channel is private and names people by their **raw Discord username** — the identifier that actually disambiguates someone in a moderation context, where two members can share a display name (or an empty one). The general-channel announcements (`registrationOpened`/`checkinOpened`/`entrantJoined`/`entrantCheckedIn`) are public and use the **server display name** instead, matching every other player-facing surface. `/roster`'s ephemeral reply — visible only to the organizer who ran it — also uses the display name, since it is not a channel post at all and reads more naturally that way; only the alert-channel line switches to username.
 
 ## Tournament Lifecycle
 
 Every transition is an explicit action by someone at Tournament Organizer tier or above. Nothing is on a timer, and the state machine is the guard. Referees hold none of these — they rule on matches inside a running tournament, they do not move it between states.
 
 ```
-DRAFT ─► REGISTRATION_OPEN ─► REGISTRATION_CLOSED ─► CHECKIN_OPEN
-                                                          │
-                        ┌─────────────────────────────────┘
-                        ▼
-                  CHECKIN_CLOSED ─► RUNNING ─► COMPLETE
+DRAFT ─► REGISTRATION_OPEN ─► REGISTRATION_CLOSED ─► CHECKIN_OPEN ─► CHECKIN_CLOSED ─► RUNNING ─► COMPLETE
 ```
+
+Every state in that diagram, `DRAFT` included, holds the guild's one tournament slot; only `COMPLETE` and `CANCELLED` (reachable from anywhere left of `RUNNING`) release it.
 
 | Transition | Actor | Guard | Effect |
 | --- | --- | --- | --- |
-| `DRAFT → REGISTRATION_OPEN` | TO | Guild configured; format chosen; no other active tournament | `/join` starts working |
-| `→ REGISTRATION_CLOSED` | TO | — | `/join` stops working |
-| `→ CHECKIN_OPEN` | TO | — | `/checkin` starts working |
-| `→ CHECKIN_CLOSED` | TO | — | Un-checked-in entrants have their seeds cleared; surviving seeds renumbered from 1 in relative order; unseeded entrants appended in join order — one transaction. No status changes: `checkedIn` already records who was dropped |
+| `— → DRAFT` | TO | No tournament already held by this guild | Claims the guild's tournament slot — see below |
+| `DRAFT → REGISTRATION_OPEN`, or `REGISTRATION_CLOSED → REGISTRATION_OPEN` | TO | Guild configured; format chosen | `/join` starts (or resumes) working |
+| `REGISTRATION_OPEN → REGISTRATION_CLOSED`, or `CHECKIN_OPEN → REGISTRATION_CLOSED` | TO | — | `/join` stops working |
+| `REGISTRATION_CLOSED → CHECKIN_OPEN`, or `CHECKIN_CLOSED → CHECKIN_OPEN` | TO | — | `/checkin` starts (or resumes) working |
+| `CHECKIN_OPEN → CHECKIN_CLOSED` | TO | — | Un-checked-in entrants have their seeds cleared; surviving seeds renumbered from 1 in relative order; unseeded entrants appended in join order — one transaction. No status changes: `checkedIn` already records who was dropped |
 | `→ RUNNING` | TO | Every active entrant has a distinct seed, contiguous from 1; **Discord permission preflight passes** | Seeds fixed, bracket generated, threads provisioned, players notified |
-| `→ COMPLETE` | bot | Grand final committed | Standings posted, public archive frozen |
+| `→ COMPLETE` | bot | Grand final committed | Standings posted, public archive frozen; releases the slot |
+
+**Each of the three pre-`RUNNING` commands also runs one step in reverse** — `open-registration`, `close-registration`, and `open-checkin` each accept either their ordinary predecessor state or the state their own target normally leads to next, landing on the same target either way. Concretely: `close-registration` undoes an `open-checkin` that ran too early (from `CHECKIN_OPEN`, back to `REGISTRATION_CLOSED`); `open-registration` undoes a `close-registration` that ran too early (from `REGISTRATION_CLOSED`, back to `REGISTRATION_OPEN`); `open-checkin` undoes a `close-checkin` that ran too early (from `CHECKIN_CLOSED`, back to `CHECKIN_OPEN`). None of these touch `Entrant` rows — a reversal is a bare state-enum flip, and whatever `checkedIn`/`seed` values exist keep meaning exactly what they meant, ready for the ordinary forward path (in particular `closeCheckin`'s renormalization) to pick back up correctly once the TO moves forward again.
+
+**`start` and `COMPLETE` do not get this treatment.** Undoing either would mean unwinding a materialized bracket, provisioned threads, and (past `COMPLETE`) posted results and a frozen archive — a different order of operation entirely from flipping an enum, and not something this build order has attempted.
+
+**`/tournament rename`** works in any state short of `COMPLETE` or `CANCELLED` — the same span the tournament holds the slot for. It changes nothing but the name; no other field or transition is touched.
 
 **There is no separate `SEEDED` state, deliberately.** An earlier draft had one, recording that a TO had reviewed and committed the seed order before starting. It gated nothing and froze nothing — `/leave` works until the tournament starts, so a player could withdraw after the commit, renumbering the field while the tournament still claimed the order was confirmed. A state asserting a fact that can quietly stop being true is worse than no state.
 
 Starting *is* the confirmation: the start action shows the final order for review, and generating the bracket fixes it. The seed guard moved onto `→ RUNNING`, where it is still an **assertion rather than a gate** — normalization at check-in close already guarantees it — kept because a violation means normalization is broken, and learning that before a bracket exists is much cheaper than after.
 
-`CANCELLED` is reachable from any pre-`RUNNING` state at Tournament Organizer tier, and frees the guild's active slot.
+`CANCELLED` is reachable from **any** pre-`COMPLETE` state at Tournament Organizer tier, `RUNNING` included — "for any number of reasons... a tournament may need to be cancelled midway." Cancelling before `RUNNING` is the bare state flip described so far. Cancelling a `RUNNING` tournament does one thing more, in the same transaction: every `Match` not already `COMPLETE` is force-completed as `CANCELLED` too — a third terminal match status alongside `COMPLETE` itself, added to `MatchStatus` for exactly this. A match someone already finished keeps its real result; nothing about it is touched. The command layer then closes out whichever of those cancelled matches had a live thread — a note posted in it, then archived, the same mechanism used for a thread closing on ordinary match completion — and announces the cancellation to the general channel, same as it does for every other lifecycle transition.
+
+Either way, cancelling — like completing — frees the guild's slot for a new `/tournament create`. See "Three constraints Prisma cannot express" for how the slot itself is held and enforced.
+
+**Nothing here is a reversal**, unlike the pre-`RUNNING` back-edges above: `CANCELLED` is terminal, same as `COMPLETE`, and there is no path out of it. What changed is only which *source* states `cancel` accepts — it now includes `RUNNING`, where it previously refused.
 
 **Two things happen at the start transition and only one of them can block.** Permissions are re-checked and a missing one blocks with the exact list. A song pack below the recommended size warns and proceeds — the requirement is explicit that the warning never blocks. The threshold is **`recommendedPackSize` from the format**, not a constant: Bo5 asks for 10, and a format with a different draw asks for whatever it needs. Once a tournament can mix formats, the threshold is the maximum across those in use.
 
@@ -987,6 +1028,21 @@ View Channel, Send Messages, Send Messages in Threads, Create Private Threads, M
 
 `Manage Threads` is the one that surprises people. The bot needs it to archive a thread on completion; **every tier role** needs it too, on the matches channel, because it is what lets referees see private threads at all — checked separately at `/setup`.
 
+### Inviting the bot
+
+The invite link needs the `bot` and `applications.commands` OAuth2 scopes, plus the base guild-level permission set — the union of everything any channel in "Required permissions" above ever asks for, since an invite grants guild-level permissions and `/setup` (and each channel's own overwrites) refine them from there:
+
+View Channel, Send Messages, Send Messages in Threads, Create Private Threads, Manage Threads, Attach Files, Embed Links, Read Message History, Add Reactions.
+
+Two more are worth granting up front even though `/setup` degrades gracefully without them, per "optional" above:
+
+- **Manage Channels** — lets `/setup channels` create the matches/alerts/results channels itself, correct by construction. Without it, `/setup` falls back to "point at a channel you created yourself" plus a diagnostic; nothing else breaks.
+- **Manage Roles** — lets `/setup`'s repair flow add a missing overwrite for a tier role, and lets `/setup roles` create a tier role when one is omitted. Without it, repair reports what it can't fix instead of fixing it (per "narrower than it first appears" under Provisioning the channels), and role creation falls back the same way channel creation does.
+
+Both intents in "Privileged intents" above (`MessageContent`, `GuildMembers`) also need toggling on in the Developer Portal's Bot tab before the token will authenticate at all — a one-time step per deployment, not per-server.
+
+**Keep this list in sync with the code, not the other way around.** The permission sets actually enforced live in `discord/setup-diagnostic.ts` (`REQUIRED_BOT_PERMS`, `REQUIRED_TIER_ROLE_PERMS`) and the creation overwrite table in `discord/commands/setup.ts` (`OVERWRITE_TABLE`); if a future phase adds something the bot needs, it belongs in both places before it belongs here.
+
 ### The three-second rule
 
 Discord kills an interaction that is not acknowledged within three seconds. Every handler therefore **defers first, works second** — `deferUpdate()` for a button that edits the match message in place, `deferReply({ ephemeral: true })` where the response is private, and the work (lock, validate, append, post) follows. This is not an optimization; a lock wait behind another player's action can easily exceed three seconds on its own.
@@ -1003,7 +1059,9 @@ Button `custom_id`s encode everything the handler needs: `v1:<matchId>:<action>:
 
 Round 1 of a 32-entrant tournament creates 16 private threads at once, each with its two competitors added. Referees are not added — the tier roles' `Manage Threads` covers visibility — so a thread has exactly two members regardless of the size of the referee pool. That is still a burst against per-channel rate limits.
 
-Provisioning runs through a **serialized queue with backoff on 429**, keyed by match ID and idempotent: a match with a `threadId` is skipped. Tournament start returns as soon as the bracket is committed; threads materialize behind it, and a crash mid-burst resumes on boot by scanning for ready matches without threads. Players are notified when their own thread exists, so nobody waits on the whole batch.
+Provisioning runs through a **serialized queue with backoff on 429**, keyed by match ID and idempotent: a match with a `threadId` is skipped. Tournament start returns as soon as the bracket is committed; threads materialize behind it. Players are notified when their own thread exists, so nobody waits on the whole batch.
+
+**Round 1 is not the only round that needs this.** `provisionReadyThreads` runs a second time from `applyAppendResult` (`match-event-effects.ts`), every time a match decides — advancement can seat two real players into a brand-new match at any round, not just the first, and that match needs a thread exactly the same way round 1's did. Idempotency is what makes calling it this opportunistically safe: a decision that didn't start anything new just finds an empty `ready` list. There is no reconciler yet — a crash mid-burst does *not* currently resume on boot; that is still the deferred piece "The reconciler" describes.
 
 ### Notifying players, and the channels
 
@@ -1015,10 +1073,10 @@ Provisioning runs through a **serialized queue with backoff on 429**, keyed by m
 
 That has a consequence worth stating, because a server will hit it: **#matches looks empty to everyone.** Private threads are invisible to non-members, and thread visibility requires `View Channel` on the parent, so the channel cannot be hidden from potential competitors — anyone may `/join`. A visible, permanently empty channel is the price of hosting threads somewhere.
 
-**Results go to their own channel, one line per finished match.** Round, both players, winner, score, and a link to the match on the public bracket. Built from `toBracketMatch`, so it structurally cannot disclose anything the public bracket does not already show.
+**Results go to their own channel, one line per finished match.** `🏁 {round} · {Player A} vs {Player B} - {winner} advances ({winner score}-{loser score})` — round label, both names in seat order regardless of who won, then who's through and the score. Eventually a link to the match on the public bracket too, built from `toBracketMatch` so it structurally cannot disclose anything the public bracket does not already show.
 
 - **Byes are excluded.** A walkover with no opponent is bracket structure, not a result, and posting it would fill the channel at exactly the moment round one is busiest.
-- **Forfeits and disqualifications do post**, worded as advancement rather than as a verdict.
+- **Forfeits, disqualifications and walkovers post the same line as an ordinary decision** — worded as advancement uniformly rather than switching to a "defeats" verdict only for a played-out set. The score is whatever `points` holds either way, 0–0 for a match that never saw a song.
 
 **Each result line is then forwarded to the general channel**, using Discord's native message forward — a `message_reference` of type `FORWARD` — rather than a re-post. The forward renders with its provenance and links back, so the results channel stays the chronological record and the general channel gets visibility without becoming a second, divergent copy. If the forward fails the result still stands in the results channel, so it is logged and not retried; the record is already correct.
 
@@ -1039,13 +1097,27 @@ That has a consequence worth stating, because a server will hit it: **#matches l
 
 | Channel | `@everyone` | Tier roles | Bot |
 | --- | --- | --- | --- |
-| Matches | View; **deny** Send, Create Public Threads | View, Manage Threads | Full thread-capable set |
+| Matches | View; **deny** Send, Create Public Threads, Create Private Threads | View, Manage Threads | Full thread-capable set |
 | Organizer alerts | **deny** View | View, Read History | Send, Embed Links |
-| Results | View, Add Reactions; **deny** Send | — | Send, Embed Links |
+| Results | View, Add Reactions; **deny** Send, Create Public Threads, Create Private Threads | — | Send, Embed Links |
 
-`@everyone` keeps View on the matches channel deliberately: thread visibility requires it on the parent, and anyone may `/join`. The general channel is never created — every server already has one, and making a second is not a service.
+`@everyone` keeps View on the matches and results channels deliberately — thread visibility requires View on the parent, and anyone may `/join`; results is meant to be read (and reacted to). Both are otherwise read-only: `@everyone` can neither post in the channel body nor start a thread of either kind there. That denial is scoped to the parent channel, not the private match threads under it — sending inside a thread is `SendMessagesInThreads`, a separate permission the two competitors get by being added to their own thread, untouched by what `@everyone` can do at the parent. The general channel is never created — every server already has one, and making a second is not a service.
+
+**Every created channel lands under a "Tournament" category**, found or created once per `/setup channels` run and reused across all three — never a duplicate category on a re-run. This applies only to channels this bot creates; a channel an administrator points at instead stays wherever it already lives, unmoved.
+
+**A configured channel that Discord no longer has is treated as unconfigured.** `/setup channels` re-checks every already-configured slot before deciding anything: if the stored channel id was deleted out from under it, that slot falls through to "point at what was given this run, or create fresh" exactly as if it had never been set — never silently left pointing at nothing. The diagnostic (`/setup status` and every `/setup channels`/`roles` reply) reports the same gap on its own, naming which slot's channel is gone, for the case where nobody has re-run `/setup channels` yet to pick up the drift.
 
 **Pointing at an existing channel accepts any choice**, then computes the gap and **offers to repair it**, showing exactly which overwrites would be added before touching anything. Nothing is modified without confirmation: silently rewriting permissions on a channel a server already uses is not something a bot should do unprompted.
+
+### Provisioning the roles
+
+`/setup roles` offers the create-or-point-at choice for its **only two** tiers, Referee and Tournament Organizer: give a role, or omit it and let the bot create one, named for the tier (`Referee`, `Tournament Organizer`) and mentionable — so the escalation mention in the alert channel actually pings, which a non-mentionable role would otherwise silence for anyone without `Mention @everyone, @here, and All Roles`. A created role carries no guild-level permissions of its own; everything it needs is the channel-level overwrite `/setup channels` already grants it (or `/setup roles`' own re-diagnostic offers to repair, if the role is created after the channels already exist).
+
+**There is no third option, for Server Administrator or otherwise — `/setup roles` has nothing to configure there at all.** Reconfiguring the server is Manage Guild, not a bound role (see Bootstrap and Two things called "administrator", above); there is no slot to bind, point at, or create, and no such requirement in the diagnostic.
+
+**Membership is never provisioned, only the role itself.** Assigning members to a tier role remains entirely manual, in Discord — see "Granting access" below; nothing here changes that.
+
+**A configured role that Discord no longer has is treated as unconfigured**, the same reasoning as a deleted channel: `/setup roles` re-checks every already-bound slot first, and a role deleted out from under it falls through to "point at what was given this run, or create fresh." The diagnostic reports the same gap on its own too — `/setup status` and every `/setup channels`/`roles` reply names which tier role is gone, the same way it names a gone channel, for the case where nobody has re-run `/setup roles` yet to pick up the drift.
 
 **What bounds repair is narrower than it first appears.** A bot may only allow or deny permissions it holds in the guild or the parent channel — **unless it has a `Manage Roles` overwrite in that channel**, which lifts the ceiling entirely. So the practical rule is: with a channel-level `Manage Roles` overwrite the bot can grant `Manage Threads` to a tier role regardless of its own guild permissions; without one, it cannot exceed what it already has.
 
@@ -1102,11 +1174,11 @@ The competitor-facing surface. Everything the rules require a player to do happe
 
 ### Creating the thread
 
-**The name is `WR2 · Alice vs Bob`** — bracket side and round, then both competitors. It sorts sensibly, identifies a match at a glance in a list of sixteen, and gives an organizer the two things they scan for. Display names are truncated to fit Discord's 100-character limit, longest first so both stay legible.
+**The name is `WR2 · Alice vs Bob · Storm 2026`** — bracket side and round, both competitors, then the tournament name. It sorts sensibly, identifies a match at a glance in a list of sixteen, and gives an organizer the two things they scan for; the tournament name at the end tells apart threads from different events for anyone whose thread list spans more than one — a player's own DM/thread history, or a bot administrator's. Display names are truncated to fit Discord's 100-character limit, longest first so both stay legible; the tournament name is appended last and never shortened by that pass, only hard-cut as a last resort if it alone doesn't fit even with both competitor names empty.
 
 **The name is fixed at creation and never changes.** Renaming a thread hits a sublimit of roughly two changes per ten minutes — **undocumented, but consistently reproduced**, so the number should be read from the response headers rather than hardcoded, as Discord's rate-limit guidance instructs. A name carrying live state would therefore fall behind precisely when an event is busiest, which is the moment it would be worth having. State belongs in the thread, the bracket, and the results feed, none of which are constrained this way.
 
-A grand final reset is a separate `Match` row and therefore a separate thread, named `GF2 · Alice vs Bob`. It gets a fresh event log, so it gets a fresh place to live.
+A grand final reset is a separate `Match` row and therefore a separate thread, named `GF2 · Alice vs Bob · Storm 2026`. It gets a fresh event log, so it gets a fresh place to live.
 
 ### Two kinds of bot message
 
@@ -1218,9 +1290,25 @@ It probably closes itself. The state message is **already edited** after each pi
 
 ### Ending the match
 
-The result summary is a log message and the last thing the bot posts: songs in play order with both EX% values and the winner of each, tiebreak rounds if any, and the final score. The thread archives immediately afterward.
+The result summary is a log message: songs in play order with both EX% values and the winner of each, tiebreak rounds if any, and the final score. It is rendered from the same projection as the public match view, so the thread and the web page cannot disagree about what happened.
 
-It is rendered from the same projection as the public match view, so the thread and the web page cannot disagree about what happened.
+Whatever the state message was last showing — Protect/Veto, a score-submit button, "Confirm result," anything — is stale the instant the set decides: nothing is pending any more, no matter which event decided it. The state message is replaced with a plain, component-free line before the thread archives, the same cleanup `handleCancel` (tournament.ts) does for its own out-of-band ending, so a click a moment too late meets no live prompt at all, not just a rejected interaction. Belt and braces: even if a client had a stale button rendered before the edit landed, `appendMatchEvent` still refuses it — `pendingAction` is `DONE` once terminal, so `isLegal` rejects the click regardless of whether the message component beneath it was cleared in time.
+
+### Ending a match by referee ruling — `/dq`
+
+A third way for a match to end, and the only one that goes through the ordinary event log rather than around it: `DQ_APPLIED` is a terminal `MatchEvent`, legal at any point before the match is `DONE` — see Match State and the Event Catalog. `/dq` builds one, appends it through the same `appendMatchEvent` a button click uses, and hands the result to `applyAppendResult` (extracted to `match-event-effects.ts` so the command layer can reuse it without an import cycle back through `commands/router.ts`) — the identical pipeline that renders the result summary, publishes the announcement, and archives the thread once `outcome()` turns terminal. A referee ruling and a mutually-agreed result are indistinguishable to everything downstream of the append; only the actor differs.
+
+**There is no separate forfeit command.** A no-show or a player conceding is just `/dq` scoped to **this match only** — an ordinary loss, identical in every rendered and structural respect to a disciplinary disqualification at that scope. Discord originally shipped these as two commands (`/forfeit` and `/dq`), distinguished only by which vocabulary a referee reached for and which of two near-identical event types (`FORFEIT_APPLIED` vs. `DQ_APPLIED { scope: 'MATCH' }`) got appended; collapsing them removed a whole command, a render function, and a log-message variant for zero behavioural loss. `FORFEIT_APPLIED` stays in the domain — it is still a legal terminal event (see the Event Catalog), reserved for the organizer console's own forfeit action once that ships, per REQUIREMENTS.md's "referee-initiated actions (`/dq` and the web UI)" — but nothing on the Discord surface produces it any more.
+
+`/dq` resolves the match via `loadMatchByThreadId` on the invoking thread and offers the scope choice REQUIREMENTS.md describes. **This match only** appends `DQ_APPLIED` with `scope: 'MATCH'` against that thread's match — the reducer resolves the *other* seated participant as the survivor (see the Event Catalog's `opponentOf` handling), so the command only ever needs the disqualified player's identity, never the winner's. **Whole tournament** instead resolves the tournament via `findActiveTournament` and calls `disqualifyFromTournament`, which sets the entrant `WITHDRAWN` and, if they were mid-set, appends the same `DQ_APPLIED` event with `scope: 'TOURNAMENT'` — but inside its own transaction, since the cascade it triggers has nothing to do with the thread the command happened to be run in. It hands back which match (if any) it resolved — `matchId`, the event, and the `AppendResult` — the same "report what changed, let the caller render it" shape `cancelTournament` uses for `cancelledMatchIds`, so the command layer can still post the thread log and run `applyAppendResult` even though the match that resolved may be nowhere near where `/dq` was typed. If the entrant had no live match — seated but not yet opposed, or not seated at all — `resolvedMatch` is `null` and nothing posts anywhere; the eventual walkover, once the bracket fills their slot, resolves itself lazily through the ordinary advancement path with no separate step to keep in sync.
+
+`/dq` posts its own referee-attributed log line (`renderDqLog`) before calling `applyAppendResult`, the same division of labour `handleRulingButton` uses for an ordinary song ruling: only the command handler has the referee's identity to attribute the line to, so it posts that one line itself and leaves everything generic — the result summary, the announcement, the archive — to the shared pipeline.
+
+### Ending a match by tournament cancellation
+
+A different, out-of-band way for a match to end: the whole tournament is cancelled while it's `RUNNING`. Unlike the ordinary ending above, this never touches the match's own event log — `cancelTournament` force-sets `Match.status` to `CANCELLED` directly, a status `MatchState`'s own reducer never produces and never needs to reason about. Whatever the match's `pendingAction` was at the moment of cancellation — Protect/Veto, a score submission, a tiebreak pick, anything — is simply abandoned; there is no terminal domain event for "the tournament ended out from under this match."
+
+Cleanup is therefore two-layered. Proactively, cancellation posts a log line in the thread, replaces the live prompt with a plain, component-free message (clearing whatever buttons or select menu were last shown), and archives the thread — best-effort, same as thread provisioning's own "a crash mid-burst resumes on boot" acknowledgment that Discord operations can fail partway through a batch. As a backstop, every interaction entry point checks `match.status === 'CANCELLED'` before doing anything else, ahead of even the participant/referee checks — so a stale click that survives the cleanup (a button visually still there, or an interaction already in flight when cancellation ran) is refused with "the tournament has been cancelled" rather than silently mutating a match the tournament no longer considers live. This check is deliberately on the cached `Match.status` column, not `pendingAction`, since a cancelled match's `MatchState` still looks perfectly ordinary — cancellation is administrative information the match's own state has no way to carry.
 
 ## Organizer Alerts and Escalation
 
@@ -1314,10 +1402,10 @@ Authorization is one service, transport-independent:
 
 | Check | Source of truth |
 | --- | --- |
-| What tier does this user hold here? | Highest of the three `Guild.*RoleId` roles they hold |
+| What tier does this user hold here? | Highest of the two `Guild.*RoleId` roles they hold |
 | May they rule on a match? | Tier ≥ Referee |
 | May they run a tournament? | Tier ≥ Tournament Organizer |
-| May they reconfigure the bot here? | Tier = Server Administrator |
+| May they reconfigure the bot here? | Holds Discord's Manage Guild permission — not a tier check at all |
 | Is this user a bot administrator? | Config allowlist ∪ `Admin` table |
 | May this user act in match M? | Is one of the two players, or holds Referee tier |
 | May a referee override this song? | Not frozen — see Bracket Immutability |
@@ -1428,7 +1516,7 @@ The reasoning worth keeping: a strict reading of "all updates are announced" wou
 
 ## The Organizer Console
 
-Desktop-first, best-effort accessibility, and used by all three tiers — what a person sees is filtered by `tierOf`, not by which console they opened.
+Desktop-first, best-effort accessibility, and used by both tiers — what a person sees is filtered by `tierOf`, not by which console they opened. The one panel outside that filter is server reconfiguration, gated on Manage Guild the same way `/setup` is, not on a tier.
 
 ### The run view
 
@@ -1475,6 +1563,10 @@ Derived from elimination depth, never stored — see Advancement, Walkovers, and
 This falls out of the derivation rather than being applied on top of it: a placement is one plus the number of entrants eliminated strictly later, which *is* competition ranking. There is no separate tie-handling step to get wrong.
 
 **The Discord post mirrors the match result feed** — full placement order to the results channel, forwarded to the general channel. The results channel then reads as a complete record of the event from first result to final standings, and the general channel gets the moment.
+
+**Rendered as a `##` header and a trophy, deliberately larger than an ordinary result line** — `## 🏆 {tournament name} — Final Standings`, capped at 8th place, ties sharing one line (`buildTournamentCompleteAnnouncement`, `render/tournament-complete.ts`). It reuses `computeTournamentStandings` directly, so it can never disagree with the standings page rendering the same tournament. Posted through `publishResult`, same as every other match result — the completing match *is* the natural anchor for it (the grand final, its reset, or the sole match a 2-entrant field ever plays), so it needs no channel-resolution path of its own.
+
+**Fires off `AppendResult.tournamentCompleted`, not a state re-check.** Whether *this* match decided the tournament is not always obvious from the match alone — `persistAndCascade` (engine.ts) can complete the tournament several matches downstream of the one actually appended to, inside one transaction, when a tournament-scope DQ's walkover chain is what finally closes it out. The boolean threads back up through every recursive call (`startSeatedMatch` → `persistAndCascade` → `maybeStartMatch` → `startSeatedMatch`...) rather than being re-derived by polling `Tournament.state` before and after at the render layer, which would need to reason about which caller's "before" snapshot is actually still valid — `disqualifyFromTournament` commits its own transaction before the command layer ever loads the match `applyAppendResult` renders from, so there is no single "before" available to diff against there.
 
 ### Permanent URLs
 
@@ -1708,6 +1800,8 @@ The dependency structure here is unusually favourable, and it is worth following
 | 4 | Can the bot natively forward its own message, given forwarding requires the ability to read the source's content? | Nothing breaks. Post a copy in the general channel; loses provenance rendering, keeps the two-audience split |
 
 **The one question that could have forced rework is already answered.** Verified by hand in a test server: a member with no roles cannot see a private thread they were never added to; give them a role carrying `Manage Threads` and they can. The tier model therefore holds, and the per-thread membership subsystem the role decision deleted stays deleted — no member adds, no backfill on grant, no membership reconciliation. That is confirmed behaviour now, not an inference from the permission table.
+
+**Question 4 is answered too, and the expected answer held.** `discord.js` 14.27 exposes `Message#forward(channel)`, a thin wrapper over the native `message_reference` of type `FORWARD` — no read-the-source-content workaround needed. `publishResult` (`match-channel-adapter.ts`) sends to the results channel, then forwards that same message into the general channel when one is configured, wrapped in a try/catch per the documented failure handling: a forward failure is logged and not retried, since the result already stands in the results channel.
 
 **Everything remaining is de-risking, not a prerequisite.** All four have a fallback already written into this document, which is less luck than it looks: expected failures are treated as states rather than errors, and self-provisioning is optional with a documented degradation path. Both were decided for other reasons.
 

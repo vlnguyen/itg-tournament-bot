@@ -4,11 +4,12 @@ import { generateBracket, matchKey, PublicMatch, TournamentSnapshot } from '@itg
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { GuildsController } from '../src/api/guilds.controller.js';
 import { MatchesController } from '../src/api/matches.controller.js';
+import { PlayersController } from '../src/api/players.controller.js';
 import { TournamentsController } from '../src/api/tournaments.controller.js';
 import { materializeBracket } from '../src/services/bracket-service.js';
-import { sequentialRandomPort } from '../src/services/ports.js';
+import { cryptoRandomPort, sequentialRandomPort } from '../src/services/ports.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { cleanupTournament, isReachable, makeTournament, prisma, type TestTournament } from './support.js';
+import { cleanupTournament, driveToCompletion, isReachable, makeTournament, prisma, type TestTournament } from './support.js';
 
 /**
  * Integration coverage for step 5's two GET routes. Real Postgres, real
@@ -105,5 +106,61 @@ describe.skipIf(!(await isReachable()))('public REST routes', () => {
       }
       expect(returnedKeys.size).toBe(generated.matches.length);
     });
+  });
+
+  describe('GET /api/tournaments/:id/standings', () => {
+    it('is empty before the tournament has a decided outcome', async () => {
+      const body = await tournamentsController.getStandings(t.tournamentId);
+      expect(body).toEqual([]);
+    });
+
+    it('404s for an id that does not exist', async () => {
+      await expect(tournamentsController.getStandings('does-not-exist')).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+});
+
+/**
+ * Standings and player pages both need a *decided* tournament — a
+ * separate fixture, driven all the way to COMPLETE via chalk (lowest
+ * seed always wins), so results/placements/win-loss records are real
+ * rather than asserted against an in-progress bracket.
+ */
+describe.skipIf(!(await isReachable()))('standings and player pages, against a completed tournament', () => {
+  let t: TestTournament;
+  let tournamentsController: TournamentsController;
+  let playersController: PlayersController;
+
+  beforeAll(async () => {
+    t = await makeTournament(`api-complete-${Date.now()}`, 4);
+    await materializeBracket(prisma, sequentialRandomPort('api-complete'), t.tournamentId);
+    await driveToCompletion(t.tournamentId, t.entrantIds, cryptoRandomPort);
+
+    const moduleRef = await Test.createTestingModule({
+      controllers: [TournamentsController, PlayersController],
+      providers: [{ provide: PrismaService, useValue: prisma }],
+    }).compile();
+    tournamentsController = moduleRef.get(TournamentsController);
+    playersController = moduleRef.get(PlayersController);
+  });
+  afterAll(() => cleanupTournament(t));
+
+  it('standings rank the chalk finish — seed 1 champion, seed 2 runner-up', async () => {
+    const body = await tournamentsController.getStandings(t.tournamentId);
+    expect(body.find((r) => r.seed === 1)?.place).toBe(1);
+    expect(body.find((r) => r.seed === 2)?.place).toBe(2);
+  });
+
+  it('a player page shows the win-loss record and match history for the champion', async () => {
+    const championDiscordId = `${t.guildId}-p1`;
+    const page = await playersController.getPlayer(t.guildId, championDiscordId);
+    expect(page.discordUserId).toBe(championDiscordId);
+    expect(page.losses).toBe(0);
+    expect(page.wins).toBeGreaterThan(0);
+    expect(page.matches.every((m) => m.won)).toBe(true);
+  });
+
+  it('404s for a discord user who never played in this guild', async () => {
+    await expect(playersController.getPlayer(t.guildId, 'never-played')).rejects.toBeInstanceOf(NotFoundException);
   });
 });

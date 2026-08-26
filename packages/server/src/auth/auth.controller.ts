@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { Controller, Get, Post, Req, Res } from '@nestjs/common';
+import { Controller, Get, Inject, Post, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { PrismaService } from '../prisma/prisma.service.js';
 import { requireEnv } from './env.js';
 import {
   createSessionCookie,
@@ -24,6 +25,10 @@ interface DiscordTokenResponse {
 
 interface DiscordUserResponse {
   id: string;
+  username: string;
+  /** The new-username-system display name — nullable when someone has never set one. */
+  global_name: string | null;
+  avatar: string | null;
 }
 
 /**
@@ -34,6 +39,8 @@ interface DiscordUserResponse {
  */
 @Controller('api/auth')
 export class AuthController {
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+
   @Get('login')
   login(@Res() res: Response): void {
     const clientId = requireEnv('DISCORD_CLIENT_ID');
@@ -98,6 +105,25 @@ export class AuthController {
       return;
     }
     const user = (await userRes.json()) as DiscordUserResponse;
+
+    // The only place `User` (DESIGN.md's "current name" cache for player
+    // pages) gets written — there's no broader Discord member-sync yet, so
+    // this stays accurate only for people who have actually signed in.
+    // Player pages fall back to the tournament-snapshot name otherwise.
+    await this.prisma.user.upsert({
+      where: { discordUserId: user.id },
+      create: {
+        discordUserId: user.id,
+        displayName: user.global_name ?? user.username,
+        avatarHash: user.avatar,
+        lastSignInAt: new Date(),
+      },
+      update: {
+        displayName: user.global_name ?? user.username,
+        avatarHash: user.avatar,
+        lastSignInAt: new Date(),
+      },
+    });
 
     const secret = requireEnv('SESSION_SECRET');
     res.cookie(SESSION_COOKIE_NAME, createSessionCookie(user.id, secret), {

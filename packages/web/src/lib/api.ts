@@ -1,4 +1,4 @@
-import { LandingTournament, PublicMatch, TournamentSnapshot } from '@itg/shared';
+import { LandingTournament, PlayerPage, PublicMatch, Standings, TournamentSnapshot } from '@itg/shared';
 
 /**
  * Thin fetch wrappers, always validated against the same zod schemas the
@@ -33,4 +33,16 @@ export async function fetchLandingTournament(guildId: string): Promise<LandingTo
   const res = await fetch(`/api/guilds/${guildId}/landing-tournament`);
   if (!res.ok) throw new ApiError(res.status, `GET /api/guilds/${guildId}/landing-tournament -> ${res.status}`);
   return LandingTournament.parse(await res.json());
+}
+
+export async function fetchStandings(tournamentId: string): Promise<Standings> {
+  const res = await fetch(`/api/tournaments/${tournamentId}/standings`);
+  if (!res.ok) throw new ApiError(res.status, `GET /api/tournaments/${tournamentId}/standings -> ${res.status}`);
+  return Standings.parse(await res.json());
+}
+
+export async function fetchPlayerPage(guildId: string, discordUserId: string): Promise<PlayerPage> {
+  const res = await fetch(`/api/guilds/${guildId}/players/${discordUserId}`);
+  if (!res.ok) throw new ApiError(res.status, `GET /api/guilds/${guildId}/players/${discordUserId} -> ${res.status}`);
+  return PlayerPage.parse(await res.json());
 }

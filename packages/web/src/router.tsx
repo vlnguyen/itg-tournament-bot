@@ -15,5 +15,9 @@ export const router = createBrowserRouter([
     path: '/t/:tournamentId/matches/:matchId',
     lazy: () => import('./routes/match-detail').then((m) => ({ Component: m.default })),
   },
+  {
+    path: '/g/:guildId/players/:discordUserId',
+    lazy: () => import('./routes/player-page').then((m) => ({ Component: m.default })),
+  },
   { path: '/console', lazy: () => import('./routes/console-home').then((m) => ({ Component: m.default })) },
 ]);

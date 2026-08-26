@@ -1,15 +1,45 @@
-import type { BracketSide } from '@itg/shared';
-import { Alert, Center, Loader, Select, Stack, Text, Title, VisuallyHidden } from '@mantine/core';
+import type { BracketSide, Standings } from '@itg/shared';
+import { Alert, Center, Loader, Select, Stack, Table, Text, Title, VisuallyHidden } from '@mantine/core';
 import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { MatchCell } from '../components/match-cell.js';
 import { useBracketAnnouncements } from '../hooks/use-bracket-announcements.js';
 import { useRealtimeTournament } from '../hooks/use-realtime-tournament.js';
+import { useStandings } from '../hooks/use-standings.js';
 import { useTournament } from '../hooks/use-tournament.js';
 import { useVerbosity } from '../hooks/use-verbosity.js';
 import { buildBracketLayout, type BracketColumn } from '../lib/bracket-layout.js';
 import { sectionLabel } from '../lib/section-label.js';
 import styles from './tournament-bracket.module.css';
+
+/** "Tied players share a placement, and the next placement skips" — DESIGN.md, "Standings". Rendered exactly as `computeTournamentStandings` returns it, no re-derivation. */
+function StandingsTable({ standings }: { standings: Standings }): JSX.Element {
+  return (
+    <div>
+      <Title order={2} size="h3">
+        Final Standings
+      </Title>
+      <Table>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th>Place</Table.Th>
+            <Table.Th>Player</Table.Th>
+            <Table.Th>Seed</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {standings.map((row) => (
+            <Table.Tr key={row.entrantId}>
+              <Table.Td>{row.place}</Table.Td>
+              <Table.Td>{row.displayName}</Table.Td>
+              <Table.Td>#{row.seed}</Table.Td>
+            </Table.Tr>
+          ))}
+        </Table.Tbody>
+      </Table>
+    </div>
+  );
+}
 
 /**
  * One side of the tree (winners or losers): a heading, then "an ordered
@@ -52,6 +82,7 @@ function BracketSection({
 export default function TournamentBracket(): JSX.Element {
   const { tournamentId } = useParams<{ tournamentId: string }>();
   const { data: snapshot, isPending, isError } = useTournament(tournamentId!);
+  const { data: standings } = useStandings(tournamentId!);
   useRealtimeTournament(tournamentId!);
   const [verbosity, setVerbosity] = useVerbosity();
   const { log, politeLine } = useBracketAnnouncements(tournamentId!, snapshot, verbosity);
@@ -103,6 +134,8 @@ export default function TournamentBracket(): JSX.Element {
         <Title order={1}>{snapshot.name}</Title>
         <Text c="dimmed">{snapshot.state}</Text>
       </div>
+
+      {standings && standings.length > 0 && <StandingsTable standings={standings} />}
 
       <Select
         className={styles.roundSelector!}

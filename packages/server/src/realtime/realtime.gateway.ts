@@ -39,4 +39,9 @@ export class RealtimeGateway implements RealtimeBroadcastPort {
     const wireProjection = PublicMatchSchema.parse(projection);
     this.server.to(roomFor(tournamentId)).emit('frame', { matchId, seq, projection: wireProjection });
   }
+
+  /** No payload — see `RealtimeBroadcastPort`'s comment. The same `tournament:{id}` room a roster/seeding page joins just to watch for match frames already exists; this reuses it. */
+  publishRosterChanged(tournamentId: string): void {
+    this.server.to(roomFor(tournamentId)).emit('roster');
+  }
 }

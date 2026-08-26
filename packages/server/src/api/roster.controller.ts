@@ -6,6 +6,8 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import { TierService } from '../auth/tier.service.js';
 import { Tier } from '../discord/tier.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { REALTIME_PORT } from '../realtime/realtime.tokens.js';
+import type { RealtimeBroadcastPort } from '../services/ports.js';
 import { getRoster, reorderSeeds, type RosterEntry } from '../services/roster-service.js';
 
 /**
@@ -44,6 +46,7 @@ export class RosterController {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(TierService) private readonly tierService: TierService,
+    @Inject(REALTIME_PORT) private readonly realtime: RealtimeBroadcastPort,
   ) {}
 
   private async requireOrganizer(tournamentId: string, discordUserId: string | null): Promise<{ guildId: string }> {
@@ -81,11 +84,12 @@ export class RosterController {
       case 'TOO_LATE':
         throw new BadRequestException(`Can't reorder seeding — the tournament is already ${result.phase}.`);
       case 'INVALID_ORDER':
-        throw new BadRequestException("That order doesn't match the checked-in roster — someone likely checked in or withdrew. Reload and try again.");
+        throw new BadRequestException("That order doesn't match the active roster — someone likely joined, checked in, or withdrew. Reload and try again.");
       case 'REORDERED':
         break;
     }
 
+    this.realtime.publishRosterChanged(id);
     return toWire(this.tierService, guildId, await getRoster(this.prisma, guildId));
   }
 }

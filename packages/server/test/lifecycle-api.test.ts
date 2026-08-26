@@ -6,7 +6,7 @@ import { TierService } from '../src/auth/tier.service.js';
 import { ALERT_PORT, MATCH_CHANNEL_PORT, PLAYER_NOTIFICATION_PORT } from '../src/discord/discord-adapters.module.js';
 import type { AlertPort, MatchChannelPort, PlayerNotificationPort } from '../src/discord/ports.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { rosterAdd, rosterCheckin } from '../src/services/roster-service.js';
+import { getRoster, rosterAdd, rosterCheckin } from '../src/services/roster-service.js';
 import { createTournament } from '../src/services/tournament-service.js';
 import { isReachable, prisma } from './support.js';
 
@@ -145,6 +145,13 @@ describe.skipIf(!(await isReachable()))('GET/POST /api/tournaments/:id/lifecycle
       expect(status.state).toBe('CHECKIN_CLOSED');
       expect(status.legalActions).not.toContain('CLOSE_CHECKIN'); // terminal within this state
       expect(status.legalActions).toContain('OPEN_CHECKIN'); // reopenable
+      expect(status.legalActions).toContain('OPEN_REGISTRATION'); // reopenable further back too
+
+      // Reopening registration this deep preserves both check-ins.
+      status = await controller.postAction(tournamentId, { action: 'OPEN_REGISTRATION' }, TO);
+      expect(status.state).toBe('REGISTRATION_OPEN');
+      const roster = await getRoster(prisma, guildId);
+      expect(roster.filter((e) => e.checkedIn)).toHaveLength(2);
 
       status = await controller.postAction(tournamentId, { action: 'CANCEL' }, TO);
       expect(status.state).toBe('CANCELLED');

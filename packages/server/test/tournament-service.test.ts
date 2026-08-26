@@ -149,6 +149,37 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
         await dropGuild(guildId);
       }
     });
+
+    it('reopens from CHECKIN_OPEN or CHECKIN_CLOSED, preserving every existing check-in', async () => {
+      const guildId = `ts-reg-reopen-deep-${Date.now()}`;
+      await makeGuild(guildId, true);
+      try {
+        const t = await createTournament(prisma, guildId, 'T', ACTOR);
+        await openRegistration(prisma, t.id, ACTOR);
+        const e1 = await addEntrant(t.id, 'p1', { checkedIn: false });
+        await closeRegistration(prisma, t.id, ACTOR);
+        await openCheckin(prisma, t.id, ACTOR);
+        const e2 = await addEntrant(t.id, 'p2', { checkedIn: true });
+
+        // From CHECKIN_OPEN — a TO who started check-in too early.
+        const fromCheckinOpen = await openRegistration(prisma, t.id, ACTOR);
+        expect(fromCheckinOpen.state).toBe('REGISTRATION_OPEN');
+        expect((await prisma.entrant.findUniqueOrThrow({ where: { id: e2 } })).checkedIn).toBe(true);
+
+        // Drive it back down to CHECKIN_CLOSED and reopen registration from there too.
+        await closeRegistration(prisma, t.id, ACTOR);
+        await openCheckin(prisma, t.id, ACTOR);
+        await closeCheckin(prisma, t.id, ACTOR);
+        const fromCheckinClosed = await openRegistration(prisma, t.id, ACTOR);
+        expect(fromCheckinClosed.state).toBe('REGISTRATION_OPEN');
+
+        const [r1, r2] = await Promise.all([e1, e2].map((id) => prisma.entrant.findUniqueOrThrow({ where: { id } })));
+        expect(r1!.checkedIn).toBe(false); // untouched, not reset
+        expect(r2!.checkedIn).toBe(true); // untouched, not cleared by any of this
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
   });
 
   describe('closeRegistration', () => {
@@ -311,7 +342,7 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
   });
 
   describe('openCheckin', () => {
-    it('reopens from CHECKIN_CLOSED, and a fresh close-checkin folds in whoever checked in during the reopened window', async () => {
+    it('reopens from CHECKIN_CLOSED — neither close ever touches a seed, whatever check-in did in between', async () => {
       const guildId = `ts-checkin-reopen-${Date.now()}`;
       await makeGuild(guildId, true);
       try {
@@ -326,7 +357,7 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
 
         const closed = await closeCheckin(prisma, t.id, ACTOR);
         expect(closed.state).toBe('CHECKIN_CLOSED');
-        expect((await prisma.entrant.findUniqueOrThrow({ where: { id: e3 } })).seed).toBeNull();
+        expect((await prisma.entrant.findUniqueOrThrow({ where: { id: e3 } })).seed).toBe(3); // untouched — dropping happens at start, not here
 
         // Reopened — e.g. check-in was closed too early.
         const reopened = await openCheckin(prisma, t.id, ACTOR);
@@ -341,7 +372,7 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
         const [r1, r2, r3] = await Promise.all([e1, e2, e3].map((id) => prisma.entrant.findUniqueOrThrow({ where: { id } })));
         expect(r1!.seed).toBe(1);
         expect(r2!.seed).toBe(2);
-        expect(r3!.seed).toBe(3); // appended after the still-seeded survivors
+        expect(r3!.seed).toBe(3); // never moved — no renumbering happens at check-in close
       } finally {
         await dropGuild(guildId);
       }
@@ -360,7 +391,7 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
   });
 
   describe('closeCheckin', () => {
-    it('drops no-shows, renumbers survivors from 1 preserving order, and appends unseeded check-ins in join order', async () => {
+    it('is a pure state flip — no status or seed changes', async () => {
       const guildId = `ts-checkin-${Date.now()}`;
       await makeGuild(guildId, true);
       try {
@@ -369,27 +400,17 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
         await closeRegistration(prisma, t.id, ACTOR);
         await openCheckin(prisma, t.id, ACTOR);
 
-        // Seeded 1..4; seed 3 never checks in.
         const e1 = await addEntrant(t.id, 'p1', { seed: 1, checkedIn: true });
-        const e2 = await addEntrant(t.id, 'p2', { seed: 2, checkedIn: true });
-        const e3 = await addEntrant(t.id, 'p3', { seed: 3, checkedIn: false });
-        const e4 = await addEntrant(t.id, 'p4', { seed: 4, checkedIn: true });
-        // Checked in but never seeded — should land after the seeded
-        // survivors, ordered by when they joined.
-        const e5 = await addEntrant(t.id, 'p5', { checkedIn: true });
+        const e2 = await addEntrant(t.id, 'p2', { seed: 2, checkedIn: false }); // no-show
 
         const closed = await closeCheckin(prisma, t.id, ACTOR);
         expect(closed.state).toBe('CHECKIN_CLOSED');
 
-        const [r1, r2, r3, r4, r5] = await Promise.all(
-          [e1, e2, e3, e4, e5].map((id) => prisma.entrant.findUniqueOrThrow({ where: { id } })),
-        );
+        const [r1, r2] = await Promise.all([e1, e2].map((id) => prisma.entrant.findUniqueOrThrow({ where: { id } })));
         expect(r1!.seed).toBe(1);
-        expect(r2!.seed).toBe(2);
-        expect(r3!.seed).toBeNull(); // dropped — never checked in
-        expect(r3!.checkedIn).toBe(false); // status is not touched, per DESIGN.md
-        expect(r4!.seed).toBe(3); // renumbered down, relative order preserved
-        expect(r5!.seed).toBe(4); // unseeded check-in appended last
+        expect(r1!.checkedIn).toBe(true);
+        expect(r2!.seed).toBe(2); // untouched — dropping and renumbering happen at tournament start
+        expect(r2!.checkedIn).toBe(false);
       } finally {
         await dropGuild(guildId);
       }
@@ -522,7 +543,48 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
       }
     });
 
-    it('refuses as an assertion when active entrants are not seeded 1..N contiguously', async () => {
+    it('drops no-shows and renumbers survivors from 1 preserving order, appending unseeded check-ins in join order', async () => {
+      const guildId = `ts-start-collapse-${Date.now()}`;
+      await makeGuild(guildId, true);
+      try {
+        const t = await createTournament(prisma, guildId, 'T', ACTOR);
+        await openRegistration(prisma, t.id, ACTOR);
+        await closeRegistration(prisma, t.id, ACTOR);
+        await openCheckin(prisma, t.id, ACTOR);
+
+        // Seeded 1..4; seed 3 never checks in.
+        const e1 = await addEntrant(t.id, 'p1', { seed: 1, checkedIn: true });
+        const e2 = await addEntrant(t.id, 'p2', { seed: 2, checkedIn: true });
+        const e3 = await addEntrant(t.id, 'p3', { seed: 3, checkedIn: false });
+        const e4 = await addEntrant(t.id, 'p4', { seed: 4, checkedIn: true });
+        // Checked in but never seeded (data predating seed-at-join) — should
+        // land after the seeded survivors, ordered by when they joined.
+        const e5 = await addEntrant(t.id, 'p5', { checkedIn: true });
+        await closeCheckin(prisma, t.id, ACTOR);
+        for (let i = 0; i < 12; i++) {
+          await prisma.chart.create({
+            data: { tournamentId: t.id, title: `Song ${i}`, playStyle: 'SINGLE', difficulty: 'EXPERT', meter: 12 },
+          });
+        }
+
+        const result = await startTournament(prisma, sequentialRandomPort(guildId), t.id, new Map(), ACTOR);
+        expect(result.tournament.state).toBe('RUNNING');
+
+        const [r1, r2, r3, r4, r5] = await Promise.all(
+          [e1, e2, e3, e4, e5].map((id) => prisma.entrant.findUniqueOrThrow({ where: { id } })),
+        );
+        expect(r1!.seed).toBe(1);
+        expect(r2!.seed).toBe(2);
+        expect(r3!.seed).toBeNull(); // dropped — never checked in
+        expect(r3!.checkedIn).toBe(false); // status is not touched, per DESIGN.md
+        expect(r4!.seed).toBe(3); // renumbered down, relative order preserved
+        expect(r5!.seed).toBe(4); // unseeded check-in appended last
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('collapses a gap in the checked-in seed sequence automatically, rather than rejecting it', async () => {
       const guildId = `ts-start-badseed-${Date.now()}`;
       await makeGuild(guildId, true);
       try {
@@ -530,16 +592,25 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
         await openRegistration(prisma, t.id, ACTOR);
         await closeRegistration(prisma, t.id, ACTOR);
         await openCheckin(prisma, t.id, ACTOR);
-        // Bypasses closeCheckin's normalization to construct the broken
-        // invariant directly — this should never happen via the ordinary
-        // lifecycle, which is exactly why it's an assertion, not a gate.
-        await addEntrant(t.id, 'p1', { seed: 1, checkedIn: true });
-        await addEntrant(t.id, 'p2', { seed: 3, checkedIn: true });
-        await prisma.tournament.update({ where: { id: t.id }, data: { state: 'CHECKIN_CLOSED' } });
+        // A gap at 2 — e.g. left by a withdrawal after these seeds were
+        // assigned. Seeding stays open through CHECKIN_CLOSED (see
+        // `roster-service.ts`'s `reorderSeeds`), so this is an ordinary
+        // pre-start state, not a broken invariant to reject.
+        const e1 = await addEntrant(t.id, 'p1', { seed: 1, checkedIn: true });
+        const e2 = await addEntrant(t.id, 'p2', { seed: 3, checkedIn: true });
+        await closeCheckin(prisma, t.id, ACTOR);
+        for (let i = 0; i < 12; i++) {
+          await prisma.chart.create({
+            data: { tournamentId: t.id, title: `Song ${i}`, playStyle: 'SINGLE', difficulty: 'EXPERT', meter: 12 },
+          });
+        }
 
-        await expect(startTournament(prisma, sequentialRandomPort(guildId), t.id, new Map(), ACTOR)).rejects.toThrow(
-          TournamentTransitionError,
-        );
+        const result = await startTournament(prisma, sequentialRandomPort(guildId), t.id, new Map(), ACTOR);
+        expect(result.tournament.state).toBe('RUNNING');
+
+        const [r1, r2] = await Promise.all([e1, e2].map((id) => prisma.entrant.findUniqueOrThrow({ where: { id } })));
+        expect(r1!.seed).toBe(1);
+        expect(r2!.seed).toBe(2); // collapsed from 3, relative order preserved
       } finally {
         await dropGuild(guildId);
       }

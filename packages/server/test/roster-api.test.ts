@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { RosterController } from '../src/api/roster.controller.js';
 import { TierService } from '../src/auth/tier.service.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
+import { REALTIME_PORT } from '../src/realtime/realtime.tokens.js';
 import { rosterAdd, rosterCheckin } from '../src/services/roster-service.js';
 import { closeRegistration, createTournament, openCheckin, openRegistration } from '../src/services/tournament-service.js';
 import { isReachable, prisma } from './support.js';
@@ -15,6 +16,7 @@ describe.skipIf(!(await isReachable()))('GET/POST /api/tournaments/:id/roster an
   let tournamentId: string;
   let controller: RosterController;
   let hasTierResult: boolean;
+  const rosterChangedCalls: string[] = [];
 
   beforeAll(async () => {
     guildId = `api-roster-${Date.now()}`;
@@ -43,6 +45,7 @@ describe.skipIf(!(await isReachable()))('GET/POST /api/tournaments/:id/roster an
       providers: [
         { provide: PrismaService, useValue: prisma },
         { provide: TierService, useValue: { hasTier: async () => hasTierResult, resolveDisplayName: async (_guildId: string, discordUserId: string) => discordUserId } },
+        { provide: REALTIME_PORT, useValue: { publishRosterChanged: (id: string) => rosterChangedCalls.push(id) } },
       ],
     }).compile();
     controller = moduleRef.get(RosterController);
@@ -91,14 +94,18 @@ describe.skipIf(!(await isReachable()))('GET/POST /api/tournaments/:id/roster an
       await expect(controller.setSeeding(tournamentId, { order: ['bogus-id'] }, TO)).rejects.toBeInstanceOf(BadRequestException);
     });
 
-    it('reorders the roster and returns the updated wire shape', async () => {
+    it('reorders the roster, returns the updated wire shape, and broadcasts the change', async () => {
       hasTierResult = true;
       const before = await controller.getRoster(tournamentId, TO);
       const [a, b] = before;
+      rosterChangedCalls.length = 0;
       const reversed = await controller.setSeeding(tournamentId, { order: [b!.entrantId, a!.entrantId] }, TO);
 
       expect(reversed.find((e) => e.entrantId === b!.entrantId)!.seed).toBe(1);
       expect(reversed.find((e) => e.entrantId === a!.entrantId)!.seed).toBe(2);
+      // A browser with the seeding page open, on any surface, needs to
+      // hear about this — see `RealtimeBroadcastPort.publishRosterChanged`.
+      expect(rosterChangedCalls).toEqual([tournamentId]);
     });
   });
 });

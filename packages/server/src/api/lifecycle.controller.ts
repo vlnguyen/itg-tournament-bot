@@ -116,7 +116,7 @@ export class LifecycleController {
       }
       case 'CLOSE_CHECKIN': {
         const t = await closeCheckin(this.prisma, tournamentId, actorId);
-        await this.log(guildId, actorName, `Check-in is closed for **${t.name}** — seeds are renumbered and locked in.`);
+        await this.log(guildId, actorName, `Check-in is closed for **${t.name}**.`);
         await this.playerNotification.checkinClosed(guildId, t.name);
         return;
       }

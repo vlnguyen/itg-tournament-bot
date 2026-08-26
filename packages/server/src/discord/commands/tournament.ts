@@ -84,7 +84,7 @@ export async function handleTournament(interaction: ChatInputCommandInteraction,
         interaction,
         ctx,
         () => closeCheckin(ctx.prisma, tournament.id, interaction.user.id),
-        (t) => `Check-in is closed for **${t.name}** — seeds are renumbered and locked in.`,
+        (t) => `Check-in is closed for **${t.name}**.`,
         (t) => ctx.playerNotification.checkinClosed(interaction.guildId!, t.name),
       );
     case 'start':
@@ -149,7 +149,7 @@ async function handleStatus(interaction: ChatInputCommandInteraction, ctx: Comma
       lines.push("`/checkin` to confirm you're playing — or `/leave` if you can't make it.");
       break;
     case 'CHECKIN_CLOSED':
-      lines.push('Seeds are locked in — the tournament is about to start.');
+      lines.push('The tournament is about to start.');
       break;
   }
   await interaction.reply({ ephemeral: true, content: lines.join('\n') });

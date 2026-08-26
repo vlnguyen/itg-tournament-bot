@@ -117,7 +117,7 @@ export function createPlayerNotificationAdapter(client: Client, prisma: PrismaCl
     },
 
     async checkinClosed(guildId: string, tournamentName: string): Promise<void> {
-      await postToGeneralChannel(client, prisma, guildId, `Check-in is closed for **${tournamentName}** — seeds are renumbered and locked in.`);
+      await postToGeneralChannel(client, prisma, guildId, `Check-in is closed for **${tournamentName}**.`);
     },
 
     // Deliberately just the headline, not the operational detail (thread

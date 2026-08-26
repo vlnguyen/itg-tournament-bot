@@ -40,6 +40,7 @@ export async function handleJoin(interaction: ChatInputCommandInteraction, ctx: 
       await logToOrganizers(ctx.alert, interaction.guildId!, `📋 **${interaction.user.username}** joined the tournament.`);
       const displayName = memberDisplayName(interaction.member, interaction.user);
       await ctx.playerNotification.entrantJoined(interaction.guildId!, displayName);
+      ctx.realtime.publishRosterChanged(result.entrant.tournamentId);
       return;
     }
     case 'ALREADY_JOINED':
@@ -67,6 +68,7 @@ export async function handleCheckin(interaction: ChatInputCommandInteraction, ct
       await logToOrganizers(ctx.alert, interaction.guildId!, `📋 **${interaction.user.username}** checked in.`);
       const displayName = memberDisplayName(interaction.member, interaction.user);
       await ctx.playerNotification.entrantCheckedIn(interaction.guildId!, displayName);
+      ctx.realtime.publishRosterChanged(result.entrant.tournamentId);
       return;
     }
     case 'ALREADY_CHECKED_IN':
@@ -85,12 +87,12 @@ export async function handleCheckin(interaction: ChatInputCommandInteraction, ct
 }
 
 /**
- * "After check-in closes... a withdrawal re-runs the normalization
- * immediately... and raises an organizer alert, because a TO who committed
- * a seed order deserves to be told it changed." See DESIGN.md, "Leaving".
- * Every withdrawal is logged to organizers, not just the late one — the
- * late case gets the louder, ⚠️-prefixed phrasing since it's the one that
- * actually changed a settled seed order.
+ * "After check-in closes... a withdrawal... raises an organizer alert" —
+ * See DESIGN.md, "Leaving". Every withdrawal is logged to organizers, not
+ * just the late one — the late case gets the louder, ⚠️-prefixed phrasing
+ * since a TO reviewing the field right before starting deserves to know it
+ * just changed, even though seeding itself stays open (and gets collapsed)
+ * only at tournament start.
  */
 export async function handleLeave(interaction: ChatInputCommandInteraction, ctx: CommandContext): Promise<void> {
   if (!interaction.inGuild()) {
@@ -103,9 +105,10 @@ export async function handleLeave(interaction: ChatInputCommandInteraction, ctx:
     case 'LEFT': {
       await interaction.reply({ ephemeral: true, content: "You've withdrawn from the tournament." });
       const message = result.alertNeeded
-        ? `⚠️ **${interaction.user.username}** withdrew after check-in closed — seeds have been renumbered.`
+        ? `⚠️ **${interaction.user.username}** withdrew after check-in closed.`
         : `📋 **${interaction.user.username}** withdrew from the tournament.`;
       await logToOrganizers(ctx.alert, interaction.guildId!, message);
+      ctx.realtime.publishRosterChanged(result.entrant.tournamentId);
       return;
     }
     case 'NO_TOURNAMENT':

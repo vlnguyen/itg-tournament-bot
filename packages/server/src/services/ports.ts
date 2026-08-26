@@ -36,9 +36,22 @@ export function sequentialRandomPort(prefix = 'seed'): RandomPort {
  */
 export interface RealtimeBroadcastPort {
   publish(tournamentId: string, matchId: string, seq: number, projection: PublicMatch): void;
+  /**
+   * "The seeding page is sensitive to real-time roster changes" — a join,
+   * check-in, un-check-in, withdrawal, removal, or reorder from *any*
+   * surface (a Discord command included) needs to reach a browser with the
+   * roster/seeding page open. Unlike `publish`, this carries no payload:
+   * a roster row's shape is cheap to refetch in full and there's no
+   * `seq`-ordered projection to patch in place the way a match frame has,
+   * so the client just invalidates and refetches on receipt — the same
+   * "resync by refetch" posture DESIGN.md's Realtime section already uses
+   * for reconnection.
+   */
+  publishRosterChanged(tournamentId: string): void;
 }
 
 /** No-op for tests and any caller that doesn't care about realtime fan-out. */
 export const noopRealtimePort: RealtimeBroadcastPort = {
   publish: () => undefined,
+  publishRosterChanged: () => undefined,
 };

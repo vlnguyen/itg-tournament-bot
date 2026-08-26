@@ -1,4 +1,5 @@
 import {
+  AdminGuildList,
   ChartImport,
   ChartSnapshot,
   CreateTournamentResult,
@@ -68,6 +69,13 @@ export async function createTournamentForGuild(guildId: string, name: string): P
   });
   if (!res.ok) throw new ApiError(res.status, await describeError(res, `POST /api/guilds/${guildId}/tournaments -> ${res.status}`));
   return CreateTournamentResult.parse(await res.json()).tournamentId;
+}
+
+/** The Bot Administrator's read-only server list — 403s for anyone else, checked by the caller before rendering it as such. */
+export async function fetchAdminGuilds(): Promise<AdminGuildList> {
+  const res = await fetch('/api/admin/guilds');
+  if (!res.ok) throw new ApiError(res.status, await describeError(res, `GET /api/admin/guilds -> ${res.status}`));
+  return AdminGuildList.parse(await res.json());
 }
 
 const CurrentUser = z.object({ discordUserId: z.string().nullable() });

@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
 import { DiscordAdaptersModule } from '../discord/discord-adapters.module.js';
+import { DiscordModule } from '../discord/discord.module.js';
 import { RealtimeModule } from '../realtime/realtime.module.js';
+import { AdminController } from './admin.controller.js';
 import { ChartsController } from './charts.controller.js';
 import { GuildsController } from './guilds.controller.js';
 import { LifecycleController } from './lifecycle.controller.js';
@@ -12,7 +14,7 @@ import { RulingsController } from './rulings.controller.js';
 import { TournamentsController } from './tournaments.controller.js';
 
 @Module({
-  imports: [AuthModule, DiscordAdaptersModule, RealtimeModule],
+  imports: [AuthModule, DiscordAdaptersModule, DiscordModule, RealtimeModule],
   controllers: [
     TournamentsController,
     MatchesController,
@@ -22,6 +24,7 @@ import { TournamentsController } from './tournaments.controller.js';
     RulingsController,
     RosterController,
     LifecycleController,
+    AdminController,
   ],
 })
 export class ApiModule {}

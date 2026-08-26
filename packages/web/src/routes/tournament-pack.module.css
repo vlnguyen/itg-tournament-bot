@@ -1,0 +1,6 @@
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mantine-spacing-sm);
+  align-items: flex-end;
+}

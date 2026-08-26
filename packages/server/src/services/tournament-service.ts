@@ -97,19 +97,28 @@ export async function findActiveTournament(tx: Tx, guildId: string): Promise<Tou
 }
 
 /**
+ * The *public* notion of "the guild's current tournament" — distinct from
+ * `findActiveTournament`: `DRAFT` is excluded, since "nothing public has
+ * happened yet... naming it would announce a tournament before its
+ * organizer chose to," per `discord/commands/tournament.ts`'s
+ * `handleStatus`. Shared by the landing-page redirect and `/pack`, which
+ * both need "is there a live one right now," not a fallback to history —
+ * `/pack` in particular: "a link to a past pack comes from that
+ * tournament's archived page, which is permanent anyway."
+ */
+export async function findPublicCurrentTournament(tx: Tx, guildId: string): Promise<Tournament | null> {
+  return tx.tournament.findFirst({ where: { guildId, state: { notIn: ['DRAFT', 'COMPLETE', 'CANCELLED'] } } });
+}
+
+/**
  * "A server's landing page redirects to whichever tournament is currently
  * active, or to the most recent one when nothing is running." See
- * DESIGN.md, "Permanent URLs". Distinct from `findActiveTournament`: this
- * is the *public* notion of "current," so `DRAFT` is excluded — "nothing
- * public has happened yet... naming it would announce a tournament before
- * its organizer chose to," per `discord/commands/tournament.ts`'s
- * `handleStatus`. Falls back to the most recently created non-`DRAFT`
- * tournament (`COMPLETE` or `CANCELLED`) when nothing is currently running.
+ * DESIGN.md, "Permanent URLs". Falls back to the most recently created
+ * non-`DRAFT` tournament (`COMPLETE` or `CANCELLED`) when nothing is
+ * currently running — the one place a past tournament is a valid answer.
  */
 export async function resolvePublicLandingTournament(tx: Tx, guildId: string): Promise<Tournament | null> {
-  const running = await tx.tournament.findFirst({
-    where: { guildId, state: { notIn: ['DRAFT', 'COMPLETE', 'CANCELLED'] } },
-  });
+  const running = await findPublicCurrentTournament(tx, guildId);
   if (running) return running;
   return tx.tournament.findFirst({
     where: { guildId, state: { not: 'DRAFT' } },

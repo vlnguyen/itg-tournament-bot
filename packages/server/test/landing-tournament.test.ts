@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { resolvePublicLandingTournament } from '../src/services/tournament-service.js';
+import { findPublicCurrentTournament, resolvePublicLandingTournament } from '../src/services/tournament-service.js';
 import { isReachable, prisma } from './support.js';
 
 /**
@@ -51,5 +51,43 @@ describe.skipIf(!(await isReachable()))('resolvePublicLandingTournament', () => 
     const newer = await tournament(guildId, 'newer', 'CANCELLED');
     const result = await resolvePublicLandingTournament(prisma, guildId);
     expect(result?.id).toBe(newer.id);
+  });
+});
+
+/** Backs `/pack` — unlike the landing page, this never falls back to a past tournament: "a link to a past pack comes from that tournament's archived page, which is permanent anyway." */
+describe.skipIf(!(await isReachable()))('findPublicCurrentTournament', () => {
+  const guildIds: string[] = [];
+  afterEach(async () => {
+    for (const id of guildIds.splice(0)) await prisma.guild.delete({ where: { id } }).catch(() => undefined);
+  });
+
+  async function makeGuild(): Promise<string> {
+    const id = `pack-current-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    await prisma.guild.create({ data: { id } });
+    guildIds.push(id);
+    return id;
+  }
+
+  const tournament = (guildId: string, name: string, state: string) =>
+    prisma.tournament.create({
+      data: { guildId, name, defaultFormatKey: 'bo5-protect-veto', config: {}, state: state as never },
+    });
+
+  it('returns null for a DRAFT tournament — not yet announced', async () => {
+    const guildId = await makeGuild();
+    await tournament(guildId, 'draft', 'DRAFT');
+    expect(await findPublicCurrentTournament(prisma, guildId)).toBeNull();
+  });
+
+  it('returns null once the tournament is COMPLETE, even though it just finished', async () => {
+    const guildId = await makeGuild();
+    await tournament(guildId, 'done', 'COMPLETE');
+    expect(await findPublicCurrentTournament(prisma, guildId)).toBeNull();
+  });
+
+  it('returns a REGISTRATION_OPEN tournament', async () => {
+    const guildId = await makeGuild();
+    const t = await tournament(guildId, 'open', 'REGISTRATION_OPEN');
+    expect((await findPublicCurrentTournament(prisma, guildId))?.id).toBe(t.id);
   });
 });

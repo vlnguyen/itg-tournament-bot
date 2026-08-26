@@ -1,6 +1,7 @@
 import type { AutocompleteInteraction, ChatInputCommandInteraction } from 'discord.js';
 import type { CommandContext } from './context.js';
 import { handleCommands } from './help.js';
+import { handlePack } from './pack.js';
 import { handleCheckin, handleJoin, handleLeave } from './registration.js';
 import { handleRoster } from './roster.js';
 import { handleDq, handleDqAutocomplete } from './rulings.js';
@@ -43,6 +44,8 @@ export async function dispatchChatInputCommand(
       return handleDq(interaction, ctx);
     case 'commands':
       return handleCommands(interaction, ctx);
+    case 'pack':
+      return handlePack(interaction, ctx);
     default:
       return notImplemented(interaction);
   }

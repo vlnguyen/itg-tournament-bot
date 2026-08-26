@@ -1,11 +1,13 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { generateBracket, matchKey, PublicMatch, TournamentSnapshot } from '@itg/shared';
+import { generateBracket, matchKey, PublicMatch, TournamentSnapshot, type ChartInput } from '@itg/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { ChartsController } from '../src/api/charts.controller.js';
 import { GuildsController } from '../src/api/guilds.controller.js';
 import { MatchesController } from '../src/api/matches.controller.js';
 import { PlayersController } from '../src/api/players.controller.js';
 import { TournamentsController } from '../src/api/tournaments.controller.js';
+import { TierService } from '../src/auth/tier.service.js';
 import { materializeBracket } from '../src/services/bracket-service.js';
 import { cryptoRandomPort, sequentialRandomPort } from '../src/services/ports.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
@@ -162,5 +164,87 @@ describe.skipIf(!(await isReachable()))('standings and player pages, against a c
 
   it('404s for a discord user who never played in this guild', async () => {
     await expect(playersController.getPlayer(t.guildId, 'never-played')).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+const validChart: ChartInput = {
+  title: 'Test Song',
+  titleTranslit: null,
+  subtitle: null,
+  subtitleTranslit: null,
+  artist: null,
+  artistTranslit: null,
+  playStyle: 'SINGLE',
+  difficulty: 'EXPERT',
+  meter: 12,
+  stepartist: null,
+  description: null,
+  sourcePack: 'Test Pack',
+  flags: [],
+};
+
+/**
+ * `ChartsController`'s POST route is the first real usage of the tier-auth
+ * machinery from step 4 (`TierService`, `@CurrentUser()`) against a live
+ * route — faked here rather than wired to a real Discord gateway/session
+ * cookie, the same way `PrismaService` is faked with the real test
+ * database elsewhere in this file.
+ */
+describe.skipIf(!(await isReachable()))('song pack import — GET/POST /api/tournaments/:id/charts', () => {
+  let t: TestTournament;
+  let chartsController: ChartsController;
+  let hasTierResult: boolean;
+
+  beforeAll(async () => {
+    t = await makeTournament(`api-charts-${Date.now()}`, 2);
+
+    const moduleRef = await Test.createTestingModule({
+      controllers: [ChartsController],
+      providers: [
+        { provide: PrismaService, useValue: prisma },
+        { provide: TierService, useValue: { hasTier: async () => hasTierResult } },
+      ],
+    }).compile();
+    chartsController = moduleRef.get(ChartsController);
+  });
+  afterAll(() => cleanupTournament(t));
+
+  it('GET returns the pack the fixture already seeded, as ChartSnapshots', async () => {
+    const body = await chartsController.getCharts(t.tournamentId);
+    expect(body.length).toBeGreaterThan(0);
+    expect(body[0]).toHaveProperty('chartId');
+  });
+
+  it('GET 404s for an id that does not exist', async () => {
+    await expect(chartsController.getCharts('does-not-exist')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('POST rejects an unauthenticated request', async () => {
+    hasTierResult = true; // irrelevant — no discordUserId at all short-circuits first
+    await expect(chartsController.importCharts(t.tournamentId, { charts: [validChart] }, null)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('POST rejects a signed-in user below Tournament Organizer tier', async () => {
+    hasTierResult = false;
+    await expect(chartsController.importCharts(t.tournamentId, { charts: [validChart] }, 'some-user')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('POST rejects a malformed payload with 400, not 500 — the client fully controls this payload', async () => {
+    hasTierResult = true;
+    await expect(chartsController.importCharts(t.tournamentId, { charts: [{ title: '' }] }, 'organizer')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('POST persists a valid import for an authorized organizer, additively', async () => {
+    hasTierResult = true;
+    const before = await chartsController.getCharts(t.tournamentId);
+    const result = await chartsController.importCharts(t.tournamentId, { charts: [validChart] }, 'organizer');
+    expect(result.imported).toBe(1);
+    const after = await chartsController.getCharts(t.tournamentId);
+    expect(after.length).toBe(before.length + 1);
+    expect(after.some((c) => c.title === 'Test Song')).toBe(true);
   });
 });

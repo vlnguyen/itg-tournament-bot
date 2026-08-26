@@ -1,4 +1,5 @@
-import { LandingTournament, PlayerPage, PublicMatch, Standings, TournamentSnapshot } from '@itg/shared';
+import { ChartImport, ChartSnapshot, LandingTournament, PlayerPage, PublicMatch, Standings, TournamentSnapshot } from '@itg/shared';
+import { z } from 'zod';
 
 /**
  * Thin fetch wrappers, always validated against the same zod schemas the
@@ -45,4 +46,23 @@ export async function fetchPlayerPage(guildId: string, discordUserId: string): P
   const res = await fetch(`/api/guilds/${guildId}/players/${discordUserId}`);
   if (!res.ok) throw new ApiError(res.status, `GET /api/guilds/${guildId}/players/${discordUserId} -> ${res.status}`);
   return PlayerPage.parse(await res.json());
+}
+
+export async function fetchCharts(tournamentId: string): Promise<ChartSnapshot[]> {
+  const res = await fetch(`/api/tournaments/${tournamentId}/charts`);
+  if (!res.ok) throw new ApiError(res.status, `GET /api/tournaments/${tournamentId}/charts -> ${res.status}`);
+  return z.array(ChartSnapshot).parse(await res.json());
+}
+
+const ImportResult = z.object({ imported: z.number().int().nonnegative() });
+
+/** Server-side re-validates against this exact `ChartImport` shape regardless — see DESIGN.md, "the client fully controls that payload." */
+export async function importCharts(tournamentId: string, charts: ChartImport['charts']): Promise<{ imported: number }> {
+  const res = await fetch(`/api/tournaments/${tournamentId}/charts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ charts }),
+  });
+  if (!res.ok) throw new ApiError(res.status, `POST /api/tournaments/${tournamentId}/charts -> ${res.status}`);
+  return ImportResult.parse(await res.json());
 }

@@ -62,7 +62,8 @@ export default function PlayerPage(): JSX.Element {
                 {m.bracket === 'WINNERS' ? 'W' : m.bracket === 'LOSERS' ? 'L' : 'GF'}
                 {m.round}
               </Table.Td>
-              <Table.Td>{m.opponentDisplayName ?? '—'}</Table.Td>
+              {/* `null` only ever means this was a bye — every real, seated opponent always has a name. */}
+              <Table.Td>{m.opponentDisplayName ?? 'BYE'}</Table.Td>
               <Table.Td>
                 {m.points}–{m.opponentPoints}
               </Table.Td>

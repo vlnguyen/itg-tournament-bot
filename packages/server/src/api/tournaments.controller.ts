@@ -1,8 +1,10 @@
 import type { RunView as RunViewWire, Standings as StandingsWire, TournamentSnapshot as TournamentSnapshotWire } from '@itg/shared';
 import { RunView as RunViewSchema, Standings as StandingsSchema, TournamentSnapshot as TournamentSnapshotSchema } from '@itg/shared';
+import type { Client } from 'discord.js';
 import { Controller, ForbiddenException, Get, Inject, NotFoundException, Param } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { TierService } from '../auth/tier.service.js';
+import { DISCORD_CLIENT } from '../discord/discord.tokens.js';
 import { Tier } from '../discord/tier.js';
 import { entrantDisplayNamesForTournament } from './entrant-names.js';
 import { toBracketMatch } from '../domain/projection.js';
@@ -25,6 +27,7 @@ export class TournamentsController {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(TierService) private readonly tierService: TierService,
+    @Inject(DISCORD_CLIENT) private readonly client: Client,
   ) {}
 
   @Get(':id')
@@ -38,10 +41,16 @@ export class TournamentsController {
       entrantDisplayNamesForTournament(this.prisma, id),
     ]);
 
+    // `Guild` rows carry no cached name — resolved live from the bot's
+    // own client, same source `TierService.guildsFor` already trusts.
+    const guild = this.client.guilds.cache.get(tournament.guildId);
+
     return TournamentSnapshotSchema.parse({
       id: tournament.id,
       name: tournament.name,
       state: tournament.state,
+      guildId: tournament.guildId,
+      guildName: guild?.name ?? tournament.guildId,
       entrantCount,
       matches: matches.map((m) => {
         const format = requireFormat(m.formatKey);

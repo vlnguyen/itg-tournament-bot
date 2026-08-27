@@ -3,6 +3,7 @@ import type {
   CreateTournamentResult as CreateTournamentResultWire,
   FirstRunStatus as FirstRunStatusWire,
   GuildOverview as GuildOverviewWire,
+  GuildSummary as GuildSummaryWire,
   TournamentSummary,
 } from '@itg/shared';
 import {
@@ -10,6 +11,7 @@ import {
   CreateTournamentResult as CreateTournamentResultSchema,
   FirstRunStatus as FirstRunStatusSchema,
   GuildOverview as GuildOverviewSchema,
+  GuildSummary as GuildSummarySchema,
 } from '@itg/shared';
 import type { Tournament } from '@prisma/client';
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, Param, Post } from '@nestjs/common';
@@ -45,6 +47,18 @@ export class GuildsController {
     @Inject(TierService) private readonly tierService: TierService,
   ) {}
 
+  /**
+   * `GET /api/guilds` — the homepage's server list. Always the caller's
+   * own guilds (`@CurrentUser()`), never a lookup by some other id; a
+   * signed-out request just gets `[]`, the same as anyone else asking
+   * "what are *my* guilds" with no identity to answer for.
+   */
+  @Get()
+  async listMine(@CurrentUser() discordUserId: string | null): Promise<GuildSummaryWire[]> {
+    const guilds = discordUserId ? await this.tierService.guildsFor(discordUserId) : [];
+    return GuildSummarySchema.array().parse(guilds);
+  }
+
   @Get(':guildId/overview')
   async getOverview(@Param('guildId') guildId: string): Promise<GuildOverviewWire> {
     const [active, history] = await Promise.all([
@@ -73,7 +87,7 @@ export class GuildsController {
       : false;
 
     if (!canManage) {
-      return FirstRunStatusSchema.parse({ canManage: false, missingConfig: [], draftTournamentId: null });
+      return FirstRunStatusSchema.parse({ canManage: false, missingConfig: [], draftTournamentId: null, draftTournamentName: null });
     }
 
     const [guild, draft] = await Promise.all([
@@ -84,6 +98,7 @@ export class GuildsController {
       canManage: true,
       missingConfig: missingGuildConfig(guild),
       draftTournamentId: draft?.id ?? null,
+      draftTournamentName: draft?.name ?? null,
     });
   }
 

@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { Client, GuildMember, PermissionFlagsBits } from 'discord.js';
+import { Client, Guild, GuildMember, PermissionFlagsBits } from 'discord.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { DISCORD_CLIENT } from '../discord/discord.tokens.js';
 import { hasTier, Tier, tierOf, type TierRoleConfig } from '../discord/tier.js';
@@ -80,16 +80,30 @@ export class TierService {
     return user?.globalName ?? user?.username ?? discordUserId;
   }
 
+  /**
+   * The homepage's server list: DESIGN.md's rejection of the `guilds`
+   * OAuth scope ("which servers a user may act in is resolved from role
+   * membership in the gateway cache") generalizes cleanly from "is this
+   * user a member of *this* guild" to "which of the bot's guilds is this
+   * user a member of" — no new scope or token storage needed, just
+   * `memberIn` run across every guild the bot is already in instead of
+   * one looked up by id.
+   */
+  async guildsFor(discordUserId: string): Promise<{ id: string; name: string; iconUrl: string | null }[]> {
+    const guilds = [...this.client.guilds.cache.values()];
+    const results = await Promise.all(
+      guilds.map(async (guild) => ({ guild, member: await this.memberIn(guild, discordUserId) })),
+    );
+    return results.filter((r) => r.member !== null).map((r) => ({ id: r.guild.id, name: r.guild.name, iconUrl: r.guild.iconURL({ size: 64 }) }));
+  }
+
   private async tierConfigFor(guildId: string): Promise<TierRoleConfig> {
     const guildRow = await this.prisma.guild.findUnique({ where: { id: guildId } });
     return guildRow ?? EMPTY_TIER_CONFIG;
   }
 
   /** Cache first — a fetch only crosses the gateway when a member was never observed. */
-  private async memberOf(guildId: string, discordUserId: string): Promise<GuildMember | null> {
-    const guild = this.client.guilds.cache.get(guildId);
-    if (!guild) return null;
-
+  private async memberIn(guild: Guild, discordUserId: string): Promise<GuildMember | null> {
     const cached = guild.members.cache.get(discordUserId);
     if (cached) return cached;
 
@@ -99,6 +113,12 @@ export class TierService {
       // Not a member of this guild — left, never joined, or the fetch failed.
       return null;
     }
+  }
+
+  private async memberOf(guildId: string, discordUserId: string): Promise<GuildMember | null> {
+    const guild = this.client.guilds.cache.get(guildId);
+    if (!guild) return null;
+    return this.memberIn(guild, discordUserId);
   }
 
   private async memberRoleIds(guildId: string, discordUserId: string): Promise<string[]> {

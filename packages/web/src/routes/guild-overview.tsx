@@ -178,6 +178,16 @@ export default function GuildOverview(): JSX.Element {
     queryFn: () => fetchGuildOverview(guildId!),
     enabled: Boolean(guildId),
   });
+  // `GuildOverview` itself never surfaces a `DRAFT` tournament — it's
+  // public, unauthenticated. Whoever can create a tournament here should
+  // still see the one already in draft instead of a plain "nothing
+  // running," the same privileged reveal `FirstRunWizard` already makes;
+  // `canManage`/`draftTournamentId` are `null`-safe for anyone else.
+  const { data: firstRun } = useQuery({
+    queryKey: ['first-run', guildId],
+    queryFn: () => fetchFirstRunStatus(guildId!),
+    enabled: Boolean(guildId),
+  });
 
   if (isPending) {
     return (
@@ -204,7 +214,10 @@ export default function GuildOverview(): JSX.Element {
 
   return (
     <Stack gap="xl" p="md">
-      <Group justify="flex-end">
+      <Group justify="flex-end" gap="md">
+        <Anchor component={Link} to={`/g/${guildId}/dashboard`} size="sm">
+          Dashboard
+        </Anchor>
         <Anchor component={Link} to={`/g/${guildId}/setup`} size="sm">
           Server Settings
         </Anchor>
@@ -215,7 +228,7 @@ export default function GuildOverview(): JSX.Element {
           <Title order={2} size="h3">
             Active Tournament
           </Title>
-          {!data.activeTournament && <CreateTournamentButton guildId={guildId!} />}
+          {!data.activeTournament && !firstRun?.draftTournamentId && <CreateTournamentButton guildId={guildId!} />}
         </Group>
         {data.activeTournament ? (
           <Group gap="xs">
@@ -226,6 +239,27 @@ export default function GuildOverview(): JSX.Element {
               {STATE_LABEL[data.activeTournament.state]}
             </Badge>
           </Group>
+        ) : firstRun?.draftTournamentId ? (
+          <Table>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Tournament</Table.Th>
+                <Table.Th>Result</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              <Table.Tr>
+                <Table.Td>
+                  <Anchor component={Link} to={`/t/${firstRun.draftTournamentId}/config`}>
+                    {firstRun.draftTournamentName}
+                  </Anchor>
+                </Table.Td>
+                <Table.Td>
+                  <Badge {...(STATE_COLOR.DRAFT ? { color: STATE_COLOR.DRAFT } : {})}>{STATE_LABEL.DRAFT}</Badge>
+                </Table.Td>
+              </Table.Tr>
+            </Table.Tbody>
+          </Table>
         ) : (
           <Text c="dimmed">Nothing running right now.</Text>
         )}

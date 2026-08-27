@@ -5,6 +5,7 @@ import { Bo5ProtectVetoFormat as F } from '../src/domain/bo5.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { TournamentsController } from '../src/api/tournaments.controller.js';
 import { TierService } from '../src/auth/tier.service.js';
+import { DISCORD_CLIENT } from '../src/discord/discord.tokens.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { materializeBracket } from '../src/services/bracket-service.js';
 import { appendMatchEvent } from '../src/services/match-service.js';
@@ -114,6 +115,7 @@ describe.skipIf(!(await isReachable()))('run view', () => {
         providers: [
           { provide: PrismaService, useValue: prisma },
           { provide: TierService, useValue: { hasTier: async () => hasTierResult } },
+          { provide: DISCORD_CLIENT, useValue: { guilds: { cache: new Map(), fetch: async () => null } } },
         ],
       }).compile();
       controller = moduleRef.get(TournamentsController);

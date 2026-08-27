@@ -10,6 +10,8 @@ function fullSnapshot(entrantCount: number): TournamentSnapshot {
     id: 't1',
     name: 'Test',
     state: 'RUNNING',
+    guildId: 'g1',
+    guildName: 'Test Guild',
     entrantCount,
     matches: generated.matches.map((gm, i) => ({
       id: `m${i}`,

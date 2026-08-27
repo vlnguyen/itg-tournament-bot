@@ -218,6 +218,9 @@ export const TournamentSnapshot = z.object({
   id: z.string().min(1),
   name: z.string(),
   state: TournamentState,
+  /** The Discord guild this tournament belongs to — resolved live from the bot's own client, since `Guild` rows carry no cached name. Lets a page link back to `/g/:guildId` without a second fetch. */
+  guildId: z.string().min(1),
+  guildName: z.string(),
   /**
    * Seeded entrant count at bracket generation — `entrantCountAtStart`
    * server-side. The client feeds this straight into `generateBracket`

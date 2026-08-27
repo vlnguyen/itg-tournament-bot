@@ -11,6 +11,21 @@ export const TournamentSummary = z.object({
 export type TournamentSummary = z.infer<typeof TournamentSummary>;
 
 /**
+ * `GET /api/guilds` — the homepage's server list, DESIGN.md's "the list of
+ * servers the user belongs to... where the bot is present." Resolved
+ * bot-side (which of the bot's own guilds is this signed-in user a member
+ * of), not from Discord's `guilds` OAuth scope — see `TierService.
+ * guildsFor`'s comment. `iconUrl` is `null` whenever the guild has no icon
+ * set; the client supplies its own fallback.
+ */
+export const GuildSummary = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  iconUrl: z.string().nullable(),
+});
+export type GuildSummary = z.infer<typeof GuildSummary>;
+
+/**
  * `GET /api/guilds/:guildId/overview` — the `/g/:guildId` page itself, not
  * a redirect into one tournament. `activeTournament` is the same "public
  * current tournament" notion `/pack` uses (`findPublicCurrentTournament`):
@@ -43,6 +58,7 @@ export const FirstRunStatus = z.object({
   canManage: z.boolean(),
   missingConfig: z.array(z.string()),
   draftTournamentId: z.string().min(1).nullable(),
+  draftTournamentName: z.string().nullable(),
 });
 export type FirstRunStatus = z.infer<typeof FirstRunStatus>;
 

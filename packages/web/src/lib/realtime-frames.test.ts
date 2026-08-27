@@ -41,6 +41,8 @@ function snapshotWith(matchId: string, seq = 2): TournamentSnapshot {
     id: 't1',
     name: 'Test',
     state: 'RUNNING',
+    guildId: 'g1',
+    guildName: 'Test Guild',
     entrantCount: 2,
     matches: [
       {

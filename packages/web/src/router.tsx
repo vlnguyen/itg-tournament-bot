@@ -20,6 +20,7 @@ export const router = createBrowserRouter([
       { path: '/', lazy: () => import('./routes/public-home').then((m) => ({ Component: m.default })) },
       { path: '/g/:guildId', lazy: () => import('./routes/guild-overview').then((m) => ({ Component: m.default })) },
       { path: '/g/:guildId/setup', lazy: () => import('./routes/guild-setup').then((m) => ({ Component: m.default })) },
+      { path: '/g/:guildId/dashboard', lazy: () => import('./routes/guild-dashboard').then((m) => ({ Component: m.default })) },
       { path: '/t/:tournamentId', lazy: () => import('./routes/tournament-bracket').then((m) => ({ Component: m.default })) },
       {
         path: '/t/:tournamentId/matches/:matchId',

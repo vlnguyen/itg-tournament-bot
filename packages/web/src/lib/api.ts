@@ -5,6 +5,7 @@ import {
   CreateTournamentResult,
   FirstRunStatus,
   GuildOverview,
+  GuildSummary,
   LifecycleRequest,
   LifecycleStatus,
   PlayerPage,
@@ -47,6 +48,13 @@ export async function fetchMatch(matchId: string): Promise<PublicMatch> {
   const res = await fetch(`/api/matches/${matchId}`);
   if (!res.ok) throw new ApiError(res.status, `GET /api/matches/${matchId} -> ${res.status}`);
   return PublicMatch.parse(await res.json());
+}
+
+/** The homepage's server list — the guilds the signed-in user shares with the bot. `[]` for a signed-out request, never an error. */
+export async function fetchMyGuilds(): Promise<GuildSummary[]> {
+  const res = await fetch('/api/guilds');
+  if (!res.ok) throw new ApiError(res.status, `GET /api/guilds -> ${res.status}`);
+  return GuildSummary.array().parse(await res.json());
 }
 
 /** The `/g/:guildId` page itself — an active tournament, some history, or both empty. Never 404s; see the controller's comment. */

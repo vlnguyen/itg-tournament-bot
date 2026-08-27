@@ -35,6 +35,14 @@ export const PlayerMatchRow = z.object({
 });
 export type PlayerMatchRow = z.infer<typeof PlayerMatchRow>;
 
+/** DESIGN.md, "The dashboard": "a link straight into your live match thread" — this player's current `IN_PROGRESS` match in this guild, if any. Never leaked from `PlayerMatchRow`, which is decided matches only. */
+export const PlayerLiveMatch = z.object({
+  tournamentId: z.string().min(1),
+  tournamentName: z.string(),
+  matchId: z.string().min(1),
+});
+export type PlayerLiveMatch = z.infer<typeof PlayerLiveMatch>;
+
 export const PlayerPage = z.object({
   discordUserId: z.string().min(1),
   /** From the `User` cache — the player's *current* name, never a historical snapshot. Falls back to their most recent tournament snapshot when they've never signed in. */
@@ -42,5 +50,6 @@ export const PlayerPage = z.object({
   wins: z.number().int().nonnegative(),
   losses: z.number().int().nonnegative(),
   matches: z.array(PlayerMatchRow),
+  liveMatch: PlayerLiveMatch.nullable(),
 });
 export type PlayerPage = z.infer<typeof PlayerPage>;

@@ -106,7 +106,7 @@ function TiebreakRoundSection({ t, pub }: { t: PublicMatch['tiebreaks'][number];
       <Table>
         <Table.Thead>
           <Table.Tr>
-            <Table.Th style={{ width: '1%', whiteSpace: 'nowrap' }}>#</Table.Th>
+            <Table.Th style={{ width: '1%', minWidth: '3em', whiteSpace: 'nowrap' }}>#</Table.Th>
             <Table.Th>Chart</Table.Th>
             <Table.Th>Level</Table.Th>
             <Table.Th>{resolved ? 'Voted for by' : 'Status'}</Table.Th>
@@ -197,12 +197,17 @@ export default function MatchDetail(): JSX.Element {
     );
   } else {
     const [p0, p1] = pub.participants;
+    // One slot was never real, not merely unfilled yet — see
+    // `match-cell.tsx`'s own bye handling. Only one seat is ever seated
+    // for a bye, so "vs TBD" would be misleading here the same way it
+    // would be on the bracket cell.
+    const isBye = pub.participants.length < 2 && pub.outcome?.by === 'WALKOVER';
 
     content = (
       <>
         <div>
           <Title order={1}>
-            {p0?.displayName ?? 'TBD'} vs {p1?.displayName ?? 'TBD'}
+            {isBye ? `${p0?.displayName ?? p1?.displayName ?? 'TBD'} (BYE)` : `${p0?.displayName ?? 'TBD'} vs ${p1?.displayName ?? 'TBD'}`}
           </Title>
           <Text c="dimmed">{sectionLabel(pub.bracket, pub.round)}</Text>
           <Group gap="xs">
@@ -301,7 +306,7 @@ export default function MatchDetail(): JSX.Element {
 
   return (
     <Stack gap="lg" p="md">
-      <TournamentHeader tournamentId={tournamentId!} />
+      <TournamentHeader tournamentId={tournamentId!} showGuild />
       {content}
     </Stack>
   );

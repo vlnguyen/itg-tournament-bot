@@ -49,14 +49,14 @@ describe.skipIf(!(await isReachable()))('GET /api/guilds/:guildId/first-run', ()
     hasManageGuildResult = true; // irrelevant — CurrentUser is null below
     hasTierResult = true;
     const body = await controller.getFirstRun(guildId, null);
-    expect(body).toEqual({ canManage: false, missingConfig: [], draftTournamentId: null });
+    expect(body).toEqual({ canManage: false, missingConfig: [], draftTournamentId: null, draftTournamentName: null });
   });
 
   it('reveals nothing to a signed-in viewer with neither Manage Guild nor Tournament Organizer tier here', async () => {
     hasManageGuildResult = false;
     hasTierResult = false;
     const body = await controller.getFirstRun(guildId, 'someone');
-    expect(body).toEqual({ canManage: false, missingConfig: [], draftTournamentId: null });
+    expect(body).toEqual({ canManage: false, missingConfig: [], draftTournamentId: null, draftTournamentName: null });
   });
 
   it('reports the missing-config checklist for a Manage Guild holder, even with no draft tournament', async () => {
@@ -78,6 +78,7 @@ describe.skipIf(!(await isReachable()))('GET /api/guilds/:guildId/first-run', ()
     const body = await controller.getFirstRun(guildId, 'a-to');
     expect(body.canManage).toBe(true);
     expect(body.draftTournamentId).toBe(draft.id);
+    expect(body.draftTournamentName).toBe('draft');
   });
 
   it('never surfaces a non-DRAFT tournament as the draft', async () => {

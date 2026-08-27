@@ -13,12 +13,19 @@ export interface PlayerMatchRow {
   won: boolean;
 }
 
+export interface PlayerLiveMatch {
+  tournamentId: string;
+  tournamentName: string;
+  matchId: string;
+}
+
 export interface PlayerPageData {
   discordUserId: string;
   currentDisplayName: string;
   wins: number;
   losses: number;
   matches: PlayerMatchRow[];
+  liveMatch: PlayerLiveMatch | null;
 }
 
 /**
@@ -27,6 +34,13 @@ export interface PlayerPageData {
  * cache, while every row shows the name they competed under in that
  * tournament, from `Entrant.displayName`." Only `COMPLETE` matches are
  * history — an in-progress one has no final score to show here.
+ *
+ * `liveMatch` is the exception: DESIGN.md's "The dashboard" wants "a link
+ * straight into your live match thread," which is exactly this player's
+ * `IN_PROGRESS` match, if any — the same `matchParticipant.findFirst`
+ * shape `advancement-service.ts`'s `disqualifyFromTournament` already uses
+ * to find one entrant's live match, generalized across every entrant row
+ * this player has in the guild rather than just one.
  */
 export async function getPlayerPage(prisma: PrismaClient, guildId: string, discordUserId: string): Promise<PlayerPageData | null> {
   const entrants = await prisma.entrant.findMany({
@@ -38,6 +52,16 @@ export async function getPlayerPage(prisma: PrismaClient, guildId: string, disco
 
   const user = await prisma.user.findUnique({ where: { discordUserId } });
   const currentDisplayName = user?.displayName ?? entrants[0]!.displayName ?? discordUserId;
+
+  const entrantsById = new Map(entrants.map((e) => [e.id, e]));
+  const live = await prisma.matchParticipant.findFirst({
+    where: { entrantId: { in: entrants.map((e) => e.id) }, match: { status: 'IN_PROGRESS' } },
+    select: { entrantId: true, matchId: true },
+  });
+  const liveEntrant = live ? entrantsById.get(live.entrantId) : undefined;
+  const liveMatch: PlayerLiveMatch | null = live && liveEntrant
+    ? { tournamentId: liveEntrant.tournamentId, tournamentName: liveEntrant.tournament.name, matchId: live.matchId }
+    : null;
 
   const matches: PlayerMatchRow[] = [];
   let wins = 0;
@@ -70,5 +94,5 @@ export async function getPlayerPage(prisma: PrismaClient, guildId: string, disco
     }
   }
 
-  return { discordUserId, currentDisplayName, wins, losses, matches };
+  return { discordUserId, currentDisplayName, wins, losses, matches, liveMatch };
 }

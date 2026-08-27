@@ -8,6 +8,7 @@ import { MatchesController } from '../src/api/matches.controller.js';
 import { PlayersController } from '../src/api/players.controller.js';
 import { TournamentsController } from '../src/api/tournaments.controller.js';
 import { TierService } from '../src/auth/tier.service.js';
+import { DISCORD_CLIENT } from '../src/discord/discord.tokens.js';
 import { materializeBracket } from '../src/services/bracket-service.js';
 import { cryptoRandomPort, sequentialRandomPort } from '../src/services/ports.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
@@ -34,7 +35,11 @@ describe.skipIf(!(await isReachable()))('public REST routes', () => {
 
     const moduleRef = await Test.createTestingModule({
       controllers: [MatchesController, TournamentsController, GuildsController],
-      providers: [{ provide: PrismaService, useValue: prisma }, { provide: TierService, useValue: { hasTier: async () => true } }],
+      providers: [
+        { provide: PrismaService, useValue: prisma },
+        { provide: TierService, useValue: { hasTier: async () => true } },
+        { provide: DISCORD_CLIENT, useValue: { guilds: { cache: new Map(), fetch: async () => null } } },
+      ],
     }).compile();
     matchesController = moduleRef.get(MatchesController);
     tournamentsController = moduleRef.get(TournamentsController);
@@ -141,7 +146,11 @@ describe.skipIf(!(await isReachable()))('standings and player pages, against a c
 
     const moduleRef = await Test.createTestingModule({
       controllers: [TournamentsController, PlayersController],
-      providers: [{ provide: PrismaService, useValue: prisma }, { provide: TierService, useValue: { hasTier: async () => true } }],
+      providers: [
+        { provide: PrismaService, useValue: prisma },
+        { provide: TierService, useValue: { hasTier: async () => true } },
+        { provide: DISCORD_CLIENT, useValue: { guilds: { cache: new Map(), fetch: async () => null } } },
+      ],
     }).compile();
     tournamentsController = moduleRef.get(TournamentsController);
     playersController = moduleRef.get(PlayersController);

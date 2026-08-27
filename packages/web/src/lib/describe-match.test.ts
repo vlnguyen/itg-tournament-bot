@@ -61,4 +61,28 @@ describe('describeMatch', () => {
     const m = base({ status: 'COMPLETE', outcomeBy: 'AGREEMENT', points: { a: 3, b: 1 }, winnerId: 'a' });
     expect(describeMatch(m)).toBe('seed 1 Alice, 3, winner, versus seed 2 Bob, 1. Complete.');
   });
+
+  it('reports DQ instead of a played score for the DQd loser', () => {
+    const m = base({ status: 'COMPLETE', outcomeBy: 'DQ', points: { a: 2, b: 0 }, winnerId: 'a' });
+    expect(describeMatch(m)).toBe('seed 1 Alice, 2, winner, versus seed 2 Bob, DQ. Complete.');
+  });
+
+  it('reports DQ instead of a played score for a walkover between two real, already-seated entrants', () => {
+    // Both finalists were seeded in ahead of time, but one had already
+    // withdrawn by the time this match went to start — `engine.ts`'s
+    // `startSeatedMatch` — so it's a `WALKOVER`, not a `DQ`, even though
+    // both seats are real.
+    const m = base({ status: 'COMPLETE', outcomeBy: 'WALKOVER', points: { a: 0, b: 0 }, winnerId: 'a' });
+    expect(describeMatch(m)).toBe('seed 1 Alice, 0, winner, versus seed 2 Bob, DQ. Walkover.');
+  });
+
+  it('describes a bye distinctly from a still-pending slot', () => {
+    const m = base({
+      status: 'COMPLETE',
+      outcomeBy: 'WALKOVER',
+      participants: [{ entrantId: 'a', seed: 1, displayName: 'Alice' }],
+      winnerId: 'a',
+    });
+    expect(describeMatch(m)).toBe('seed 1 Alice receives a bye. Walkover.');
+  });
 });

@@ -18,14 +18,14 @@ function StandingsTable({ standings }: { standings: Standings }): JSX.Element {
   return (
     <div>
       <Title order={2} size="h3">
-        Final Standings
+        Standings
       </Title>
       <Table>
         <Table.Thead>
           <Table.Tr>
-            <Table.Th>Place</Table.Th>
+            <Table.Th style={{ width: '1%', whiteSpace: 'nowrap' }}>Place</Table.Th>
             <Table.Th>Player</Table.Th>
-            <Table.Th>Seed</Table.Th>
+            <Table.Th style={{ width: '1%', whiteSpace: 'nowrap' }}>Seed</Table.Th>
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
@@ -183,7 +183,7 @@ export default function TournamentBracket(): JSX.Element {
         </VisuallyHidden>
 
         <Select
-          label="Announce"
+          label="Announce (Screen Reader)"
           value={verbosity}
           onChange={(v) => v !== null && setVerbosity(v as 'all' | 'results' | 'off')}
           data={[

@@ -8,6 +8,8 @@ function frame(overrides: Partial<PublicMatch> = {}, seq = 5): RealtimeFrame {
     seq,
     projection: {
       seq,
+      bracket: 'WINNERS',
+      round: 1,
       participants: [
         { entrantId: 'a', seed: 1, displayName: 'Alice' },
         { entrantId: 'b', seed: 2, displayName: 'Bob' },

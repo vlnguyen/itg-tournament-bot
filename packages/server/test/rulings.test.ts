@@ -5,7 +5,7 @@ import { Bo5ProtectVetoFormat as F } from '../src/domain/bo5.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { RulingsController } from '../src/api/rulings.controller.js';
 import { ALERT_PORT, MATCH_CHANNEL_PORT, PLAYER_NOTIFICATION_PORT } from '../src/discord/discord-adapters.module.js';
-import type { AlertPort, MatchChannelPort, PlayerNotificationPort } from '../src/discord/ports.js';
+import type { AlertPort, MatchChannelPort, PlayerNotificationPort, RenderedMessage } from '../src/discord/ports.js';
 import { REALTIME_PORT } from '../src/realtime/realtime.tokens.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { TierService } from '../src/auth/tier.service.js';
@@ -22,9 +22,12 @@ const fakeMatchChannel: MatchChannelPort = {
   archiveThread: async () => undefined,
   publishResult: async () => undefined,
 };
+const resolvedAlerts: RenderedMessage[] = [];
 const fakeAlert: AlertPort = {
   raise: async () => ({ messageId: 'fake-alert' }),
-  resolve: async () => undefined,
+  resolve: async (_guildId, _ref, resolution) => {
+    resolvedAlerts.push(resolution);
+  },
 };
 const fakePlayerNotification: PlayerNotificationPort = {
   matchReady: async () => undefined,
@@ -153,8 +156,22 @@ describe.skipIf(!(await isReachable()))('POST /api/matches/:id/rulings', () => {
     state = match.state as unknown as MatchState;
     expect(F.pendingAction(state).kind).toBe('AWAITING_TO');
 
+    // An open alert to resolve — otherwise `resolveAlertIfOpen`'s guard
+    // skips the whole path this test exists to check.
+    await prisma.match.update({ where: { id: matchId }, data: { alertMsgId: 'fake-open-alert' } });
+    resolvedAlerts.length = 0;
+
     const body = await controller.rule(matchId, { type: 'SONG_RULED', songIndex: 0, result: a! }, 'referee');
     expect(body.songs[0]!.result).toEqual({ winner: a, by: 'RULING' });
     expect(body.pending.kind).toBe('SUBMIT_SCORE'); // song 1 opened back up
+
+    // The resolved-alert message names the winner by their resolved
+    // display name (falls back to their Discord id, never the internal
+    // Entrant row id) — a real bug: this used to interpolate the raw
+    // `EntrantId` (a `cm...` cuid) straight into the message.
+    expect(resolvedAlerts).toHaveLength(1);
+    const winnerEntrant = await prisma.entrant.findUniqueOrThrow({ where: { id: a! } });
+    expect(resolvedAlerts[0]!.content).toContain(`awarded to ${winnerEntrant.discordUserId}`);
+    expect(resolvedAlerts[0]!.content).not.toContain(a!);
   });
 });

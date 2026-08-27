@@ -55,6 +55,18 @@ export function displayArtist(c: Pick<ChartInput, 'artist' | 'artistTranslit'>):
 }
 
 /**
+ * `${stepartist} [${description}]` when both exist; otherwise whichever one
+ * is set, unbracketed; `null` when neither is. Shared so the web match
+ * detail page's Draw table renders the same "Description" a Discord state
+ * message's embed does — one implementation, not two independently
+ * maintained formats that can drift apart.
+ */
+export function displayStepartistLine(c: Pick<ChartInput, 'stepartist' | 'description'>): string | null {
+  if (c.stepartist && c.description) return `${c.stepartist} [${c.description}]`;
+  return c.stepartist ?? c.description ?? null;
+}
+
+/**
  * Every text field a chart search should match, raw and transliterated alike.
  *
  * `description` is deliberately absent: it is display-only. It carries variant

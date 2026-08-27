@@ -32,16 +32,27 @@ function withNames<T extends { participants: { entrantId: string }[] }>(x: T): T
   return { ...x, participants: x.participants.map((p) => ({ ...p, displayName: p.entrantId })) };
 }
 
+/**
+ * `bracket`/`round` aren't part of `toPublicMatch`'s own output either —
+ * they're `Match` row columns, not derived from `MatchState` — the real
+ * API/realtime layer joins them in the same way it joins in `displayName`
+ * (see `match-event-effects.ts`, `matches.controller.ts`). Stand-in here
+ * for the same reason `withNames` exists.
+ */
+function withRef<T>(x: T): T & { bracket: 'WINNERS'; round: number } {
+  return { ...x, bracket: 'WINNERS', round: 1 };
+}
+
 describe('PublicMatch / BracketMatch wire schemas', () => {
   it('accepts a freshly created match, awaiting the seed choice', () => {
     const d = new MatchDriver().create(A, B);
-    expect(() => PublicMatchSchema.parse(wireRoundTrip(withNames(toPublicMatch(F, d.state))))).not.toThrow();
+    expect(() => PublicMatchSchema.parse(wireRoundTrip(withNames(withRef(toPublicMatch(F, d.state)))))).not.toThrow();
     expect(() => BracketMatchSchema.parse(wireRoundTrip(withNames(toBracketMatch(F, d.state))))).not.toThrow();
   });
 
   it('accepts a match mid Protect/Veto, with a decider index set', () => {
     const d = new MatchDriver().create(A, B).chooseSeed('FIRST').runProtectVeto();
-    const pub = PublicMatchSchema.parse(wireRoundTrip(withNames(toPublicMatch(F, d.state))));
+    const pub = PublicMatchSchema.parse(wireRoundTrip(withNames(withRef(toPublicMatch(F, d.state)))));
     expect(pub.deciderIndex).toBe(d.state.deciderIndex);
     expect(() => BracketMatchSchema.parse(wireRoundTrip(withNames(toBracketMatch(F, d.state))))).not.toThrow();
   });
@@ -61,7 +72,7 @@ describe('PublicMatch / BracketMatch wire schemas', () => {
       type: 'TIEBREAK_CHOICE',
       payload: { round: p.round, by: p.actors[0]!, index: p.choices[0]! },
     });
-    const hidden = PublicMatchSchema.parse(wireRoundTrip(withNames(toPublicMatch(F, d.state)))).tiebreaks.at(-1)!;
+    const hidden = PublicMatchSchema.parse(wireRoundTrip(withNames(withRef(toPublicMatch(F, d.state))))).tiebreaks.at(-1)!;
     expect('choices' in hidden).toBe(false);
 
     d.apply({
@@ -69,14 +80,14 @@ describe('PublicMatch / BracketMatch wire schemas', () => {
       type: 'TIEBREAK_CHOICE',
       payload: { round: p.round, by: p.actors[1]!, index: p.choices[0]! },
     });
-    const revealed = PublicMatchSchema.parse(wireRoundTrip(withNames(toPublicMatch(F, d.state)))).tiebreaks.at(-1)!;
+    const revealed = PublicMatchSchema.parse(wireRoundTrip(withNames(withRef(toPublicMatch(F, d.state))))).tiebreaks.at(-1)!;
     expect('choices' in revealed).toBe(true);
   });
 
   it('accepts an open settings-violation escalation', () => {
     const d = new MatchDriver().create(A, B).chooseSeed('FIRST').runProtectVeto();
     d.apply({ actorId: A, type: 'SONG_ESCALATED', payload: { songIndex: 0, reason: 'SETTINGS_VIOLATION' } });
-    const pub = PublicMatchSchema.parse(wireRoundTrip(withNames(toPublicMatch(F, d.state))));
+    const pub = PublicMatchSchema.parse(wireRoundTrip(withNames(withRef(toPublicMatch(F, d.state)))));
     expect(pub.escalation).toEqual({ songIndex: 0, reason: 'SETTINGS_VIOLATION' });
   });
 
@@ -88,7 +99,7 @@ describe('PublicMatch / BracketMatch wire schemas', () => {
       else if (p.kind === 'CONFIRM_RESULT') d.confirmResult();
       else throw new Error(`unexpected ${p.kind}`);
     }
-    const pub = PublicMatchSchema.parse(wireRoundTrip(withNames(toPublicMatch(F, d.state))));
+    const pub = PublicMatchSchema.parse(wireRoundTrip(withNames(withRef(toPublicMatch(F, d.state)))));
     expect(pub.outcome?.by).toBe('AGREEMENT');
     const bracket = BracketMatchSchema.parse(wireRoundTrip(withNames(toBracketMatch(F, d.state))));
     expect(bracket.status).toBe('COMPLETE');
@@ -96,7 +107,7 @@ describe('PublicMatch / BracketMatch wire schemas', () => {
   });
 
   it('accepts the empty state a fresh match starts from', () => {
-    expect(() => PublicMatchSchema.parse(wireRoundTrip(withNames(toPublicMatch(F, emptyState()))))).not.toThrow();
+    expect(() => PublicMatchSchema.parse(wireRoundTrip(withNames(withRef(toPublicMatch(F, emptyState())))))).not.toThrow();
     expect(() => BracketMatchSchema.parse(wireRoundTrip(withNames(toBracketMatch(F, emptyState()))))).not.toThrow();
   });
 });
@@ -113,13 +124,13 @@ describe('PublicMatch / BracketMatch wire schemas', () => {
 describe('deriveBracketMatch agrees with toBracketMatch, wherever a frame can actually land', () => {
   it('mid Protect/Veto', () => {
     const d = new MatchDriver().create(A, B).chooseSeed('FIRST').runProtectVeto();
-    const pub = PublicMatchSchema.parse(wireRoundTrip(withNames(toPublicMatch(F, d.state))));
+    const pub = PublicMatchSchema.parse(wireRoundTrip(withNames(withRef(toPublicMatch(F, d.state)))));
     expect(deriveBracketMatch(pub)).toEqual(withNames(toBracketMatch(F, d.state)));
   });
 
   it('mid-song, a chart in progress', () => {
     const d = new MatchDriver().create(A, B).chooseSeed('FIRST').runProtectVeto();
-    const pub = PublicMatchSchema.parse(wireRoundTrip(withNames(toPublicMatch(F, d.state))));
+    const pub = PublicMatchSchema.parse(wireRoundTrip(withNames(withRef(toPublicMatch(F, d.state)))));
     expect(deriveBracketMatch(pub).currentChartId).toBe(d.state.songs[0]!.chart.chartId);
     expect(deriveBracketMatch(pub)).toEqual(withNames(toBracketMatch(F, d.state)));
   });
@@ -132,7 +143,7 @@ describe('deriveBracketMatch agrees with toBracketMatch, wherever a frame can ac
       else if (p.kind === 'CONFIRM_RESULT') d.confirmResult();
       else throw new Error(`unexpected ${p.kind}`);
     }
-    const pub = PublicMatchSchema.parse(wireRoundTrip(withNames(toPublicMatch(F, d.state))));
+    const pub = PublicMatchSchema.parse(wireRoundTrip(withNames(withRef(toPublicMatch(F, d.state)))));
     expect(deriveBracketMatch(pub)).toEqual(withNames(toBracketMatch(F, d.state)));
   });
 });

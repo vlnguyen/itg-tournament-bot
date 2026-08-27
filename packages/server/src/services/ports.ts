@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { BracketSide } from '@itg/shared';
 import type { PublicMatch } from '../domain/projection.js';
 
 /**
@@ -35,7 +36,16 @@ export function sequentialRandomPort(prefix = 'seed'): RandomPort {
  * boundary, not here.
  */
 export interface RealtimeBroadcastPort {
-  publish(tournamentId: string, matchId: string, seq: number, projection: PublicMatch): void;
+  /**
+   * `bracket`/`round` ride along as an intersection, not part of
+   * `PublicMatch` itself — they're `Match` row columns, not derived from
+   * `MatchState`, so the pure domain projection has no idea they exist any
+   * more than it does `displayName`. Every caller already has the `Match`
+   * row in hand (that's how it got `format`/`ref` in the first place), so
+   * joining them in here costs nothing extra the way a gateway-side DB
+   * lookup would.
+   */
+  publish(tournamentId: string, matchId: string, seq: number, projection: PublicMatch & { bracket: BracketSide; round: number }): void;
   /**
    * "The seeding page is sensitive to real-time roster changes" — a join,
    * check-in, un-check-in, withdrawal, removal, or reorder from *any*

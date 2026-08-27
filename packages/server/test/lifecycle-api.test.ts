@@ -4,7 +4,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { LifecycleController } from '../src/api/lifecycle.controller.js';
 import { TierService } from '../src/auth/tier.service.js';
 import { ALERT_PORT, MATCH_CHANNEL_PORT, PLAYER_NOTIFICATION_PORT } from '../src/discord/discord-adapters.module.js';
+import { DISCORD_CLIENT } from '../src/discord/discord.tokens.js';
 import type { AlertPort, MatchChannelPort, PlayerNotificationPort } from '../src/discord/ports.js';
+import { REALTIME_PORT } from '../src/realtime/realtime.tokens.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { getRoster, rosterAdd, rosterCheckin } from '../src/services/roster-service.js';
 import { createTournament } from '../src/services/tournament-service.js';
@@ -61,6 +63,15 @@ describe.skipIf(!(await isReachable()))('GET/POST /api/tournaments/:id/lifecycle
         { provide: PrismaService, useValue: prisma },
         { provide: TierService, useValue: { hasTier: async () => hasTierResult, resolveDisplayName: async () => TO } },
         { provide: MATCH_CHANNEL_PORT, useValue: fakeMatchChannel },
+        // The bot holds no guild at all — enough to exercise START's "bot
+        // isn't in this server anymore" guard without faking a full
+        // discord.js Guild's permission model. The happy path
+        // (`startTournamentWithDiscordEffects`'s live preflight,
+        // provisioning) is unchanged logic moved from `handleStart`, not
+        // new behavior, and stays covered by this project's usual
+        // live-verify pass rather than a from-scratch discord.js fake here.
+        { provide: DISCORD_CLIENT, useValue: { guilds: { cache: new Map(), fetch: async () => null } } },
+        { provide: REALTIME_PORT, useValue: { publish: () => undefined, publishRosterChanged: () => undefined } },
         { provide: ALERT_PORT, useValue: fakeAlert },
         { provide: PLAYER_NOTIFICATION_PORT, useValue: fakePlayerNotification },
       ],
@@ -109,6 +120,36 @@ describe.skipIf(!(await isReachable()))('GET/POST /api/tournaments/:id/lifecycle
       await expect(controller.postAction(tournamentId, { action: 'NOT_REAL' }, TO)).rejects.toBeInstanceOf(BadRequestException);
     });
 
+    it('rejects START a Tournament Organizer below tier the same way every other action does', async () => {
+      hasTierResult = false;
+      await expect(controller.postAction(tournamentId, { action: 'START' }, 'someone')).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it("rejects START with 400 when the bot isn't in the guild anymore, without ever touching the tournament's state", async () => {
+      const startGuildId = `api-lifecycle-start-${Date.now()}`;
+      await prisma.guild.create({
+        data: {
+          id: startGuildId,
+          matchesChannelId: 'matches-chan',
+          alertChannelId: 'alerts-chan',
+          resultsChannelId: 'results-chan',
+          refereeRoleId: 'referee-role',
+          toRoleId: 'to-role',
+        },
+      });
+      try {
+        const t = await createTournament(prisma, startGuildId, 'Start Test', TO);
+        await prisma.tournament.update({ where: { id: t.id }, data: { state: 'CHECKIN_CLOSED' } });
+
+        await expect(controller.postAction(t.id, { action: 'START' }, TO)).rejects.toBeInstanceOf(BadRequestException);
+
+        const after = await prisma.tournament.findUniqueOrThrow({ where: { id: t.id } });
+        expect(after.state).toBe('CHECKIN_CLOSED'); // refused before startTournament ever ran
+      } finally {
+        await prisma.guild.delete({ where: { id: startGuildId } }).catch(() => undefined);
+      }
+    });
+
     it('rejects an illegal transition (RENAME requires a name) with 400', async () => {
       await expect(controller.postAction(tournamentId, { action: 'RENAME' }, TO)).rejects.toBeInstanceOf(BadRequestException);
     });
@@ -146,6 +187,7 @@ describe.skipIf(!(await isReachable()))('GET/POST /api/tournaments/:id/lifecycle
       expect(status.legalActions).not.toContain('CLOSE_CHECKIN'); // terminal within this state
       expect(status.legalActions).toContain('OPEN_CHECKIN'); // reopenable
       expect(status.legalActions).toContain('OPEN_REGISTRATION'); // reopenable further back too
+      expect(status.legalActions).toContain('START'); // legal per the state machine — the live preflight is a separate concern
 
       // Reopening registration this deep preserves both check-ins.
       status = await controller.postAction(tournamentId, { action: 'OPEN_REGISTRATION' }, TO);

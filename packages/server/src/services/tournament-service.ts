@@ -465,15 +465,18 @@ export async function startTournament(
  * `requireStateIn` calls each transition above already makes; kept as its
  * own table here rather than derived, since scattering "is this legal"
  * across each function's own guard would need a second query per action to
- * answer "what's legal right now" instead of one. `START` never appears —
- * see `LifecycleStatus`'s own comment in `@itg/shared` for why.
+ * answer "what's legal right now" instead of one. `START` appears only for
+ * `CHECKIN_CLOSED` — this table names it as legal, but whether it actually
+ * fires still depends on the live Discord permission preflight
+ * `startTournamentWithDiscordEffects` runs, which nothing checkable from
+ * Postgres alone (this table included) can predict.
  */
 const LEGAL_ACTIONS: Record<TournamentState, LifecycleAction[]> = {
   DRAFT: ['OPEN_REGISTRATION', 'RENAME', 'CANCEL'],
   REGISTRATION_OPEN: ['CLOSE_REGISTRATION', 'RENAME', 'CANCEL'],
   REGISTRATION_CLOSED: ['OPEN_REGISTRATION', 'OPEN_CHECKIN', 'RENAME', 'CANCEL'],
   CHECKIN_OPEN: ['OPEN_REGISTRATION', 'CLOSE_REGISTRATION', 'CLOSE_CHECKIN', 'RENAME', 'CANCEL'],
-  CHECKIN_CLOSED: ['OPEN_REGISTRATION', 'OPEN_CHECKIN', 'RENAME', 'CANCEL'],
+  CHECKIN_CLOSED: ['OPEN_REGISTRATION', 'OPEN_CHECKIN', 'START', 'RENAME', 'CANCEL'],
   RUNNING: ['RENAME', 'CANCEL'],
   COMPLETE: [],
   CANCELLED: [],

@@ -21,6 +21,8 @@ describe('shouldApplyFrame', () => {
 function emptyPublicMatch(seq: number): PublicMatch {
   return {
     seq,
+    bracket: 'WINNERS',
+    round: 1,
     participants: [],
     draw: [],
     protects: [],

@@ -13,16 +13,20 @@ const ACTION_LABEL: Record<LifecycleAction, string> = {
   CLOSE_REGISTRATION: 'Close Registration',
   OPEN_CHECKIN: 'Open Check-in',
   CLOSE_CHECKIN: 'Close Check-in',
+  START: 'Start Tournament',
   CANCEL: 'Cancel Tournament',
   RENAME: 'Rename',
 };
 
 /**
  * DESIGN.md, "Everything else": "current state, the transitions currently
- * legal, and each one's guard shown as a checklist." `START` isn't a
- * button here — see `LifecycleRequest`'s comment in `@itg/shared` for why
- * starting stays a Discord-only action for now; `startGuards` still shows
- * what's blocking it.
+ * legal, and each one's guard shown as a checklist." Start runs the same
+ * `startTournamentWithDiscordEffects` `/tournament start` does — see
+ * `LifecycleRequest`'s comment in `@itg/shared` — so a click here creates
+ * the same threads and posts the same announcement `/tournament start`
+ * would. `startGuards` still can't predict the live permission preflight
+ * that call makes; a failure there comes back as this mutation's own
+ * error, worded the same as the Discord command's reply.
  */
 export default function TournamentLifecycle(): JSX.Element {
   const { tournamentId } = useParams<{ tournamentId: string }>();
@@ -81,6 +85,9 @@ export default function TournamentLifecycle(): JSX.Element {
   } else {
     const runAction = (action: LifecycleAction): void => {
       if (action === 'CANCEL' && !confirm(`Cancel "${status.name}"? This can't be undone from here.`)) return;
+      if (action === 'START' && !confirm(`Start "${status.name}"? This creates match threads and notifies players — it can't be undone from here.`)) {
+        return;
+      }
       if (action === 'RENAME') {
         setRenaming(true);
         return;
@@ -129,6 +136,7 @@ export default function TournamentLifecycle(): JSX.Element {
                   size="sm"
                   variant={action === 'CANCEL' ? 'outline' : 'filled'}
                   {...(action === 'CANCEL' ? { color: 'red' } : {})}
+                  {...(action === 'START' ? { color: 'green' } : {})}
                   onClick={() => runAction(action)}
                 >
                   {ACTION_LABEL[action]}
@@ -143,8 +151,9 @@ export default function TournamentLifecycle(): JSX.Element {
             Starting the tournament
           </Title>
           <Text size="sm" c="dimmed" mb="xs">
-            Run <code>/tournament start</code> in Discord once every check below passes — it also verifies live channel/role
-            permissions, which this page can't check.
+            Once every check below passes, click Start above — or run <code>/tournament start</code> in Discord, either does
+            the same thing. Starting also re-verifies live channel/role permissions, which this checklist can't predict in
+            advance; a failure there is reported back exactly like it would be in Discord.
           </Text>
           <List spacing={4} size="sm">
             {status.startGuards.map((g) => (

@@ -35,6 +35,8 @@ export class MatchesController {
 
     return PublicMatchSchema.parse({
       ...pub,
+      bracket: match.bracket,
+      round: match.round,
       participants: pub.participants.map((p) => ({ ...p, displayName: names.get(p.entrantId) ?? p.entrantId })),
     });
   }

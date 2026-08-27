@@ -2,9 +2,7 @@ import { readFileSync } from 'node:fs';
 import type { ChatInputCommandInteraction } from 'discord.js';
 import type { Guild as GuildRow, Tournament } from '@prisma/client';
 import type { ChartInput } from '@itg/shared';
-import { describeGap } from '../permission-diagnostic.js';
-import { provisionReadyThreads } from '../thread-provisioning.js';
-import { hasTier, Tier } from '../tier.js';
+import { startTournamentWithDiscordEffects } from '../start-tournament-effects.js';
 import {
   cancelTournament,
   closeCheckin,
@@ -14,7 +12,6 @@ import {
   openCheckin,
   openRegistration,
   renameTournament,
-  startTournament,
   TournamentSlotOccupiedError,
   TournamentTransitionError,
 } from '../../services/tournament-service.js';
@@ -23,7 +20,6 @@ import { requireOrganizerTier } from './authz.js';
 import type { CommandContext } from './context.js';
 import { logToOrganizers } from './organizer-log.js';
 import { PHASE_LABEL } from './registration.js';
-import { runFullDiagnostic, type RequiredTierRole } from './setup.js';
 
 /**
  * `/tournament` — the lifecycle command surface over `services/tournament-service.ts`.
@@ -301,33 +297,13 @@ async function handleCancel(interaction: ChatInputCommandInteraction, ctx: Comma
   await ctx.playerNotification.tournamentCancelled(interaction.guildId!, result.tournament.name);
 }
 
-const TIER_ROLE_LABEL: Record<RequiredTierRole, string> = { referee: 'Referee', organizer: 'Tournament Organizer' };
-
-function describePreflightFailure(diag: Awaited<ReturnType<typeof runFullDiagnostic>>): string {
-  const lines = ["Can't start — Discord isn't fully set up yet:"];
-  for (const role of diag.missingTierRoles) {
-    lines.push(`- The ${TIER_ROLE_LABEL[role]} role is not configured — run \`/setup roles\`.`);
-  }
-  for (const role of diag.deletedTierRoles) {
-    lines.push(`- The configured ${TIER_ROLE_LABEL[role]} role no longer exists — run \`/setup roles\`.`);
-  }
-  for (const slot of diag.missingChannels) {
-    lines.push(`- The configured ${slot} channel no longer exists — run \`/setup channels\`.`);
-  }
-  for (const gap of diag.gaps) {
-    lines.push(`- ${describeGap({ permission: gap.permission, layer: gap.layer }, gap.targetLabel, `<#${gap.channelId}>`)}`);
-  }
-  lines.push('', 'Run `/setup status` to see the full diagnostic and fix these, then try again.');
-  return lines.join('\n');
-}
-
 /**
- * `CHECKIN_CLOSED → RUNNING`. Everything Discord-shaped that
- * `tournament-service.ts`'s `startTournament` deliberately leaves out: the
- * blocking permission preflight (reusing `/setup`'s own diagnostic), the
- * non-blocking tier-role-overlap warning ("tournament start warns if any
- * entrant also holds a tier role, naming them" — REQUIREMENTS.md, "Roles"),
- * the live display-name snapshot, and provisioning round 1's threads.
+ * `CHECKIN_CLOSED → RUNNING`. All the actual work — the permission
+ * preflight, the display-name snapshot, `startTournament` itself, and
+ * thread provisioning — lives in `startTournamentWithDiscordEffects`,
+ * shared with the web console's Start button; this just formats the
+ * outcome as an ephemeral reply, an organizer-alert line, and the general-
+ * channel announcement.
  */
 async function handleStart(
   interaction: ChatInputCommandInteraction,
@@ -338,50 +314,28 @@ async function handleStart(
   await interaction.deferReply({ ephemeral: true });
   const guild = interaction.guild!;
 
-  const diag = await runFullDiagnostic(ctx, guild, guildRow);
-  const blocking = diag.gaps.length > 0 || diag.missingChannels.length > 0 || diag.missingTierRoles.length > 0 || diag.deletedTierRoles.length > 0;
-  if (blocking) {
-    await interaction.editReply(describePreflightFailure(diag));
+  const outcome = await startTournamentWithDiscordEffects(ctx, guild, guildRow, tournament.id, interaction.user.id);
+  if (outcome.kind === 'BLOCKED') {
+    await interaction.editReply(outcome.message);
+    return;
+  }
+  if (outcome.kind === 'TRANSITION_ERROR') {
+    await interaction.editReply(`Can't start: ${outcome.reason}`);
     return;
   }
 
-  const entrants = await ctx.prisma.entrant.findMany({
-    where: { tournamentId: tournament.id, status: 'ACTIVE', checkedIn: true },
-  });
-  const displayNames = new Map<string, string>();
-  const holdsTierRole: string[] = [];
-  for (const e of entrants) {
-    const member = await guild.members.fetch(e.discordUserId).catch(() => null);
-    if (!member) continue; // left the guild — seated anyway; nothing here to snapshot or warn on
-    displayNames.set(e.id, member.displayName);
-    if (hasTier(member.roles.cache.keys(), guildRow, Tier.REFEREE)) holdsTierRole.push(member.displayName);
+  const lines = [`🏁 **${outcome.tournament.name}** has started — ${outcome.threads.length} match thread(s) created.`];
+  if (outcome.packSizeWarning) {
+    lines.push(`⚠️ The chart pack has only ${outcome.packSizeWarning.actual} chart(s); ${outcome.packSizeWarning.recommended}+ is recommended.`);
   }
-
-  let result;
-  try {
-    result = await startTournament(ctx.prisma, ctx.random, tournament.id, displayNames, interaction.user.id);
-  } catch (err) {
-    if (err instanceof TournamentTransitionError) {
-      await interaction.editReply(`Can't start: ${err.reason}`);
-      return;
-    }
-    throw err;
-  }
-
-  const threads = await provisionReadyThreads(ctx.prisma, ctx.matchChannel, ctx.playerNotification, tournament.id, result.tournament.name);
-
-  const lines = [`🏁 **${result.tournament.name}** has started — ${threads.length} match thread(s) created.`];
-  if (result.packSizeWarning) {
-    lines.push(`⚠️ The chart pack has only ${result.packSizeWarning.actual} chart(s); ${result.packSizeWarning.recommended}+ is recommended.`);
-  }
-  if (diag.refereePoolEmpty) {
+  if (outcome.refereePoolEmpty) {
     lines.push('⚠️ Nobody holds a role at Referee tier or above yet — a dispute has nobody to rule on it.');
   }
-  if (holdsTierRole.length > 0) {
-    lines.push(`⚠️ These entrants also hold a tier role: ${holdsTierRole.join(', ')}.`);
+  if (outcome.holdsTierRole.length > 0) {
+    lines.push(`⚠️ These entrants also hold a tier role: ${outcome.holdsTierRole.join(', ')}.`);
   }
   await interaction.editReply(lines.join('\n'));
 
   await logToOrganizers(ctx.alert, interaction.guildId!, [`📋 **${interaction.user.username}**:`, ...lines].join('\n'));
-  await ctx.playerNotification.tournamentStarted(interaction.guildId!, result.tournament.name);
+  await ctx.playerNotification.tournamentStarted(interaction.guildId!, outcome.tournament.name);
 }

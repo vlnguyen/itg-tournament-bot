@@ -15,6 +15,7 @@ import { renderDqLog, renderResetLog, renderRulingLog, renderSetRulingLog } from
 import { applyAppendResult, CANCELLED_MATCH_MESSAGE, describeStale } from '../discord/match-event-effects.js';
 import { buildPlayerDirectory, loadMatch, type MatchWithParticipants } from '../discord/match-lookup.js';
 import type { AlertPort, MatchChannelPort, PlayerNotificationPort, ThreadRef } from '../discord/ports.js';
+import { displayName } from '../discord/state-message.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { requireFormat } from '../services/engine.js';
 import { appendMatchEvent, IllegalActionError, type AppendResult } from '../services/match-service.js';
@@ -77,6 +78,8 @@ export class RulingsController {
       );
       return PublicMatchSchema.parse({
         ...pub,
+        bracket: match.bracket,
+        round: match.round,
         participants: pub.participants.map((p) => ({ ...p, displayName: names.get(p.entrantId) ?? p.entrantId })),
       });
     } catch (err) {
@@ -120,11 +123,13 @@ export class RulingsController {
     if (ruling.type === 'SONG_RULED') {
       const chart = afterState.songs[ruling.songIndex]!.chart;
       await this.matchChannel.postLogMessage(ref, renderRulingLog(ruling.songIndex, chart, ruling.result, refName, players));
-      await this.resolveAlertIfOpen(match, refName, ruling.result === 'VOID' ? 'voided' : `awarded to ${ruling.result}`);
+      const outcome =
+        ruling.result === 'VOID' ? 'voided' : ruling.result === 'TIE' ? 'ruled a tie' : `awarded to ${displayName(players, ruling.result)}`;
+      await this.resolveAlertIfOpen(match, refName, outcome);
     } else if (ruling.type === 'PROTECT_VETO_RESET') {
       await this.matchChannel.postLogMessage(ref, renderResetLog(refName));
     } else if (ruling.type === 'SET_RESULT_RULED') {
-      await this.resolveAlertIfOpen(match, refName, `awarded the set to ${ruling.result}`);
+      await this.resolveAlertIfOpen(match, refName, `awarded the set to ${displayName(players, ruling.result)}`);
       await this.matchChannel.postLogMessage(ref, renderSetRulingLog(ruling.result as EntrantId, refName, players));
     } else {
       await this.matchChannel.postLogMessage(ref, renderDqLog(ruling.playerId as EntrantId, 'MATCH', refName, players));

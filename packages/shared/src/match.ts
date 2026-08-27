@@ -152,6 +152,15 @@ export type MatchOutcome = z.infer<typeof MatchOutcome>;
 export const PublicMatch = z.object({
   /** Resync ordering — see `RealtimeFrame` and `deriveBracketMatch` below for why this has to travel with the projection itself. */
   seq: z.number().int().nonnegative(),
+  /**
+   * Structural placement, not part of the event-sourced `MatchState` — the
+   * REST/realtime boundary joins these in from the `Match` row the same
+   * way it joins in `participants[].displayName`. Lets the match detail
+   * page render a round label (`sectionLabel`) under the players' names
+   * without a second fetch.
+   */
+  bracket: BracketSide,
+  round: z.number().int().positive(),
   participants: z.array(Participant),
   a: EntrantId.optional(),
   b: EntrantId.optional(),

@@ -7,7 +7,7 @@ import { appendMatchEvent, IllegalActionError } from '../services/match-service.
 import type { RandomPort, RealtimeBroadcastPort } from '../services/ports.js';
 import { buildPlayerDirectory, loadMatchByThreadId } from './match-lookup.js';
 import type { MatchChannelPort, ThreadRef } from './ports.js';
-import { renderStateMessage } from './state-message.js';
+import { displayName, renderStateMessage } from './state-message.js';
 
 /**
  * "The first message from a player carrying an image attachment satisfies
@@ -71,9 +71,18 @@ async function handle(
       message.id, // a message can only ever satisfy its own photo requirement once
     );
 
-    realtime.publish(match.tournamentId, match.id, result.state.seq, toPublicMatch(format, result.state));
-
+    // `toPublicMatch` never sets `participants[].displayName` — every
+    // caller has to join it in (see `match-event-effects.ts`'s comment on
+    // its own `realtime.publish` call, the same fix applied here).
     const players = buildPlayerDirectory(match);
+    const projection = toPublicMatch(format, result.state);
+    realtime.publish(match.tournamentId, match.id, result.state.seq, {
+      ...projection,
+      bracket: match.bracket,
+      round: match.round,
+      participants: projection.participants.map((p) => ({ ...p, displayName: displayName(players, p.entrantId) })),
+    });
+
     const ref: ThreadRef = { matchId: match.id, threadId: match.threadId! };
     const newPending = format.pendingAction(result.state);
     await matchChannel.postMatchState(ref, renderStateMessage(match.id, newPending, result.state, players));

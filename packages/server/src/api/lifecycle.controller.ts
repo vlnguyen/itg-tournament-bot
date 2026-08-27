@@ -1,13 +1,19 @@
 import type { LifecycleStatus as LifecycleStatusWire } from '@itg/shared';
 import { LifecycleRequest, LifecycleStatus as LifecycleStatusSchema } from '@itg/shared';
+import type { Client } from 'discord.js';
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post } from '@nestjs/common';
 import { ZodError } from 'zod';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { TierService } from '../auth/tier.service.js';
 import { ALERT_PORT, MATCH_CHANNEL_PORT, PLAYER_NOTIFICATION_PORT } from '../discord/discord-adapters.module.js';
+import { DISCORD_CLIENT } from '../discord/discord.tokens.js';
 import { logToOrganizers } from '../discord/commands/organizer-log.js';
 import type { AlertPort, MatchChannelPort, PlayerNotificationPort } from '../discord/ports.js';
+import { REALTIME_PORT } from '../realtime/realtime.tokens.js';
+import { startTournamentWithDiscordEffects } from '../discord/start-tournament-effects.js';
 import { Tier } from '../discord/tier.js';
+import { cryptoRandomPort } from '../services/ports.js';
+import type { RealtimeBroadcastPort } from '../services/ports.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   cancelTournament,
@@ -23,13 +29,13 @@ import {
 /**
  * `GET`/`POST /api/tournaments/:id/lifecycle` — DESIGN.md's tournament
  * configuration panel. Tournament Organizer tier, same as `/tournament`
- * itself. Every action here calls the *exact same* service function
+ * itself. Every action here calls the *exact same* service function (or,
+ * for `START`, the same `startTournamentWithDiscordEffects`)
  * `discord/commands/tournament.ts` calls, then replicates that command's
  * own Discord-side effects (the announcement, the alert-channel log line,
  * closing a cancelled match's thread) through the same ports the REST
  * ruling endpoint already uses — so a lifecycle change made from the
- * console and one made from `/tournament` post identical records. `START`
- * is not an action here; see `LifecycleRequest`'s comment in `@itg/shared`.
+ * console and one made from `/tournament` post identical records.
  */
 @Controller('api/tournaments')
 export class LifecycleController {
@@ -39,6 +45,8 @@ export class LifecycleController {
     @Inject(MATCH_CHANNEL_PORT) private readonly matchChannel: MatchChannelPort,
     @Inject(ALERT_PORT) private readonly alert: AlertPort,
     @Inject(PLAYER_NOTIFICATION_PORT) private readonly playerNotification: PlayerNotificationPort,
+    @Inject(DISCORD_CLIENT) private readonly client: Client,
+    @Inject(REALTIME_PORT) private readonly realtime: RealtimeBroadcastPort,
   ) {}
 
   private async requireOrganizer(tournamentId: string, discordUserId: string | null): Promise<{ guildId: string }> {
@@ -118,6 +126,48 @@ export class LifecycleController {
         const t = await closeCheckin(this.prisma, tournamentId, actorId);
         await this.log(guildId, actorName, `Check-in is closed for **${t.name}**.`);
         await this.playerNotification.checkinClosed(guildId, t.name);
+        return;
+      }
+      case 'START': {
+        const guildRow = await this.prisma.guild.findUnique({ where: { id: guildId } });
+        if (!guildRow) throw new BadRequestException("This server isn't configured yet — run /setup.");
+
+        const guild = this.client.guilds.cache.get(guildId) ?? (await this.client.guilds.fetch(guildId).catch(() => null));
+        if (!guild) throw new BadRequestException("The bot isn't in this server anymore.");
+
+        const outcome = await startTournamentWithDiscordEffects(
+          {
+            prisma: this.prisma,
+            random: cryptoRandomPort,
+            matchChannel: this.matchChannel,
+            playerNotification: this.playerNotification,
+            alert: this.alert,
+            client: this.client,
+            realtime: this.realtime,
+          },
+          guild,
+          guildRow,
+          tournamentId,
+          actorId,
+        );
+        if (outcome.kind === 'BLOCKED') throw new BadRequestException(outcome.message);
+        if (outcome.kind === 'TRANSITION_ERROR') throw new TournamentTransitionError(tournamentId, outcome.reason);
+
+        const lines = [`🏁 **${outcome.tournament.name}** has started — ${outcome.threads.length} match thread(s) created.`];
+        if (outcome.packSizeWarning) {
+          lines.push(`⚠️ The chart pack has only ${outcome.packSizeWarning.actual} chart(s); ${outcome.packSizeWarning.recommended}+ is recommended.`);
+        }
+        if (outcome.refereePoolEmpty) {
+          lines.push('⚠️ Nobody holds a role at Referee tier or above yet — a dispute has nobody to rule on it.');
+        }
+        if (outcome.holdsTierRole.length > 0) {
+          lines.push(`⚠️ These entrants also hold a tier role: ${outcome.holdsTierRole.join(', ')}.`);
+        }
+        await this.log(guildId, actorName, lines.join(' '));
+        await this.playerNotification.tournamentStarted(guildId, outcome.tournament.name);
+        // Starting drops no-shows and collapses seeds — a real roster
+        // change a seeding page held open elsewhere needs to hear about.
+        this.realtime.publishRosterChanged(tournamentId);
         return;
       }
       case 'CANCEL': {

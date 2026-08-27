@@ -16,6 +16,11 @@ export function MatchCell({ tournamentId, entry }: { tournamentId: string; entry
   const { match } = entry;
   const [p0, p1] = match.participants;
   const label = matchStateLabel(match);
+  // A bye — one slot was never real, not merely unfilled yet. See
+  // `bracket-service.ts`'s `materializeBracket`: a bye seats only the real
+  // side and resolves the match as a `WALKOVER` at generation time, so no
+  // score was ever played and the empty seat will never fill.
+  const bye = match.status === 'COMPLETE' && match.outcomeBy === 'WALKOVER' && (!p0 || !p1);
 
   return (
     <li className={styles.cell} data-status={match.status} data-awaiting={match.awaitingTo}>
@@ -24,14 +29,23 @@ export function MatchCell({ tournamentId, entry }: { tournamentId: string; entry
           <Text component="span" className={styles.stateLabel!}>
             {label}
           </Text>
-          {[p0, p1].map((p, i) => (
-            <Group key={i} justify="space-between" wrap="nowrap" gap="xs">
-              <Text size="sm" truncate className={p && match.winnerId === p.entrantId ? styles.winner! : ''}>
-                {p ? `#${p.seed} ${p.displayName}` : 'TBD'}
-              </Text>
-              <Text size="sm">{p ? (match.points[p.entrantId] ?? 0) : ''}</Text>
-            </Group>
-          ))}
+          {[p0, p1].map((p, i) => {
+            // Both a genuine DQ and a mid-tournament walkover (both seats
+            // real, but one entrant had already withdrawn when this match
+            // went to start — see `engine.ts`'s `startSeatedMatch`) leave
+            // the absent side with a 0 that looks like a played result.
+            // `bye` is excluded: that 0 belongs to a seat that never
+            // existed, already blanked out below.
+            const dqd = p && !bye && (match.outcomeBy === 'DQ' || match.outcomeBy === 'WALKOVER') && match.winnerId !== null && match.winnerId !== p.entrantId;
+            return (
+              <Group key={i} justify="space-between" wrap="nowrap" gap="xs">
+                <Text size="sm" truncate className={p && match.winnerId === p.entrantId ? styles.winner! : ''}>
+                  {p ? `#${p.seed} ${p.displayName}` : bye ? 'BYE' : 'TBD'}
+                </Text>
+                <Text size="sm">{bye ? '' : p ? (dqd ? 'DQ' : (match.points[p.entrantId] ?? 0)) : ''}</Text>
+              </Group>
+            );
+          })}
         </Stack>
       </Link>
     </li>

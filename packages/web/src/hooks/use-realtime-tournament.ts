@@ -18,6 +18,15 @@ import { getSocket } from '../lib/socket.js';
  * view." A frame doesn't carry enough to patch `RunView` in place (elapsed
  * time, alert ordering, `since` strings are all server-computed), so this
  * just triggers a refetch; harmless when no run-view query is mounted.
+ *
+ * Same reasoning covers the tournament snapshot's own `state` and
+ * standings: a frame only patches the one match cell it names (see
+ * `applyFrameToSnapshot`), so a match that also completes the tournament
+ * — an ordinary final, or a tournament-scope DQ's walkover chain closing
+ * it out — would otherwise leave the header badge and the standings table
+ * stuck on stale data until something else refetched them. Invalidating
+ * both alongside the patch keeps the patch's snappy paint and lets the
+ * background refetch correct anything the patch alone couldn't.
  */
 export function useRealtimeTournament(tournamentId: string): void {
   const queryClient = useQueryClient();
@@ -39,6 +48,8 @@ export function useRealtimeTournament(tournamentId: string): void {
         applyFrameToMatchDetail(current, frame),
       );
       void queryClient.invalidateQueries({ queryKey: ['run-view', tournamentId] });
+      void queryClient.invalidateQueries({ queryKey: ['tournament', tournamentId] });
+      void queryClient.invalidateQueries({ queryKey: ['standings', tournamentId] });
     };
     socket.on('frame', onFrame);
 

@@ -95,7 +95,24 @@ export async function applyAppendResult(
   // ahead of every branch below: the bracket and any open match-detail
   // view need to hear about every commit, not just the ones that also
   // produce a Discord-side effect.
-  realtime.publish(match.tournamentId, match.id, result.state.seq, toPublicMatch(format, result.state));
+  //
+  // `toPublicMatch` never sets `participants[].displayName` — `MatchState`
+  // has no idea `Entrant` rows exist, per `projection-wire-schema.test.ts`'s
+  // own comment — so every caller has to join it in. The REST controllers
+  // do this via `api/entrant-names.ts`; this was the one broadcast path
+  // that never did, which meant `PublicMatchSchema.parse` (a required
+  // `displayName: z.string()`) threw on every single frame, silently
+  // aborting this entire function before any of the effects below ever
+  // ran — the state message, the action log, escalation alerts, thread
+  // provisioning, all of it, for every match action ever submitted through
+  // a live Discord interaction.
+  const projection = toPublicMatch(format, result.state);
+  realtime.publish(match.tournamentId, match.id, result.state.seq, {
+    ...projection,
+    bracket: match.bracket,
+    round: match.round,
+    participants: projection.participants.map((p) => ({ ...p, displayName: displayName(players, p.entrantId) })),
+  });
 
   // A permanent record of the action itself — the state message's own
   // draw-status field is disposable and will move on to a different

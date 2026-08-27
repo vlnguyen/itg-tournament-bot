@@ -71,7 +71,7 @@ describe.skipIf(!(await isReachable()))('GET/POST /api/tournaments/:id/lifecycle
         // new behavior, and stays covered by this project's usual
         // live-verify pass rather than a from-scratch discord.js fake here.
         { provide: DISCORD_CLIENT, useValue: { guilds: { cache: new Map(), fetch: async () => null } } },
-        { provide: REALTIME_PORT, useValue: { publish: () => undefined, publishRosterChanged: () => undefined } },
+        { provide: REALTIME_PORT, useValue: { publish: () => undefined, publishRosterChanged: () => undefined, publishLifecycleChanged: () => undefined } },
         { provide: ALERT_PORT, useValue: fakeAlert },
         { provide: PLAYER_NOTIFICATION_PORT, useValue: fakePlayerNotification },
       ],

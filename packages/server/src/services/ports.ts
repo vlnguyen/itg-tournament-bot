@@ -58,10 +58,20 @@ export interface RealtimeBroadcastPort {
    * for reconnection.
    */
   publishRosterChanged(tournamentId: string): void;
+  /**
+   * A lifecycle transition — open/close registration, open/close check-in,
+   * start, cancel, rename — from *any* surface, a Discord command
+   * included. Same "no payload, client refetches" shape as
+   * `publishRosterChanged`: a `Tournament` row is cheap to refetch whole,
+   * and the client needs to re-derive both its own snapshot query and its
+   * legal-actions checklist, not patch a field in place.
+   */
+  publishLifecycleChanged(tournamentId: string): void;
 }
 
 /** No-op for tests and any caller that doesn't care about realtime fan-out. */
 export const noopRealtimePort: RealtimeBroadcastPort = {
   publish: () => undefined,
   publishRosterChanged: () => undefined,
+  publishLifecycleChanged: () => undefined,
 };

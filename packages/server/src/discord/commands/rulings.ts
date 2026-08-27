@@ -1,15 +1,17 @@
 import type { AutocompleteInteraction, ChatInputCommandInteraction } from 'discord.js';
 import type { Entrant } from '@prisma/client';
-import type { EntrantId } from '../../domain/types.js';
+import type { EntrantId, MatchEvent, MatchState } from '../../domain/types.js';
 import { requireFormat } from '../../services/engine.js';
 import { disqualifyFromTournament } from '../../services/advancement-service.js';
 import { appendMatchEvent, IllegalActionError } from '../../services/match-service.js';
 import { findActiveTournament } from '../../services/tournament-service.js';
-import { renderDqLog } from '../log-messages.js';
+import { renderDqLog, renderRulingLog, renderSetRulingLog } from '../log-messages.js';
 import { applyAppendResult, CANCELLED_MATCH_MESSAGE, describeStale } from '../match-event-effects.js';
 import { buildPlayerDirectory, loadMatch, loadMatchByThreadId, type MatchWithParticipants } from '../match-lookup.js';
 import { memberDisplayName } from '../member-display-name.js';
 import type { ThreadRef } from '../ports.js';
+import { buildResolvedAlert } from '../render/escalation.js';
+import { displayName } from '../state-message.js';
 import { requireRefereeTier } from './authz.js';
 import type { CommandContext } from './context.js';
 import { logToOrganizers } from './organizer-log.js';
@@ -201,4 +203,152 @@ async function handleTournamentScopeDq(interaction: ChatInputCommandInteraction,
     interaction.guildId!,
     `⛔ **${interaction.user.username}** disqualified **${playerName}** from the tournament.`,
   );
+}
+
+/**
+ * `/rule` — DESIGN.md, "Proactive song and set rulings": the same
+ * pre-conflict override capability `referee-overrides.tsx` already
+ * exposes on the web, reached in Discord the way `/dq` reaches its match
+ * — run from inside the thread, no escalation alert required. `song`
+ * rules whatever song the match is currently on
+ * (`state.songs.find(s => !s.result)`, via `pendingAction`, never a
+ * `songIndex` argument); `set` rules the overall outcome directly,
+ * pre-empting any songs still unplayed. All other legality is left to
+ * `appendMatchEvent`'s own check — the same `isLegal` the web ruling
+ * endpoint and the alert-channel buttons already share.
+ */
+
+/** Suggests this match's two participants (plus Tie/Void for `song`) — same autocomplete-a-roster reasoning as `/dq`'s `player` option. */
+export async function handleRuleAutocomplete(interaction: AutocompleteInteraction, ctx: CommandContext): Promise<void> {
+  if (!interaction.inGuild()) {
+    await interaction.respond([]);
+    return;
+  }
+
+  const match = await resolveInvokingThreadMatch(interaction.channelId, ctx);
+  const candidates = match ? match.participants.map((p) => p.entrant) : [];
+  const focused = interaction.options.getFocused().toLowerCase();
+  const extra = interaction.options.getSubcommand() === 'song' ? [{ name: 'Tie', value: 'TIE' }, { name: 'Void', value: 'VOID' }] : [];
+
+  const choices = [...candidates.map((e) => ({ name: entrantDisplayName(e), value: e.discordUserId })), ...extra]
+    .filter((c) => c.name.toLowerCase().includes(focused))
+    .slice(0, 25);
+
+  await interaction.respond(choices);
+}
+
+/** `result`'s autocomplete offers a participant's `discordUserId`, or the literal `TIE`/`VOID` — resolve the former back to the `entrantId` every event payload actually keys on, same as `/dq`'s `player`. */
+function resolveRulingResult(match: MatchWithParticipants, raw: string): EntrantId | 'TIE' | 'VOID' | null {
+  if (raw === 'TIE' || raw === 'VOID') return raw;
+  const participant = match.participants.find((p) => p.entrant.discordUserId === raw);
+  return participant ? (participant.entrantId as EntrantId) : null;
+}
+
+export async function handleRule(interaction: ChatInputCommandInteraction, ctx: CommandContext): Promise<void> {
+  if (!interaction.inGuild() || !interaction.guild) {
+    await interaction.reply({ ephemeral: true, content: 'This only works inside a server.' });
+    return;
+  }
+
+  const guildRow = await ctx.prisma.guild.findUnique({ where: { id: interaction.guildId! } });
+  if (!(await requireRefereeTier(interaction, guildRow))) return;
+
+  const sub = interaction.options.getSubcommand(true) as 'song' | 'set';
+  const resultArg = interaction.options.getString('result', true);
+
+  await interaction.deferReply({ ephemeral: true });
+
+  const match = await resolveInvokingThreadMatch(interaction.channelId, ctx);
+  if (!match) {
+    await interaction.editReply('Run this inside the match thread you want to rule on.');
+    return;
+  }
+  if (match.status === 'CANCELLED') {
+    await interaction.editReply(CANCELLED_MATCH_MESSAGE);
+    return;
+  }
+
+  const rulingResult = resolveRulingResult(match, resultArg);
+  if (rulingResult === null) {
+    await interaction.editReply(`That player isn't a participant in this match (${resultArg}).`);
+    return;
+  }
+
+  const format = requireFormat(match.formatKey);
+  const players = buildPlayerDirectory(match);
+  const ref: ThreadRef = { matchId: match.id, threadId: match.threadId! };
+  const refName = refereeDisplayName(interaction);
+
+  if (sub === 'set') {
+    if (rulingResult === 'TIE' || rulingResult === 'VOID') {
+      await interaction.editReply('A set can only be awarded to a player, not tied or voided.');
+      return;
+    }
+    const event: Omit<MatchEvent, 'seq'> = {
+      actorId: interaction.user.id,
+      type: 'SET_RESULT_RULED',
+      payload: { result: rulingResult },
+    };
+    try {
+      const result = await appendMatchEvent(ctx.prisma, ctx.random, match.id, event, interaction.id);
+      if (match.alertMsgId) {
+        const outcome = `awarded the set to ${displayName(players, rulingResult)}`;
+        await ctx.alert.resolve(match.tournament.guildId, { messageId: match.alertMsgId }, buildResolvedAlert(refName, outcome));
+        await ctx.prisma.match.update({ where: { id: match.id }, data: { alertMsgId: null } });
+      }
+      await ctx.matchChannel.postLogMessage(ref, renderSetRulingLog(rulingResult, refName, players));
+      await applyAppendResult(ctx.prisma, ctx.matchChannel, ctx.alert, ctx.playerNotification, ctx.realtime, match, format, event, result);
+      await interaction.editReply(`Awarded the set to **${displayName(players, rulingResult)}**.`);
+    } catch (err) {
+      if (err instanceof IllegalActionError) {
+        await interaction.editReply(`Can't rule on that — ${describeStale(err)}.`);
+        return;
+      }
+      throw err;
+    }
+    return;
+  }
+
+  // sub === 'song' — always the match's current song, never a picked index,
+  // so the web and Discord act on the identical target.
+  const cachedState = match.state as unknown as MatchState;
+  const pending = format.pendingAction(cachedState);
+  const songIndex =
+    pending.kind === 'SUBMIT_SCORE' || pending.kind === 'SELECT_WINNER'
+      ? pending.songIndex
+      : pending.kind === 'AWAITING_TO'
+        ? pending.songIndex
+        : undefined;
+  if (songIndex === undefined) {
+    await interaction.editReply("There's no song currently in play to rule on.");
+    return;
+  }
+
+  const event: Omit<MatchEvent, 'seq'> = {
+    actorId: interaction.user.id,
+    type: 'SONG_RULED',
+    payload: { songIndex, result: rulingResult },
+  };
+  try {
+    const result = await appendMatchEvent(ctx.prisma, ctx.random, match.id, event, interaction.id);
+    const chart = result.state.songs[songIndex]!.chart;
+
+    if (match.alertMsgId) {
+      const outcome = rulingResult === 'VOID' ? 'voided' : rulingResult === 'TIE' ? 'ruled a tie' : `awarded to ${displayName(players, rulingResult)}`;
+      await ctx.alert.resolve(match.tournament.guildId, { messageId: match.alertMsgId }, buildResolvedAlert(refName, outcome));
+      await ctx.prisma.match.update({ where: { id: match.id }, data: { alertMsgId: null } });
+    }
+
+    await ctx.matchChannel.postLogMessage(ref, renderRulingLog(songIndex, chart, rulingResult, refName, players));
+    await applyAppendResult(ctx.prisma, ctx.matchChannel, ctx.alert, ctx.playerNotification, ctx.realtime, match, format, event, result);
+
+    const outcomeText = rulingResult === 'VOID' ? 'Voided' : rulingResult === 'TIE' ? 'Ruled a tie for' : `Awarded to **${displayName(players, rulingResult)}** —`;
+    await interaction.editReply(`${outcomeText} song ${songIndex + 1}.`);
+  } catch (err) {
+    if (err instanceof IllegalActionError) {
+      await interaction.editReply(`Can't rule on that — ${describeStale(err)}.`);
+      return;
+    }
+    throw err;
+  }
 }

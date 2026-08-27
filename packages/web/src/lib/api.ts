@@ -2,6 +2,7 @@ import {
   AdminGuildList,
   ChartImport,
   ChartSnapshot,
+  ChartUpdate,
   CreateTournamentResult,
   FirstRunStatus,
   GuildOverview,
@@ -220,4 +221,21 @@ export async function importCharts(tournamentId: string, charts: ChartImport['ch
   });
   if (!res.ok) throw new ApiError(res.status, `POST /api/tournaments/${tournamentId}/charts -> ${res.status}`);
   return ImportResult.parse(await res.json());
+}
+
+const CommitPackChangesResult = z.object({ updated: z.number().int().nonnegative(), deleted: z.number().int().nonnegative() });
+
+/** The pack management table's Save — only the rows the caller actually touched, edited or deleted. Never gated by tournament state; see the controller's comment. */
+export async function commitPackChanges(
+  tournamentId: string,
+  updates: ChartUpdate[],
+  deletes: string[],
+): Promise<{ updated: number; deleted: number }> {
+  const res = await fetch(`/api/tournaments/${tournamentId}/charts`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ updates, deletes }),
+  });
+  if (!res.ok) throw new ApiError(res.status, await describeError(res, `PATCH /api/tournaments/${tournamentId}/charts -> ${res.status}`));
+  return CommitPackChangesResult.parse(await res.json());
 }

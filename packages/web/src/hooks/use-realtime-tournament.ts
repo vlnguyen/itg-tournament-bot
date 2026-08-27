@@ -27,6 +27,16 @@ import { getSocket } from '../lib/socket.js';
  * stuck on stale data until something else refetched them. Invalidating
  * both alongside the patch keeps the patch's snappy paint and lets the
  * background refetch correct anything the patch alone couldn't.
+ *
+ * A `lifecycle` event (no payload — `RealtimeBroadcastPort.
+ * publishLifecycleChanged`) covers everything a frame can't: a lifecycle
+ * transition — open/close registration, open/close check-in, start,
+ * cancel, rename — from *any* surface, a Discord command included, has no
+ * associated match event to ride along with. Without this, a transition
+ * made in Discord left the config page's legal-actions checklist (and
+ * every other page's header badge) stuck on stale data until a manual
+ * reload — the same staleness a match frame already covers for
+ * match-driven completions.
  */
 export function useRealtimeTournament(tournamentId: string): void {
   const queryClient = useQueryClient();
@@ -53,10 +63,17 @@ export function useRealtimeTournament(tournamentId: string): void {
     };
     socket.on('frame', onFrame);
 
+    const onLifecycle = (): void => {
+      void queryClient.invalidateQueries({ queryKey: ['tournament', tournamentId] });
+      void queryClient.invalidateQueries({ queryKey: ['lifecycle', tournamentId] });
+    };
+    socket.on('lifecycle', onLifecycle);
+
     return () => {
       socket.emit('unsubscribe', { tournamentId });
       socket.off('connect', subscribe);
       socket.off('frame', onFrame);
+      socket.off('lifecycle', onLifecycle);
     };
   }, [tournamentId, queryClient]);
 }

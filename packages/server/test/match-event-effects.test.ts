@@ -69,6 +69,7 @@ describe.skipIf(!(await isReachable()))('applyAppendResult', () => {
           published = projection;
         },
         publishRosterChanged: () => undefined,
+        publishLifecycleChanged: () => undefined,
       };
       let renderedFinalState: RenderedMessage | undefined;
       const capturingMatchChannel: MatchChannelPort = {

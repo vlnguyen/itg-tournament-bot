@@ -6,6 +6,7 @@ import { useParams } from 'react-router-dom';
 import { STATE_LABEL, TournamentHeader } from '../components/tournament-header.js';
 import { useCurrentUser } from '../hooks/use-current-user.js';
 import { useLifecycleStatus } from '../hooks/use-lifecycle-status.js';
+import { useRealtimeTournament } from '../hooks/use-realtime-tournament.js';
 import { ApiError, submitLifecycleAction } from '../lib/api.js';
 
 const ACTION_LABEL: Record<LifecycleAction, string> = {
@@ -32,6 +33,7 @@ export default function TournamentLifecycle(): JSX.Element {
   const { tournamentId } = useParams<{ tournamentId: string }>();
   const { data: discordUserId, isPending: userPending } = useCurrentUser();
   const { data: status, isPending, error } = useLifecycleStatus(tournamentId!);
+  useRealtimeTournament(tournamentId!);
   const queryClient = useQueryClient();
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState('');

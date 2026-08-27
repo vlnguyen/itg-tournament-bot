@@ -1,13 +1,17 @@
-import { canImportPack, displayArtist, displaySubtitle, displayTitle, playstylePrefix } from '@itg/shared';
+import type { ChartInput, ChartSnapshot } from '@itg/shared';
+import { canImportPack, displayStepartistLine, displaySubtitle, displayTitle, playstylePrefix } from '@itg/shared';
 import type { DifficultySlot, PlayStyle } from '@itg/shared';
 import {
+  ActionIcon,
   Alert,
   Badge,
   Button,
   Center,
   Checkbox,
   Collapse,
+  Group,
   Loader,
+  Modal,
   NumberInput,
   Select,
   Stack,
@@ -18,13 +22,13 @@ import {
   VisuallyHidden,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
-import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { PackImport } from '../components/pack-import.js';
 import { TournamentHeader } from '../components/tournament-header.js';
 import { useTournament } from '../hooks/use-tournament.js';
-import { fetchCharts } from '../lib/api.js';
+import { commitPackChanges, fetchCharts } from '../lib/api.js';
 import { EMPTY_FILTERS, filterCharts, packHasMixedPlayStyles, type PackFilters } from '../lib/pack-search.js';
 import styles from './tournament-pack.module.css';
 
@@ -36,26 +40,266 @@ const DIFFICULTY_OPTIONS: { value: DifficultySlot; label: string }[] = [
   { value: 'EXPERT', label: 'Expert' },
 ];
 
+const PLAYSTYLE_OPTIONS: { value: PlayStyle; label: string }[] = [
+  { value: 'SINGLE', label: 'Single' },
+  { value: 'DOUBLE', label: 'Double' },
+];
+
+/** Plain inline SVG rather than an icon-library dependency — same reasoning as `layout.tsx`'s `HomeIcon`. */
+function TrashIcon(): JSX.Element {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Shown in place of the trash icon once a row is pending deletion — clicking it again is what restores the row, per its own click handler. */
+function RestoreIcon(): JSX.Element {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path d="M4 9a8 8 0 1 1 1.5 4.7" strokeLinecap="round" />
+      <path d="M4 4v5h5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+const EDITABLE_FIELDS = [
+  'title',
+  'titleTranslit',
+  'artist',
+  'artistTranslit',
+  'playStyle',
+  'difficulty',
+  'meter',
+  'flags',
+  'stepartist',
+  'description',
+] as const;
+
+function isRowEdited(a: ChartInput, b: ChartInput): boolean {
+  return EDITABLE_FIELDS.some((field) => a[field] !== b[field]);
+}
+
+/**
+ * One editable row, split out and memoized so a keystroke in one row's
+ * input only re-renders that row — not the whole table. This only works
+ * because the parent passes stable props for everyone else: `onFieldChange`/
+ * `onToggleDelete` are `useCallback`'d with no dependencies (they close
+ * over state setters, not state itself), and `row` keeps its prior object
+ * reference for every chart except the one just edited (the parent's
+ * `setEdited` only replaces that one key). `React.memo`'s default shallow
+ * prop comparison is what turns that stability into an actual skipped
+ * render.
+ */
+const EditableChartRow = memo(function EditableChartRow({
+  original,
+  row,
+  marked,
+  onFieldChange,
+  onToggleDelete,
+}: {
+  original: ChartSnapshot;
+  row: ChartInput;
+  marked: boolean;
+  onFieldChange: <K extends (typeof EDITABLE_FIELDS)[number]>(chartId: string, field: K, value: ChartInput[K]) => void;
+  onToggleDelete: (chartId: string) => void;
+}): JSX.Element {
+  const chartId = original.chartId;
+  return (
+    <Table.Tr style={marked ? { opacity: 0.5 } : undefined}>
+      <Table.Td>
+        <ActionIcon
+          variant="subtle"
+          color={marked ? 'blue' : 'red'}
+          onClick={() => onToggleDelete(chartId)}
+          aria-label={marked ? `Keep ${original.title}` : `Delete ${original.title}`}
+        >
+          {marked ? <RestoreIcon /> : <TrashIcon />}
+        </ActionIcon>
+      </Table.Td>
+      <Table.Td>
+        <TextInput value={row.title} onChange={(e) => onFieldChange(chartId, 'title', e.currentTarget.value)} disabled={marked} required />
+      </Table.Td>
+      <Table.Td>
+        <TextInput
+          value={row.titleTranslit ?? ''}
+          onChange={(e) => onFieldChange(chartId, 'titleTranslit', e.currentTarget.value || null)}
+          disabled={marked}
+        />
+      </Table.Td>
+      <Table.Td>
+        <TextInput
+          value={row.artist ?? ''}
+          onChange={(e) => onFieldChange(chartId, 'artist', e.currentTarget.value || null)}
+          disabled={marked}
+        />
+      </Table.Td>
+      <Table.Td>
+        <TextInput
+          value={row.artistTranslit ?? ''}
+          onChange={(e) => onFieldChange(chartId, 'artistTranslit', e.currentTarget.value || null)}
+          disabled={marked}
+        />
+      </Table.Td>
+      <Table.Td>
+        <Select
+          data={PLAYSTYLE_OPTIONS}
+          value={row.playStyle}
+          onChange={(v) => v && onFieldChange(chartId, 'playStyle', v as PlayStyle)}
+          disabled={marked}
+          allowDeselect={false}
+          w={110}
+        />
+      </Table.Td>
+      <Table.Td>
+        <Select
+          data={DIFFICULTY_OPTIONS}
+          value={row.difficulty}
+          onChange={(v) => v && onFieldChange(chartId, 'difficulty', v as DifficultySlot)}
+          disabled={marked}
+          allowDeselect={false}
+          w={120}
+        />
+      </Table.Td>
+      <Table.Td>
+        <NumberInput
+          value={row.meter}
+          onChange={(v) => onFieldChange(chartId, 'meter', typeof v === 'number' ? v : 1)}
+          disabled={marked}
+          min={1}
+          max={99}
+          allowDecimal={false}
+          w={80}
+        />
+      </Table.Td>
+      <Table.Td>
+        <Group justify="center">
+          <Checkbox
+            checked={row.flags.includes('noCmod')}
+            onChange={(e) =>
+              onFieldChange(chartId, 'flags', e.currentTarget.checked ? [...row.flags, 'noCmod'] : row.flags.filter((f) => f !== 'noCmod'))
+            }
+            disabled={marked}
+            aria-label={`No CMOD for ${original.title}`}
+          />
+        </Group>
+      </Table.Td>
+      <Table.Td>
+        <TextInput
+          value={row.stepartist ?? ''}
+          onChange={(e) => onFieldChange(chartId, 'stepartist', e.currentTarget.value || null)}
+          disabled={marked}
+        />
+      </Table.Td>
+      <Table.Td>
+        <TextInput
+          value={row.description ?? ''}
+          onChange={(e) => onFieldChange(chartId, 'description', e.currentTarget.value || null)}
+          disabled={marked}
+        />
+      </Table.Td>
+    </Table.Tr>
+  );
+});
+
 /**
  * `/t/:tournamentId/pack` — DESIGN.md, "The pack tab": "the whole pack
  * loads once and filters client-side... the debounce is a render guard
  * rather than a network one." Filters adapt to the pack — playstyle only
  * appears once the pack actually mixes Singles and Doubles.
+ *
+ * Editing (DESIGN.md, "Song pack management": "inline edit... and
+ * removal") needs no freeze rule — a chart already drawn renders from its
+ * own snapshot, never re-read from this row — so Edit is offered
+ * regardless of tournament state, unlike Import. The edited row set is
+ * frozen from whatever the filters showed at the moment Edit was clicked,
+ * so changing filters mid-edit can't silently drop or add rows out from
+ * under an in-progress edit; the filters are disabled for the same reason.
  */
 export default function TournamentPack(): JSX.Element {
   const { tournamentId } = useParams<{ tournamentId: string }>();
-  const { data: charts, isPending, isError } = useQuery({
+  const {
+    data: charts,
+    isPending,
+    isError,
+  } = useQuery({
     queryKey: ['charts', tournamentId],
     queryFn: () => fetchCharts(tournamentId!),
   });
   const { data: snapshot } = useTournament(tournamentId!);
+  const queryClient = useQueryClient();
 
   const [filters, setFilters] = useState<PackFilters>(EMPTY_FILTERS);
   const [debounced] = useDebouncedValue(filters, 200);
   const [importOpen, { toggle: toggleImport }] = useDisclosure(false);
 
+  const [editingRows, setEditingRows] = useState<ChartSnapshot[] | null>(null);
+  const [edited, setEdited] = useState<Record<string, ChartInput>>({});
+  const [pendingDelete, setPendingDelete] = useState<Set<string>>(new Set());
+  const [discardModalOpen, { open: openDiscardModal, close: closeDiscardModal }] = useDisclosure(false);
+
   const showPlayStyleFilter = useMemo(() => (charts ? packHasMixedPlayStyles(charts) : false), [charts]);
   const filtered = useMemo(() => (charts ? filterCharts(charts, debounced) : []), [charts, debounced]);
+
+  const commitMutation = useMutation({
+    mutationFn: () => {
+      const rows = editingRows ?? [];
+      const updates = rows
+        .filter((c) => !pendingDelete.has(c.chartId) && isRowEdited(edited[c.chartId]!, c))
+        .map((c) => ({ ...edited[c.chartId]!, chartId: c.chartId }));
+      return commitPackChanges(tournamentId!, updates, [...pendingDelete]);
+    },
+    onSuccess: () => {
+      exitEditing();
+      void queryClient.invalidateQueries({ queryKey: ['charts', tournamentId] });
+    },
+  });
+
+  function exitEditing(): void {
+    setEditingRows(null);
+    setEdited({});
+    setPendingDelete(new Set());
+    commitMutation.reset();
+  }
+
+  function startEditing(): void {
+    setEditingRows(filtered);
+    setEdited(Object.fromEntries(filtered.map((c) => [c.chartId, { ...c }])));
+    setPendingDelete(new Set());
+  }
+
+  function isDirty(c: ChartSnapshot): boolean {
+    return pendingDelete.has(c.chartId) || isRowEdited(edited[c.chartId]!, c);
+  }
+  const anyDirty = (editingRows ?? []).some(isDirty);
+
+  function handleCancelClick(): void {
+    if (anyDirty) openDiscardModal();
+    else exitEditing();
+  }
+
+  function confirmDiscard(): void {
+    closeDiscardModal();
+    exitEditing();
+  }
+
+  // Stable across every render — closes over the setter, not `edited`
+  // itself — so `EditableChartRow`'s `React.memo` sees the same function
+  // reference for every row, every time, and never re-renders on that
+  // basis alone.
+  const updateField = useCallback(<K extends (typeof EDITABLE_FIELDS)[number]>(chartId: string, field: K, value: ChartInput[K]): void => {
+    setEdited((prev) => ({ ...prev, [chartId]: { ...prev[chartId]!, [field]: value } }));
+  }, []);
+
+  const toggleDelete = useCallback((chartId: string): void => {
+    setPendingDelete((prev) => {
+      const next = new Set(prev);
+      if (next.has(chartId)) next.delete(chartId);
+      else next.add(chartId);
+      return next;
+    });
+  }, []);
 
   let content: JSX.Element;
 
@@ -74,9 +318,32 @@ export default function TournamentPack(): JSX.Element {
       </Center>
     );
   } else {
+    const isEditing = editingRows !== null;
+    const rows = isEditing ? editingRows : filtered;
+
     content = (
       <>
         <Title order={2}>Song Pack</Title>
+
+        {commitMutation.isError && (
+          <Alert color="red" title="Couldn't save changes">
+            {commitMutation.error instanceof Error ? commitMutation.error.message : 'Something went wrong.'}
+          </Alert>
+        )}
+
+        <Modal opened={discardModalOpen} onClose={closeDiscardModal} title="Discard changes?">
+          <Stack>
+            <Text size="sm">You have unsaved edits. Discard them?</Text>
+            <Group justify="flex-end">
+              <Button variant="subtle" onClick={closeDiscardModal}>
+                Keep editing
+              </Button>
+              <Button color="red" onClick={confirmDiscard}>
+                Discard
+              </Button>
+            </Group>
+          </Stack>
+        </Modal>
 
         {/*
           No client-side tier check — the server is the only real gate for
@@ -86,7 +353,7 @@ export default function TournamentPack(): JSX.Element {
           every other frozen action in this app (DESIGN.md: "controls for
           frozen actions are not disabled-but-present; they are absent").
         */}
-        {snapshot && canImportPack(snapshot.state) && (
+        {!isEditing && snapshot && canImportPack(snapshot.state) && (
           <>
             <Button variant="subtle" size="xs" onClick={toggleImport} style={{ alignSelf: 'flex-start' }}>
               {importOpen ? 'Hide import' : 'Import pack'}
@@ -103,6 +370,7 @@ export default function TournamentPack(): JSX.Element {
             placeholder="Title, artist, stepartist…"
             value={filters.search}
             onChange={(e) => setFilters((f) => ({ ...f, search: e.currentTarget.value }))}
+            disabled={isEditing}
             w={240}
           />
           <Select
@@ -111,6 +379,7 @@ export default function TournamentPack(): JSX.Element {
             data={DIFFICULTY_OPTIONS}
             value={filters.difficulty}
             onChange={(v) => setFilters((f) => ({ ...f, difficulty: v as DifficultySlot | null }))}
+            disabled={isEditing}
             clearable
             w={140}
           />
@@ -118,24 +387,24 @@ export default function TournamentPack(): JSX.Element {
             label="Min rating"
             value={filters.minMeter ?? ''}
             onChange={(v) => setFilters((f) => ({ ...f, minMeter: typeof v === 'number' ? v : null }))}
+            disabled={isEditing}
             w={110}
           />
           <NumberInput
             label="Max rating"
             value={filters.maxMeter ?? ''}
             onChange={(v) => setFilters((f) => ({ ...f, maxMeter: typeof v === 'number' ? v : null }))}
+            disabled={isEditing}
             w={110}
           />
           {showPlayStyleFilter && (
             <Select
               label="Playstyle"
               placeholder="Any"
-              data={[
-                { value: 'SINGLE', label: 'Single' },
-                { value: 'DOUBLE', label: 'Double' },
-              ]}
+              data={PLAYSTYLE_OPTIONS}
               value={filters.playStyle}
               onChange={(v) => setFilters((f) => ({ ...f, playStyle: v as PlayStyle | null }))}
+              disabled={isEditing}
               clearable
               w={130}
             />
@@ -144,6 +413,7 @@ export default function TournamentPack(): JSX.Element {
             label="No CMOD only"
             checked={filters.noCmodOnly}
             onChange={(e) => setFilters((f) => ({ ...f, noCmodOnly: e.currentTarget.checked }))}
+            disabled={isEditing}
             mb={8}
           />
         </div>
@@ -152,47 +422,88 @@ export default function TournamentPack(): JSX.Element {
         <VisuallyHidden aria-live="polite" role="status">
           {filtered.length} chart{filtered.length === 1 ? '' : 's'}
         </VisuallyHidden>
-        <Text size="sm" c="dimmed">
-          {filtered.length} of {charts.length} charts
-        </Text>
+        <Group justify="space-between" align="center">
+          <Text size="sm" c="dimmed">
+            {isEditing ? `${rows.length} chart${rows.length === 1 ? '' : 's'}` : `${filtered.length} of ${charts.length} charts`}
+          </Text>
+          {!isEditing ? (
+            <Button variant="default" size="xs" onClick={startEditing}>
+              Edit
+            </Button>
+          ) : (
+            <Group gap="xs">
+              <Button variant="default" size="xs" onClick={handleCancelClick}>
+                Cancel
+              </Button>
+              <Button size="xs" onClick={() => commitMutation.mutate()} loading={commitMutation.isPending} disabled={!anyDirty}>
+                Save
+              </Button>
+            </Group>
+          )}
+        </Group>
 
         <Table>
           <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Chart</Table.Th>
-              <Table.Th>Artist</Table.Th>
-              <Table.Th>Level</Table.Th>
-              <Table.Th>Stepartist</Table.Th>
-            </Table.Tr>
+            {isEditing ? (
+              <Table.Tr>
+                <Table.Th></Table.Th>
+                <Table.Th>Title</Table.Th>
+                <Table.Th>Title (Translit)</Table.Th>
+                <Table.Th>Artist</Table.Th>
+                <Table.Th>Artist (Translit)</Table.Th>
+                <Table.Th>Playstyle</Table.Th>
+                <Table.Th>Difficulty</Table.Th>
+                <Table.Th>Meter</Table.Th>
+                <Table.Th style={{ textAlign: 'center' }}>No CMOD</Table.Th>
+                <Table.Th>Stepartist</Table.Th>
+                <Table.Th>Description</Table.Th>
+              </Table.Tr>
+            ) : (
+              <Table.Tr>
+                <Table.Th>Chart</Table.Th>
+                <Table.Th>Level</Table.Th>
+                <Table.Th>Stepartist/Description</Table.Th>
+              </Table.Tr>
+            )}
           </Table.Thead>
           <Table.Tbody>
-            {filtered.map((c) => (
-              <Table.Tr key={c.chartId}>
-                <Table.Td>
-                  {displayTitle(c)}
-                  {displaySubtitle(c) ? ` ${displaySubtitle(c)}` : ''}
-                  {/*
-                    Not appended as text: a pack's own subtitle commonly
-                    already spells out "(No CMOD)" verbatim — that's how the
-                    flag gets inferred at import in the first place (see
-                    DESIGN.md, "Client-Side Song Pack Parsing") — so
-                    concatenating it again here would print it twice for
-                    most flagged charts.
-                  */}
-                  {c.flags.includes('noCmod') && (
-                    <Badge ml={6} size="xs" variant="light" color="red">
-                      🚫 No CMOD
-                    </Badge>
-                  )}
-                </Table.Td>
-                <Table.Td>{displayArtist(c)}</Table.Td>
-                <Table.Td>
-                  {playstylePrefix(c.playStyle, c.difficulty)}
-                  {c.meter}
-                </Table.Td>
-                <Table.Td>{c.stepartist}</Table.Td>
-              </Table.Tr>
-            ))}
+            {!isEditing
+              ? rows.map((c) => (
+                  <Table.Tr key={c.chartId}>
+                    <Table.Td>
+                      {displayTitle(c)}
+                      {displaySubtitle(c) ? ` ${displaySubtitle(c)}` : ''}
+                      {/*
+                        Not appended as text: a pack's own subtitle commonly
+                        already spells out "(No CMOD)" verbatim — that's how the
+                        flag gets inferred at import in the first place (see
+                        DESIGN.md, "Client-Side Song Pack Parsing") — so
+                        concatenating it again here would print it twice for
+                        most flagged charts.
+                      */}
+                      {c.flags.includes('noCmod') && (
+                        <Badge ml={6} size="xs" variant="light" color="red">
+                          🚫 No CMOD
+                        </Badge>
+                      )}
+                    </Table.Td>
+                    <Table.Td>
+                      {playstylePrefix(c.playStyle, c.difficulty)}
+                      {c.meter}
+                    </Table.Td>
+                    <Table.Td>{displayStepartistLine(c)}</Table.Td>
+                  </Table.Tr>
+                ))
+              : rows.map((c) => (
+                  <EditableChartRow
+                    key={c.chartId}
+                    original={c}
+                    row={edited[c.chartId]!}
+                    marked={pendingDelete.has(c.chartId)}
+                    onFieldChange={updateField}
+                    onToggleDelete={toggleDelete}
+                  />
+                ))}
           </Table.Tbody>
         </Table>
       </>

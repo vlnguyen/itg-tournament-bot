@@ -92,6 +92,27 @@ export const ChartImport = z.object({ charts: z.array(ChartInput).min(1) });
 export type ChartImport = z.infer<typeof ChartImport>;
 
 /**
+ * `PATCH /api/tournaments/:id/charts` — the pack management table's Save,
+ * DESIGN.md's "inline edit... and removal." Chart edits need no freeze
+ * rule ("Snapshotting a chart": a chart already drawn renders from its own
+ * copy in the event, never re-read from this row), so this is legal at
+ * any tournament state, unlike import. `updates` carries a dirty row's
+ * *entire* current value, not a partial patch — simpler to validate
+ * against the same `ChartInput` shape import already uses, and the whole
+ * point of only sending dirty rows is already done client-side by leaving
+ * an unedited chart out of the array. `deletes` is chart ids to remove
+ * outright — same "no damage to history" guarantee.
+ */
+export const ChartUpdate = ChartInput.extend({ chartId: z.string().min(1) });
+export type ChartUpdate = z.infer<typeof ChartUpdate>;
+
+export const CommitPackChangesRequest = z.object({
+  updates: z.array(ChartUpdate),
+  deletes: z.array(z.string().min(1)),
+});
+export type CommitPackChangesRequest = z.infer<typeof CommitPackChangesRequest>;
+
+/**
  * Chart metadata as it was when a chart was drawn, written into the draw event.
  * History renders from this; the pack renders from the Chart row. See
  * DESIGN.md, "Snapshotting a chart".

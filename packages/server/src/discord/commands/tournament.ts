@@ -205,6 +205,7 @@ async function runTransition(
     const description = describe(t);
     await interaction.editReply(description);
     await logToOrganizers(ctx.alert, interaction.guildId!, `📋 **${interaction.user.username}**: ${description}`);
+    ctx.realtime.publishLifecycleChanged(t.id);
     if (afterSuccess) await afterSuccess(t);
   } catch (err) {
     if (err instanceof TournamentTransitionError) {
@@ -235,6 +236,7 @@ async function handleOpenCheckin(interaction: ChatInputCommandInteraction, ctx: 
     select: { discordUserId: true },
   });
   const { unreachable } = await ctx.playerNotification.checkinOpened(interaction.guildId!, opened.name, registered.map((e) => e.discordUserId));
+  ctx.realtime.publishLifecycleChanged(opened.id);
 
   const lines = [`Check-in is open for **${opened.name}** — registered players have been notified.`];
   if (unreachable.length > 0) lines.push(`⚠️ Could not DM: ${unreachable.map((id) => `<@${id}>`).join(', ')}.`);
@@ -292,6 +294,7 @@ async function handleCancel(interaction: ChatInputCommandInteraction, ctx: Comma
     lines.push(`⚠️ ${result.cancelledMatchIds.length} in-progress match(es) were cancelled — ${cancelledWithThreads.length} with a thread closed.`);
   }
   await interaction.editReply(lines.join('\n'));
+  ctx.realtime.publishLifecycleChanged(result.tournament.id);
 
   await logToOrganizers(ctx.alert, interaction.guildId!, [`📋 **${interaction.user.username}**:`, ...lines].join('\n'));
   await ctx.playerNotification.tournamentCancelled(interaction.guildId!, result.tournament.name);
@@ -338,4 +341,9 @@ async function handleStart(
 
   await logToOrganizers(ctx.alert, interaction.guildId!, [`📋 **${interaction.user.username}**:`, ...lines].join('\n'));
   await ctx.playerNotification.tournamentStarted(interaction.guildId!, outcome.tournament.name);
+  ctx.realtime.publishLifecycleChanged(outcome.tournament.id);
+  // Starting drops no-shows and collapses seeds — a real roster change a
+  // seeding page held open elsewhere needs to hear about, the same
+  // broadcast the web console's own Start button already makes.
+  ctx.realtime.publishRosterChanged(outcome.tournament.id);
 }

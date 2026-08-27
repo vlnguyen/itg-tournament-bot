@@ -311,7 +311,7 @@ export default function TournamentRoster(): JSX.Element {
           <Table>
             <Table.Thead>
               <Table.Tr>
-                <Table.Th>Seed</Table.Th>
+                <Table.Th style={{ width: '1%', whiteSpace: 'nowrap' }}>Seed</Table.Th>
                 <Table.Th>Player</Table.Th>
                 <Table.Th>Check-in</Table.Th>
               </Table.Tr>

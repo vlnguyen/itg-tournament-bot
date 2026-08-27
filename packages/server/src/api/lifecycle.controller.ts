@@ -84,6 +84,10 @@ export class LifecycleController {
       if (err instanceof TournamentTransitionError) throw new BadRequestException(`Can't do that — ${err.reason}.`);
       throw err;
     }
+    // One call covers every action below — a lifecycle change made here
+    // needs to reach any other browser (or Discord-side re-check) watching
+    // this tournament, the same way a Discord-originated change now does.
+    this.realtime.publishLifecycleChanged(id);
 
     return LifecycleStatusSchema.parse(await getLifecycleStatus(this.prisma, id));
   }

@@ -44,4 +44,9 @@ export class RealtimeGateway implements RealtimeBroadcastPort {
   publishRosterChanged(tournamentId: string): void {
     this.server.to(roomFor(tournamentId)).emit('roster');
   }
+
+  /** No payload, same reasoning as `publishRosterChanged` — a Tournament row is cheap to refetch whole. */
+  publishLifecycleChanged(tournamentId: string): void {
+    this.server.to(roomFor(tournamentId)).emit('lifecycle');
+  }
 }

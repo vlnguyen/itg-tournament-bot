@@ -32,6 +32,7 @@ const WHOLE_COMMAND_GROUP: Partial<Record<string, Group>> = {
   pack: 'ANYONE',
   commands: 'ANYONE',
   dq: 'REFEREE',
+  rule: 'REFEREE',
   setup: 'MANAGE_GUILD',
 };
 

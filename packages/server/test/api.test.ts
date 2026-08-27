@@ -263,11 +263,82 @@ describe.skipIf(!(await isReachable()))('song pack import — GET/POST /api/tour
     expect(after.some((c) => c.title === 'Test Song')).toBe(true);
   });
 
+  it('PATCH rejects an unauthenticated request', async () => {
+    hasTierResult = true;
+    await expect(chartsController.commitPackChanges(t.tournamentId, { updates: [], deletes: [] }, null)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('PATCH rejects a signed-in user below Tournament Organizer tier', async () => {
+    hasTierResult = false;
+    await expect(chartsController.commitPackChanges(t.tournamentId, { updates: [], deletes: [] }, 'some-user')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('PATCH rejects a malformed payload with 400', async () => {
+    hasTierResult = true;
+    await expect(
+      chartsController.commitPackChanges(t.tournamentId, { updates: [{ chartId: 'x', title: '' }], deletes: [] }, 'organizer'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('PATCH updates a named chart and deletes another, in one call', async () => {
+    hasTierResult = true;
+    const imported = await chartsController.importCharts(
+      t.tournamentId,
+      { charts: [{ ...validChart, title: 'Edit Me' }, { ...validChart, title: 'Delete Me' }] },
+      'organizer',
+    );
+    expect(imported.imported).toBe(2);
+    const before = await chartsController.getCharts(t.tournamentId);
+    const toEdit = before.find((c) => c.title === 'Edit Me')!;
+    const toDelete = before.find((c) => c.title === 'Delete Me')!;
+
+    const result = await chartsController.commitPackChanges(
+      t.tournamentId,
+      { updates: [{ ...toEdit, meter: 15 }], deletes: [toDelete.chartId] },
+      'organizer',
+    );
+    expect(result).toEqual({ updated: 1, deleted: 1 });
+
+    const after = await chartsController.getCharts(t.tournamentId);
+    expect(after.find((c) => c.chartId === toEdit.chartId)?.meter).toBe(15);
+    expect(after.some((c) => c.chartId === toDelete.chartId)).toBe(false);
+  });
+
+  it("PATCH ignores a chart id that doesn't belong to this tournament", async () => {
+    hasTierResult = true;
+    const other = await makeTournament(`api-charts-other-${Date.now()}`, 2);
+    try {
+      const [foreignChart] = await chartsController.getCharts(other.tournamentId);
+      const result = await chartsController.commitPackChanges(t.tournamentId, { updates: [], deletes: [foreignChart!.chartId] }, 'organizer');
+      expect(result.deleted).toBe(0);
+      const stillThere = await chartsController.getCharts(other.tournamentId);
+      expect(stillThere.some((c) => c.chartId === foreignChart!.chartId)).toBe(true);
+    } finally {
+      await cleanupTournament(other);
+    }
+  });
+
   it('POST rejects import once the tournament has started', async () => {
     hasTierResult = true;
     await prisma.tournament.update({ where: { id: t.tournamentId }, data: { state: 'RUNNING' } });
     await expect(chartsController.importCharts(t.tournamentId, { charts: [validChart] }, 'organizer')).rejects.toBeInstanceOf(
       BadRequestException,
     );
+  });
+
+  it('PATCH keeps working once the tournament has started — no freeze rule for chart edits', async () => {
+    hasTierResult = true;
+    const before = await chartsController.getCharts(t.tournamentId);
+    const target = before[0]!;
+    const result = await chartsController.commitPackChanges(
+      t.tournamentId,
+      { updates: [{ ...target, meter: target.meter === 99 ? 98 : target.meter + 1 }], deletes: [] },
+      'organizer',
+    );
+    expect(result.updated).toBe(1);
   });
 });

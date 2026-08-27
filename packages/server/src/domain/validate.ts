@@ -73,14 +73,28 @@ export function isLegal(pending: PendingAction, event: MatchEvent): boolean {
     case 'SET_RESULT_CONFIRMED':
       return pending.kind === 'CONFIRM_RESULT' && pending.actors.includes(event.payload.by);
 
-    // A referee rules exactly on the song the match is waiting on.
+    // A referee may rule on the song the match is currently waiting on —
+    // still being played (`SUBMIT_SCORE`/`SELECT_WINNER`), or already
+    // escalated (`AWAITING_TO`) — pre-empting the players' own agreement
+    // path rather than only resolving a disagreement they've already
+    // reached. Never a song that's already committed or hasn't started:
+    // exactly one song is ever "current" at a time, so matching its index
+    // is equivalent to the reducer's own `!song.result` guard without
+    // needing raw `MatchState` here. See DESIGN.md, "The freeze boundary
+    // is enforced by the reducer" — consistent with DQ/Forfeit's existing
+    // "legal any time the match isn't done," not a new kind of exception.
     case 'SONG_RULED':
-      return pending.kind === 'AWAITING_TO' && pending.songIndex === event.payload.songIndex;
+      return (
+        (pending.kind === 'SUBMIT_SCORE' || pending.kind === 'SELECT_WINNER' || pending.kind === 'AWAITING_TO') &&
+        pending.songIndex === event.payload.songIndex
+      );
 
-    // A referee rules on a set-level disagreement — no songIndex to match,
-    // since it isn't about any one song.
+    // A referee may decide the set's overall outcome at any point before
+    // it's done — same "legal any time the match isn't done" precedent as
+    // FORFEIT_APPLIED/DQ_APPLIED below, not gated on an actual set-result
+    // disagreement having happened.
     case 'SET_RESULT_RULED':
-      return pending.kind === 'AWAITING_TO' && pending.reason === 'SET_RESULT_DISAGREEMENT';
+      return pending.kind !== 'DONE';
 
     // "A referee may reset the sequence until song 1 has been played." A
     // person only ever observes `pendingAction` once the bot has settled, so

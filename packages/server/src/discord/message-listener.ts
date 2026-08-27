@@ -1,12 +1,13 @@
 import { Events, type Client, type Message } from 'discord.js';
 import type { PrismaClient } from '@prisma/client';
 import type { MatchState } from '../domain/types.js';
+import { toPublicMatch } from '../domain/projection.js';
 import { requireFormat } from '../services/engine.js';
 import { appendMatchEvent, IllegalActionError } from '../services/match-service.js';
-import type { RandomPort } from '../services/ports.js';
+import type { RandomPort, RealtimeBroadcastPort } from '../services/ports.js';
 import { buildPlayerDirectory, loadMatchByThreadId } from './match-lookup.js';
 import type { MatchChannelPort, ThreadRef } from './ports.js';
-import { renderStateMessage } from './state-message.js';
+import { displayName, renderStateMessage } from './state-message.js';
 
 /**
  * "The first message from a player carrying an image attachment satisfies
@@ -24,9 +25,10 @@ export function registerMessageListener(
   prisma: PrismaClient,
   random: RandomPort,
   matchChannel: MatchChannelPort,
+  realtime: RealtimeBroadcastPort,
 ): void {
   client.on(Events.MessageCreate, (message: Message) => {
-    handle(message, prisma, random, matchChannel).catch((err: unknown) => {
+    handle(message, prisma, random, matchChannel, realtime).catch((err: unknown) => {
       console.error('[discord] message handler failed', err);
     });
   });
@@ -37,6 +39,7 @@ async function handle(
   prisma: PrismaClient,
   random: RandomPort,
   matchChannel: MatchChannelPort,
+  realtime: RealtimeBroadcastPort,
 ): Promise<void> {
   if (message.author.bot) return; // ignore the bot's own messages — including its own reposts
   if (!message.channel.isThread()) return;
@@ -68,7 +71,18 @@ async function handle(
       message.id, // a message can only ever satisfy its own photo requirement once
     );
 
+    // `toPublicMatch` never sets `participants[].displayName` — every
+    // caller has to join it in (see `match-event-effects.ts`'s comment on
+    // its own `realtime.publish` call, the same fix applied here).
     const players = buildPlayerDirectory(match);
+    const projection = toPublicMatch(format, result.state);
+    realtime.publish(match.tournamentId, match.id, result.state.seq, {
+      ...projection,
+      bracket: match.bracket,
+      round: match.round,
+      participants: projection.participants.map((p) => ({ ...p, displayName: displayName(players, p.entrantId) })),
+    });
+
     const ref: ThreadRef = { matchId: match.id, threadId: match.threadId! };
     const newPending = format.pendingAction(result.state);
     await matchChannel.postMatchState(ref, renderStateMessage(match.id, newPending, result.state, players));

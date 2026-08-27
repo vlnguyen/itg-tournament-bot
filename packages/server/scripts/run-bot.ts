@@ -19,7 +19,7 @@ import { registerInteractionHandlers } from '../src/discord/interactions.js';
 import { createMatchChannelAdapter } from '../src/discord/match-channel-adapter.js';
 import { registerMessageListener } from '../src/discord/message-listener.js';
 import { createPlayerNotificationAdapter } from '../src/discord/player-notification-adapter.js';
-import { cryptoRandomPort } from '../src/services/ports.js';
+import { cryptoRandomPort, noopRealtimePort } from '../src/services/ports.js';
 
 process.loadEnvFile(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../.env'));
 
@@ -48,8 +48,10 @@ async function main(): Promise<void> {
   const matchChannel = createMatchChannelAdapter(client, prisma);
   const alert = createAlertAdapter(client, prisma);
   const playerNotification = createPlayerNotificationAdapter(client, prisma);
-  registerInteractionHandlers(client, prisma, cryptoRandomPort, matchChannel, alert, playerNotification);
-  registerMessageListener(client, prisma, cryptoRandomPort, matchChannel);
+  // No websocket gateway here — this dev harness has no web client to
+  // broadcast to (see the file header).
+  registerInteractionHandlers(client, prisma, cryptoRandomPort, matchChannel, alert, playerNotification, noopRealtimePort);
+  registerMessageListener(client, prisma, cryptoRandomPort, matchChannel, noopRealtimePort);
 
   console.log('Listening for interactions. Ctrl-C to stop.');
 

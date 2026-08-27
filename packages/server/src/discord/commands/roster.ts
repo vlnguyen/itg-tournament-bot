@@ -107,6 +107,7 @@ async function handleAdd(interaction: ChatInputCommandInteraction, ctx: CommandC
       // "Anything a player can do for themselves, a Tournament Organizer can
       // do for them" — same public general-channel hype line `/join` posts.
       await ctx.playerNotification.entrantJoined(interaction.guildId!, playerName);
+      ctx.realtime.publishRosterChanged(result.entrant.tournamentId);
       return;
     }
     case 'ALREADY_JOINED':
@@ -129,6 +130,7 @@ async function handleCheckin(interaction: ChatInputCommandInteraction, ctx: Comm
       await logToOrganizers(ctx.alert, interaction.guildId!, `📋 **${interaction.user.username}** checked in **${player.username}**.`);
       // Same public general-channel hype line `/checkin` posts.
       await ctx.playerNotification.entrantCheckedIn(interaction.guildId!, playerName);
+      ctx.realtime.publishRosterChanged(result.entrant.tournamentId);
       return;
     }
     case 'ALREADY_CHECKED_IN':
@@ -152,6 +154,7 @@ async function handleUncheckin(interaction: ChatInputCommandInteraction, ctx: Co
     case 'UNCHECKED_IN': {
       await interaction.reply({ ephemeral: true, content: `Un-checked-in **${playerName}**.` });
       await logToOrganizers(ctx.alert, interaction.guildId!, `📋 **${interaction.user.username}** un-checked-in **${player.username}**.`);
+      ctx.realtime.publishRosterChanged(result.entrant.tournamentId);
       return;
     }
     case 'ALREADY_NOT_CHECKED_IN':
@@ -175,6 +178,7 @@ async function handleRemove(interaction: ChatInputCommandInteraction, ctx: Comma
     case 'REMOVED': {
       await interaction.reply({ ephemeral: true, content: `Removed **${playerName}** from the tournament.` });
       await logToOrganizers(ctx.alert, interaction.guildId!, `📋 **${interaction.user.username}** removed **${player.username}** from the tournament.`);
+      ctx.realtime.publishRosterChanged(result.entrant.tournamentId);
       return;
     }
     case 'NO_TOURNAMENT':

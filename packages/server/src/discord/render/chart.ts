@@ -1,4 +1,4 @@
-import { displaySubtitle, displayTitle, playstylePrefix, type ChartFlag, type ChartSnapshot } from '@itg/shared';
+import { displayStepartistLine, displaySubtitle, displayTitle, playstylePrefix, type ChartFlag, type ChartSnapshot } from '@itg/shared';
 
 /** `SX 12` — playstyle prefix, then the numeric meter. */
 function difficultySuffix(chart: ChartSnapshot): string {
@@ -30,12 +30,6 @@ export function titleWithSubtitle(chart: ChartSnapshot): string {
  */
 const FLAG_LABEL: Record<ChartFlag, string> = { noCmod: 'No CMOD' };
 
-/** `${stepartist} [${description}]` when both exist; otherwise whichever one is set, unbracketed. */
-function stepartistLine(chart: ChartSnapshot): string | null {
-  if (chart.stepartist && chart.description) return `${chart.stepartist} [${chart.description}]`;
-  return chart.stepartist ?? chart.description ?? null;
-}
-
 /**
  * The detailed view — an embed field on the Draw and the song-scoring
  * prompt. Title and subtitle share the compact form's line rather than
@@ -45,7 +39,7 @@ function stepartistLine(chart: ChartSnapshot): string | null {
 export function fullChartDescription(chart: ChartSnapshot): string {
   const lines = [titleWithSubtitle(chart)];
   if (chart.flags.length > 0) lines.push(`⚠️ ${chart.flags.map((f) => FLAG_LABEL[f]).join(', ')}`);
-  const stepLine = stepartistLine(chart);
+  const stepLine = displayStepartistLine(chart);
   if (stepLine) lines.push(stepLine);
   return lines.join('\n');
 }
@@ -81,7 +75,7 @@ export function selectOptionLabel(chart: ChartSnapshot): string {
  * to add — an empty description is worse than none.
  */
 export function selectOptionDescription(chart: ChartSnapshot): string | undefined {
-  const parts = [stepartistLine(chart)].filter((v): v is string => Boolean(v));
+  const parts = [displayStepartistLine(chart)].filter((v): v is string => Boolean(v));
   if (chart.flags.length > 0) parts.push(`⚠️ ${chart.flags.map((f) => FLAG_LABEL[f]).join(', ')}`);
   return parts.length > 0 ? truncate(parts.join(' · '), SELECT_FIELD_MAX) : undefined;
 }

@@ -1,19 +1,9 @@
+import { escalationReasonLabel } from '@itg/shared';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import type { EntrantId, EscalationReason } from '../../domain/types.js';
 import { Action } from '../actions.js';
 import { encodeCustomId } from '../custom-id.js';
 import type { RenderedMessage } from '../ports.js';
-
-function reasonLabel(reason: EscalationReason): string {
-  switch (reason) {
-    case 'WINNER_DISAGREEMENT':
-      return 'a winner disagreement';
-    case 'SETTINGS_VIOLATION':
-      return 'a reported settings violation';
-    case 'SET_RESULT_DISAGREEMENT':
-      return 'a disagreement over who won the set';
-  }
-}
 
 /**
  * "Award A · Award B · Void song" — three buttons, no tie: a disagreement
@@ -66,7 +56,7 @@ export function buildAwaitingRefereeMessage(
   players: readonly [{ entrantId: EntrantId; name: string }, { entrantId: EntrantId; name: string }],
 ): RenderedMessage {
   return {
-    content: `⏸️ This ${songIndex === undefined ? 'match' : 'song'} is awaiting a referee's ruling on ${reasonLabel(reason)}. No further action from either player until then.`,
+    content: `⏸️ This ${songIndex === undefined ? 'match' : 'song'} is awaiting a referee's ruling on ${escalationReasonLabel(reason)}. No further action from either player until then.`,
     components: [rulingButtons(matchId, songIndex, players)],
   };
 }

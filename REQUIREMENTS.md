@@ -403,10 +403,10 @@ Individual match rules are in **Match Flow**.
 - The registration window is explicitly opened and closed by the TO. `/join` only works while the window is open.
 - **Anything a player can do for themselves, a Tournament Organizer can do for them** — add someone who missed registration, check in a player who is present but unreachable, un-check-in, or remove. Available from both the console roster and slash commands, at any point until the tournament starts. This is a superset of the player's own window: a TO can add an entrant after registration has closed, which `/join` will not do.
 - **An action taken on a player's behalf leaves the roster in exactly the state the player's own action would have.** The only additions are the audit record, and the absence of a notification where the organizer performing the action would have been the one notified. There is no second code path and no "added by an organizer" variant of an entrant.
-- **Competitors may withdraw themselves with `/leave`** at any point before the tournament starts — during registration, during check-in, and after seeds have been committed. Once the tournament starts, leaving requires a referee, because there is a bracket to repair.
-- A withdrawal after check-in has closed **alerts the organizers**, because seeding is settled by then and the field has changed under them. A withdrawal before that is routine and silent.
+- **Competitors may withdraw themselves with `/leave`** at any point before the tournament starts — during registration, during check-in, and after check-in has closed. Once the tournament starts, leaving requires a referee, because there is a bracket to repair.
+- A withdrawal after check-in has closed **alerts the organizers**, since a TO reviewing the field before starting deserves to know it just changed. A withdrawal before that is routine and silent.
 - **No roster size cap.**
-- After registration closes there is a **separate check-in window**. Registered players must confirm attendance; no-shows are dropped from the roster before seeding.
+- After registration closes there is a **separate check-in window**. Registered players must confirm attendance; no-shows are dropped from the roster when the tournament starts, not before (see Seeding).
 
 ### Duration estimation
 
@@ -419,14 +419,13 @@ This feature exists specifically to support **remote tournaments**, where every 
 
 ### Seeding
 
-- Seeds are entered **manually by a Tournament Organizer** through the web UI.
-- **Seeding can begin as soon as players start joining.** A TO does not have to wait for registration to close — entrants can be ordered as they arrive, which is how seeding actually gets done when a field is assembling over days.
-- Seeds are therefore a **provisional ordering** until they are committed. They may be edited freely, and entrants may be left unseeded, for as long as the tournament has not started.
-- **Only players who complete check-in participate.** Everyone who did not check in is dropped when the check-in window closes, whether or not they had been seeded.
-- Dropping those players leaves gaps, so when check-in closes **their seeds are cleared** and the surviving seeds are **renumbered from 1 with their relative order preserved**. If seeds 1, 2, 3 and 4 were assigned and seed 3 never checked in, seed 3 is released and the remaining three become 1, 2 and 3 in the same order.
+- **A player receives a seed automatically the moment they join** — the lowest-priority spot, at the back of the current order — rather than waiting for a Tournament Organizer to assign one. Check-in status is tracked separately and never affects an entrant's seed.
+- **A Tournament Organizer may reorder freely at any point before the tournament starts** — during registration, during check-in, and after check-in has closed. Dragging handles small adjustments; typing a seed number directly moves someone a long way in a large field. Both write the same full order.
+- Seeding is therefore never provisional in the sense of "incomplete" — every active entrant always holds a seed — but the order itself remains fully open to change up to the instant the tournament starts.
+- **Only players who complete check-in participate.** Everyone who did not check in is dropped **when the tournament starts**, not before — check-in closing is a separate event from that drop, so an organizer can keep adjusting the seed order (checked-in or not) for as long as the tournament is not yet running.
+- Dropping those players leaves gaps, so starting the tournament **clears their seeds** and **renumbers the survivors from 1 with their relative order preserved**. If seeds 1, 2, 3 and 4 were assigned and seed 3 never checked in, seed 3 is released and the remaining three become 1, 2 and 3 in the same order.
 - A dropped player keeps their roster entry, recorded as having not checked in. They simply hold no seed, since they never competed.
-- Any entrant still unseeded when check-in closes is **appended in the order they joined**, so a TO who seeds only the top of the field gets a complete, valid ordering without further work.
-- The TO reviews that final ordering **as part of starting the tournament** — the start action shows it for confirmation, and generating the bracket is what fixes it. There is no separate commit step, because until the bracket exists a withdrawal can still change the field.
+- The TO reviews the final ordering **as part of starting the tournament** — the start action shows it for confirmation, and generating the bracket is what fixes it. There is no separate commit step, because until the bracket exists a withdrawal or a late check-in can still change the field.
 
 ### Starting the tournament
 
@@ -436,8 +435,9 @@ Seeding is not a step in this sequence — it runs alongside from the moment the
 
 1. TO **closes registration**.
 2. TO **opens check-in**. Check-in has **no duration** — it stays open until closed.
-3. TO **closes check-in**. Players who did not confirm are dropped from the roster, and the surviving seeds are renumbered from 1 in their existing relative order, with any unseeded entrant appended in join order.
+3. TO **closes check-in**. This is a pure state change — the roster and every seed are untouched, and remain freely reorderable.
 4. TO **starts the tournament**, confirming the final seed order shown to them as they do. At this moment the bot:
+   - drops players who did not confirm check-in, and renumbers the surviving seeds from 1 in their existing relative order;
    - snapshots each remaining entrant's display name as shown in the server;
    - re-checks that all required Discord permissions are still granted, **blocking the start** if any are missing;
    - warns if the song pack is below the recommended minimum, **without** blocking;

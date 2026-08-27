@@ -116,8 +116,24 @@ const dq = new SlashCommandBuilder()
       .setAutocomplete(true),
   );
 
+const rule = new SlashCommandBuilder()
+  .setName('rule')
+  .setDescription('Rule on this match’s current song or its overall outcome (referee) — no conflict required first')
+  .addSubcommand((sub) =>
+    sub
+      .setName('song')
+      .setDescription('Rule on the song currently in play')
+      .addStringOption((o) => o.setName('result').setDescription('Who won — or Tie / Void').setRequired(true).setAutocomplete(true)),
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName('set')
+      .setDescription('Rule on the set’s overall outcome, pre-empting any songs left unplayed')
+      .addStringOption((o) => o.setName('result').setDescription('Who won the set').setRequired(true).setAutocomplete(true)),
+  );
+
 const pack = new SlashCommandBuilder().setName('pack').setDescription('Show a summary of the tournament’s chart pack');
 
 const commands = new SlashCommandBuilder().setName('commands').setDescription('List every command, grouped by who can run it');
 
-export const commandDefinitions = [setup, tournament, roster, join, checkin, leave, dq, pack, commands];
+export const commandDefinitions = [setup, tournament, roster, join, checkin, leave, dq, rule, pack, commands];

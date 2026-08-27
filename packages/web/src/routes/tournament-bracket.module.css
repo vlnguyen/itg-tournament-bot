@@ -1,0 +1,66 @@
+/* "One semantic DOM, laid out by CSS Grid... no layout decision can break
+   [reading/keyboard order] because layout is only ever CSS." The markup
+   below is always the same nested ordered lists; only these rules change
+   how it's painted. */
+
+.side {
+  display: flex;
+  gap: var(--mantine-spacing-xl);
+  overflow-x: auto;
+  padding-block: var(--mantine-spacing-xs);
+}
+
+.round {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  gap: var(--mantine-spacing-md);
+  min-width: 220px;
+  flex: 1 0 auto;
+}
+
+.roundHeading {
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+  margin: 0 0 var(--mantine-spacing-xs) 0;
+}
+
+.matchList {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  gap: var(--mantine-spacing-md);
+  flex: 1;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.roundSelector {
+  display: none;
+}
+
+/* Narrow viewports: single column, one round visible at a time — a phone
+   shows one round rather than a scaled-down tree nobody can read. */
+@media (max-width: 40em) {
+  .roundSelector {
+    display: block;
+  }
+
+  .side {
+    overflow-x: visible;
+  }
+
+  .round[data-active='false'] {
+    display: none;
+  }
+
+  .round {
+    min-width: 0;
+  }
+
+  .section[data-has-active='false'] {
+    display: none;
+  }
+}

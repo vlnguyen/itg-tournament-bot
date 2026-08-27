@@ -25,6 +25,17 @@ export const TournamentState = z.enum([
 export type TournamentState = z.infer<typeof TournamentState>;
 
 /**
+ * "Song packs can only support import before the tournament has started."
+ * Importing rewrites the field's draw pool — once `RUNNING`, matches may
+ * already be drawing from it. Shared so the client can hide the import
+ * control exactly where the server would reject it, rather than the two
+ * drifting out of sync.
+ */
+export function canImportPack(state: TournamentState): boolean {
+  return state !== 'RUNNING' && state !== 'COMPLETE' && state !== 'CANCELLED';
+}
+
+/**
  * Whether an entrant has been removed from the tournament, and nothing else.
  * Attendance lives on `checkedIn`; "dropped for not checking in" is derived,
  * never stored. See DESIGN.md, "Who is on the roster".

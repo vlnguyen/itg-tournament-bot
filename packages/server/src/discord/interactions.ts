@@ -14,7 +14,7 @@ import type { PrismaClient } from '@prisma/client';
 import type { EntrantId, MatchEvent, MatchState, PendingAction } from '../domain/types.js';
 import { requireFormat } from '../services/engine.js';
 import { appendMatchEvent, IllegalActionError } from '../services/match-service.js';
-import type { RandomPort } from '../services/ports.js';
+import type { RandomPort, RealtimeBroadcastPort } from '../services/ports.js';
 import { Action, SCORE_MODAL_EX_FIELD } from './actions.js';
 import type { CommandContext } from './commands/context.js';
 import { dispatchAutocomplete, dispatchChatInputCommand } from './commands/router.js';
@@ -48,10 +48,11 @@ export function registerInteractionHandlers(
   matchChannel: MatchChannelPort,
   alert: AlertPort,
   playerNotification: PlayerNotificationPort,
+  realtime: RealtimeBroadcastPort,
 ): void {
-  const commandCtx: CommandContext = { client, prisma, random, matchChannel, playerNotification, alert };
+  const commandCtx: CommandContext = { client, prisma, random, matchChannel, playerNotification, alert, realtime };
   client.on(Events.InteractionCreate, (interaction: Interaction) => {
-    handle(interaction, prisma, random, matchChannel, alert, playerNotification, commandCtx).catch((err: unknown) => {
+    handle(interaction, prisma, random, matchChannel, alert, playerNotification, realtime, commandCtx).catch((err: unknown) => {
       console.error('[discord] interaction handler failed', err);
     });
   });
@@ -64,6 +65,7 @@ async function handle(
   matchChannel: MatchChannelPort,
   alert: AlertPort,
   playerNotification: PlayerNotificationPort,
+  realtime: RealtimeBroadcastPort,
   commandCtx: CommandContext,
 ): Promise<void> {
   if (interaction.isChatInputCommand()) {
@@ -79,7 +81,7 @@ async function handle(
   if (interaction.isModalSubmit()) {
     const decoded = decodeCustomId(interaction.customId);
     if (!decoded || decoded.action !== Action.SCORE) return;
-    await handleScoreModalSubmit(interaction, decoded, prisma, random, matchChannel, alert, playerNotification);
+    await handleScoreModalSubmit(interaction, decoded, prisma, random, matchChannel, alert, playerNotification, realtime);
     return;
   }
 
@@ -97,14 +99,14 @@ async function handle(
   // being seated in the match — so it's routed before the participant
   // check below rather than through the generic path.
   if (interaction.isButton() && decoded.action === Action.RULE) {
-    await handleRulingButton(interaction, decoded, prisma, random, matchChannel, alert, playerNotification);
+    await handleRulingButton(interaction, decoded, prisma, random, matchChannel, alert, playerNotification, realtime);
     return;
   }
 
   // Same reasoning: a referee resetting Protect/Veto isn't a participant
   // action either.
   if (interaction.isButton() && decoded.action === Action.RESET_PV) {
-    await handleResetButton(interaction, decoded, prisma, random, matchChannel, alert, playerNotification);
+    await handleResetButton(interaction, decoded, prisma, random, matchChannel, alert, playerNotification, realtime);
     return;
   }
 
@@ -113,7 +115,7 @@ async function handle(
   // would leak a tiebreak pick to the opponent before it's revealed. See
   // DESIGN.md, "The tiebreak".
   if (interaction.isStringSelectMenu() && decoded.action === Action.TIEBREAK) {
-    await handleTiebreakPick(interaction, decoded, prisma, random, matchChannel, alert, playerNotification);
+    await handleTiebreakPick(interaction, decoded, prisma, random, matchChannel, alert, playerNotification, realtime);
     return;
   }
 
@@ -150,7 +152,7 @@ async function handle(
 
   try {
     const result = await appendMatchEvent(prisma, random, match.id, event, interaction.id);
-    await applyAppendResult(prisma, matchChannel, alert, playerNotification, match, format, event, result);
+    await applyAppendResult(prisma, matchChannel, alert, playerNotification, realtime, match, format, event, result);
   } catch (err) {
     if (err instanceof IllegalActionError) {
       await interaction.followUp({
@@ -190,6 +192,7 @@ async function handleScoreModalSubmit(
   matchChannel: MatchChannelPort,
   alert: AlertPort,
   playerNotification: PlayerNotificationPort,
+  realtime: RealtimeBroadcastPort,
 ): Promise<void> {
   const raw = interaction.fields.getTextInputValue(SCORE_MODAL_EX_FIELD);
   const ex = parseExPercent(raw);
@@ -228,7 +231,7 @@ async function handleScoreModalSubmit(
 
   try {
     const result = await appendMatchEvent(prisma, random, match.id, event, interaction.id);
-    await applyAppendResult(prisma, matchChannel, alert, playerNotification, match, format, event, result);
+    await applyAppendResult(prisma, matchChannel, alert, playerNotification, realtime, match, format, event, result);
   } catch (err) {
     if (err instanceof IllegalActionError) {
       await interaction.followUp({
@@ -265,6 +268,7 @@ async function handleRulingButton(
   matchChannel: MatchChannelPort,
   alert: AlertPort,
   playerNotification: PlayerNotificationPort,
+  realtime: RealtimeBroadcastPort,
 ): Promise<void> {
   await interaction.deferUpdate();
 
@@ -319,7 +323,7 @@ async function handleRulingButton(
         await prisma.match.update({ where: { id: match.id }, data: { alertMsgId: null } });
       }
       await matchChannel.postLogMessage(ref, renderSetRulingLog(winnerId, refDisplayName, players));
-      await applyAppendResult(prisma, matchChannel, alert, playerNotification, match, format, event, result);
+      await applyAppendResult(prisma, matchChannel, alert, playerNotification, realtime, match, format, event, result);
     } catch (err) {
       if (err instanceof IllegalActionError) {
         await interaction.followUp({
@@ -354,7 +358,7 @@ async function handleRulingButton(
 
     await matchChannel.postLogMessage(ref, renderRulingLog(songIndex, chart, rulingResult, refDisplayName, players));
 
-    await applyAppendResult(prisma, matchChannel, alert, playerNotification, match, format, event, result);
+    await applyAppendResult(prisma, matchChannel, alert, playerNotification, realtime, match, format, event, result);
   } catch (err) {
     if (err instanceof IllegalActionError) {
       await interaction.followUp({
@@ -377,6 +381,7 @@ async function handleResetButton(
   matchChannel: MatchChannelPort,
   alert: AlertPort,
   playerNotification: PlayerNotificationPort,
+  realtime: RealtimeBroadcastPort,
 ): Promise<void> {
   await interaction.deferUpdate();
 
@@ -408,7 +413,7 @@ async function handleResetButton(
     const result = await appendMatchEvent(prisma, random, match.id, event, interaction.id);
     const ref: ThreadRef = { matchId: match.id, threadId: match.threadId! };
     await matchChannel.postLogMessage(ref, renderResetLog(refereeDisplayName(interaction)));
-    await applyAppendResult(prisma, matchChannel, alert, playerNotification, match, format, event, result);
+    await applyAppendResult(prisma, matchChannel, alert, playerNotification, realtime, match, format, event, result);
   } catch (err) {
     if (err instanceof IllegalActionError) {
       await interaction.followUp({
@@ -429,6 +434,7 @@ async function handleTiebreakPick(
   matchChannel: MatchChannelPort,
   alert: AlertPort,
   playerNotification: PlayerNotificationPort,
+  realtime: RealtimeBroadcastPort,
 ): Promise<void> {
   // Ephemeral, never deferUpdate() — see the note at the call site.
   await interaction.deferReply({ ephemeral: true });
@@ -484,7 +490,7 @@ async function handleTiebreakPick(
     await interaction.editReply(
       `You picked ${compactChartLabel(chosenChart)}. It'll be revealed once your opponent has chosen too.`,
     );
-    await applyAppendResult(prisma, matchChannel, alert, playerNotification, match, format, event, result);
+    await applyAppendResult(prisma, matchChannel, alert, playerNotification, realtime, match, format, event, result);
   } catch (err) {
     if (err instanceof IllegalActionError) {
       await interaction.editReply("That's not available anymore.");

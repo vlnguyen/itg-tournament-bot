@@ -892,7 +892,7 @@ An earlier draft stored both, flipping un-checked-in entrants to a `NOT_CHECKED_
 
 Deriving it removes the failure rather than testing for it. Two smaller consequences follow:
 
-- **Closing check-in changes no statuses.** It clears seeds and renumbers, and that is all — the drop is already recorded by the `checkedIn` the player did or did not set.
+- **Closing check-in changes no statuses, and no seeds either.** It is a pure state flip — the drop is already recorded by the `checkedIn` the player did or did not set, and stays provisional (reorderable, reversible) until the tournament actually starts.
 - **Re-checking someone in after the window is one field flip.** The organizer path that had to set `checkedIn` true *and* revert the status now just sets `checkedIn`. Fewer moving parts on the recovery path, which is where consistency bugs are least welcome.
 
 **What `status` still distinguishes is withdrawal**, which `checkedIn` cannot express: a player who confirmed attendance and later left is `checkedIn = true, status = WITHDRAWN`, and both facts survive.
@@ -901,9 +901,9 @@ Deriving it removes the failure rather than testing for it. Two smaller conseque
 
 `/leave` works from the moment registration opens until the tournament starts, and its consequences depend on when it lands.
 
-**Before check-in closes** the roster is still fluid, so a withdrawal is silent: the entrant is marked `WITHDRAWN`, their seed cleared, and nothing else happens. Seed gaps do not matter yet — the normalization at check-in close will close them.
+Either way, the mechanics are the same: the entrant is marked `WITHDRAWN` and their seed cleared — freeing that number immediately, since `entrant_seed_unique` is unconditional, not scoped to `ACTIVE`. Seed gaps left behind do not matter: they are closed exactly once, at tournament start (see Seeding), not on every withdrawal.
 
-**After check-in closes** the field is settled and an organizer has been seeding against it. A withdrawal there **re-runs the normalization immediately** — clear the seed, renumber the survivors from 1 preserving order — and **raises an organizer alert**, because a TO who committed a seed order deserves to be told it changed rather than discovering it at bracket generation.
+**After check-in closes**, a withdrawal additionally **raises an organizer alert** — a TO about to start deserves to know the field just changed, even though nothing about seeding itself is settled yet. Before that, it is routine and silent.
 
 That difference is the cost of allowing `/leave` throughout, and it is worth paying explicitly rather than pretending the two cases are the same.
 
@@ -921,9 +921,9 @@ It is a **superset of the player's own window**, which is the point. `/join` clo
 
 That is worth stating as a rule because the alternative is tempting and wrong. A separate "checked in by an organizer" flag, or a distinct status, would fork every downstream query — normalization, standings, the roster view — on a distinction that matters only for provenance. Provenance is what the audit log is for.
 
-**Its useful consequence is the one case with no self-service equivalent.** A player cannot check themselves in after check-in closes, so what should an organizer doing it produce? The rule answers it: **the state that would have existed had the player checked in during the window.** `checkedIn` true, status back to `ACTIVE`, and appended unseeded in join order so the next normalization folds them into the order — which is exactly the late-addition path, arrived at without needing a special "un-drop" operation. It is the recovery path when check-in is closed a minute early.
+**Its useful consequence is the one case with no self-service equivalent.** A player cannot check themselves in after check-in closes, so what should an organizer doing it produce? The rule answers it: **the state that would have existed had the player checked in during the window.** `checkedIn` true, status back to `ACTIVE`, landing at the back of the seed order exactly like a fresh `/join` — which is exactly the late-addition path, arrived at without needing a special "un-drop" operation. It is the recovery path when check-in is closed a minute early.
 
-**Late additions and re-check-ins re-run normalization**, exactly as late withdrawals do. They raise **no alert**, unlike a player's own `/leave`: the organizer already knows what they just did, and an alert reporting it is noise. That asymmetry is the whole reason the withdrawal alert exists — it reports a change the organizers did *not* make.
+**Late additions and re-check-ins raise no alert**, unlike a player's own late `/leave`: the organizer already knows what they just did, and an alert reporting it is noise. That asymmetry is the whole reason the withdrawal alert exists — it reports a change the organizers did *not* make.
 
 **`/roster list` is the one subcommand with no tier gate** — read-only, so anyone can see who is on the roster, seeded entrants first in seed order then unseeded ones in join order. It reads `Entrant.displayName` when the tournament has a snapshot (`RUNNING` or later) and falls back to a live member fetch before that, same as every other pre-start display of a name.
 
@@ -968,14 +968,18 @@ Every state in that diagram, `DRAFT` included, holds the guild's one tournament 
 | Transition | Actor | Guard | Effect |
 | --- | --- | --- | --- |
 | `— → DRAFT` | TO | No tournament already held by this guild | Claims the guild's tournament slot — see below |
-| `DRAFT → REGISTRATION_OPEN`, or `REGISTRATION_CLOSED → REGISTRATION_OPEN` | TO | Guild configured; format chosen | `/join` starts (or resumes) working |
+| `DRAFT → REGISTRATION_OPEN`, or `REGISTRATION_CLOSED`/`CHECKIN_OPEN`/`CHECKIN_CLOSED → REGISTRATION_OPEN` | TO | Guild configured; format chosen | `/join` starts (or resumes) working; check-in stops accepting `/checkin` if it was open |
 | `REGISTRATION_OPEN → REGISTRATION_CLOSED`, or `CHECKIN_OPEN → REGISTRATION_CLOSED` | TO | — | `/join` stops working |
 | `REGISTRATION_CLOSED → CHECKIN_OPEN`, or `CHECKIN_CLOSED → CHECKIN_OPEN` | TO | — | `/checkin` starts (or resumes) working |
-| `CHECKIN_OPEN → CHECKIN_CLOSED` | TO | — | Un-checked-in entrants have their seeds cleared; surviving seeds renumbered from 1 in relative order; unseeded entrants appended in join order — one transaction. No status changes: `checkedIn` already records who was dropped |
-| `→ RUNNING` | TO | Every active entrant has a distinct seed, contiguous from 1; **Discord permission preflight passes** | Seeds fixed, bracket generated, threads provisioned, players notified |
+| `CHECKIN_OPEN → CHECKIN_CLOSED` | TO | — | Pure state flip. No status or seed changes — `checkedIn` already records who was dropped, and seeding stays open |
+| `→ RUNNING` | TO | At least 2 checked-in entrants; **Discord permission preflight passes** | Un-checked-in entrants dropped, their seeds cleared, and the survivors renumbered from 1 in relative order; bracket generated, threads provisioned, players notified |
 | `→ COMPLETE` | bot | Grand final committed | Standings posted, public archive frozen; releases the slot |
 
-**Each of the three pre-`RUNNING` commands also runs one step in reverse** — `open-registration`, `close-registration`, and `open-checkin` each accept either their ordinary predecessor state or the state their own target normally leads to next, landing on the same target either way. Concretely: `close-registration` undoes an `open-checkin` that ran too early (from `CHECKIN_OPEN`, back to `REGISTRATION_CLOSED`); `open-registration` undoes a `close-registration` that ran too early (from `REGISTRATION_CLOSED`, back to `REGISTRATION_OPEN`); `open-checkin` undoes a `close-checkin` that ran too early (from `CHECKIN_CLOSED`, back to `CHECKIN_OPEN`). None of these touch `Entrant` rows — a reversal is a bare state-enum flip, and whatever `checkedIn`/`seed` values exist keep meaning exactly what they meant, ready for the ordinary forward path (in particular `closeCheckin`'s renormalization) to pick back up correctly once the TO moves forward again.
+**`close-registration` and `open-checkin` each also run one step in reverse** — accepting either their ordinary predecessor state or the state their own target normally leads to next, landing on the same target either way. Concretely: `close-registration` undoes an `open-checkin` that ran too early (from `CHECKIN_OPEN`, back to `REGISTRATION_CLOSED`); `open-checkin` undoes a `close-checkin` that ran too early (from `CHECKIN_CLOSED`, back to `CHECKIN_OPEN`).
+
+**`open-registration` goes further: any state from `REGISTRATION_CLOSED` through `CHECKIN_CLOSED` reopens it**, not just the one immediately before. This is deliberately wider than the one-step reversals above — reopening registration after check-in has already opened, or even closed, is a real correction (the field needs to grow again, or check-in started too early), not a single miskeyed command to undo. There is no bulk recovery for anyone who withdrew or was dropped since; re-adding them is `/roster add`'s job, same as any other late addition — accepted as the cost of not building a second, bespoke recovery path for a rare correction.
+
+None of these touch `Entrant` rows, `open-registration`'s wider reach included — a reversal is a bare state-enum flip, and whatever `checkedIn`/`seed` values exist keep meaning exactly what they meant, ready for the ordinary forward path to pick back up correctly once the TO moves forward again.
 
 **`start` and `COMPLETE` do not get this treatment.** Undoing either would mean unwinding a materialized bracket, provisioned threads, and (past `COMPLETE`) posted results and a frozen archive — a different order of operation entirely from flipping an enum, and not something this build order has attempted.
 
@@ -983,7 +987,7 @@ Every state in that diagram, `DRAFT` included, holds the guild's one tournament 
 
 **There is no separate `SEEDED` state, deliberately.** An earlier draft had one, recording that a TO had reviewed and committed the seed order before starting. It gated nothing and froze nothing — `/leave` works until the tournament starts, so a player could withdraw after the commit, renumbering the field while the tournament still claimed the order was confirmed. A state asserting a fact that can quietly stop being true is worse than no state.
 
-Starting *is* the confirmation: the start action shows the final order for review, and generating the bracket fixes it. The seed guard moved onto `→ RUNNING`, where it is still an **assertion rather than a gate** — normalization at check-in close already guarantees it — kept because a violation means normalization is broken, and learning that before a bracket exists is much cheaper than after.
+Starting *is* the confirmation: the start action shows the final order for review, and generating the bracket fixes it. The drop-and-renumber that produces that final order runs as part of `→ RUNNING` itself — not as an assertion checking work some earlier transition already did, but as the one place it actually happens, since seeding stays fully open (see Seeding) all the way up to this exact moment.
 
 `CANCELLED` is reachable from **any** pre-`COMPLETE` state at Tournament Organizer tier, `RUNNING` included — "for any number of reasons... a tournament may need to be cancelled midway." Cancelling before `RUNNING` is the bare state flip described so far. Cancelling a `RUNNING` tournament does one thing more, in the same transaction: every `Match` not already `COMPLETE` is force-completed as `CANCELLED` too — a third terminal match status alongside `COMPLETE` itself, added to `MatchStatus` for exactly this. A match someone already finished keeps its real result; nothing about it is touched. The command layer then closes out whichever of those cancelled matches had a live thread — a note posted in it, then archived, the same mechanism used for a thread closing on ordinary match completion — and announces the cancellation to the general channel, same as it does for every other lifecycle transition.
 
@@ -1306,6 +1310,14 @@ A third way for a match to end, and the only one that goes through the ordinary 
 
 **`player` is a `String` option with autocomplete, not Discord's `User` option.** A `User` option's picker only ever searches the guild's *current* member list — so a referee could never tag the exact player tournament-scope `/dq` exists for in the first place: "if a competitor leaves the Discord server mid-tournament... a referee applies the disqualification." Autocomplete (`handleDqAutocomplete`, dispatched from `interactions.ts`'s new `isAutocomplete()` branch) instead suggests from the tournament roster and resolves to `discordUserId`, which every DQ path already keys on internally regardless of live membership. Candidates depend on `scope`, read live off the not-yet-submitted interaction — `scope` is listed first in the command specifically so it is already chosen by the time a referee reaches `player` — this match's two participants for `scope: 'match'`, the tournament's whole active roster otherwise. Gated on nothing: `/roster list` already makes this same roster public, so autocomplete surfaces nothing a non-referee couldn't already see.
 
+### Proactive song and set rulings — `/rule`
+
+The web's referee-override panel (`referee-overrides.tsx`) has always rendered its Award/Void-song and award-the-set buttons whenever a match exists and isn't fully decided, with no check for whether a disagreement has actually happened — the freeze predicate itself (see "The override boundary is one predicate," above) never required one either. Discord had no equivalent: `SONG_RULED`/`SET_RESULT_RULED` were reachable only through buttons attached to an escalation alert message, which by construction cannot exist before a conflict. `/rule` closes that gap — the same capability the web UI already exposed, reached the same way `/dq` reaches its match.
+
+`/rule song result:<choice>` resolves the match via `loadMatchByThreadId` on the invoking thread, exactly like `/dq`, and rules the song the match is currently on — `state.songs.find(s => !s.result)` — never a `songIndex` argument, so the two transports act on the identical target. `/rule set result:<choice>` rules the set's overall outcome directly, pre-empting whatever songs remain. Neither requires `AWAITING_TO`; both leave all other legality to `appendMatchEvent`'s own check, the same division `/dq` and the web ruling endpoint already use.
+
+**`result` is a `String` option with autocomplete, not a fixed set of choices** — same reasoning as `/dq`'s `player` option: it needs to name one of this match's two participants, resolved to `discordUserId` regardless of live guild membership, plus `Tie`/`Void` for the song variant (matching `RulingRequest`'s schema, which allows neither for a set ruling). Event construction and the thread's referee-attributed log line reuse exactly what `handleRulingButton` already does for the same two event types, so a ruling made proactively from `/rule` and one made resolving a real escalation are indistinguishable to everything downstream of the append.
+
 ### Ending a match by tournament cancellation
 
 A different, out-of-band way for a match to end: the whole tournament is cancelled while it's `RUNNING`. Unlike the ordinary ending above, this never touches the match's own event log — `cancelTournament` force-sets `Match.status` to `CANCELLED` directly, a status `MatchState`'s own reducer never produces and never needs to reason about. Whatever the match's `pendingAction` was at the moment of cancellation — Protect/Veto, a score submission, a tiebreak pick, anything — is simply abandoned; there is no terminal domain event for "the tournament ended out from under this match."
@@ -1426,7 +1438,7 @@ Revocation is already instant without it — removing someone's role locks them 
 
 **JWTs with embedded tiers were rejected outright.** Baking authority into a bearer token means a demoted referee keeps ruling until it expires, and the fix is a denylist — a session table with extra steps and worse ergonomics.
 
-**The override boundary is one predicate.** "A referee may act here" is `!state.songs[i].result` for a song, and `state.songs.length === 0` for a Protect/Veto reset. Both transports call the same function, so an override that is illegal in the web UI is illegal from an alert-channel button.
+**The override boundary is one predicate per event, and none of them require a disagreement to already exist.** "A referee may act here" is `!state.songs[i].result` for a song ruling — still being played, or already escalated, makes no difference — `!state.terminal` for a set ruling, and `state.songs.length === 0` for a Protect/Veto reset. Both transports call the same function, so an override that is illegal in the web UI is illegal from an alert-channel button or `/rule`. A referee can therefore pre-empt the players' own agreement path at will, not only resolve a dispute they've already reached — the same "any time the match isn't done" precedent Forfeit and DQ already establish.
 
 **Audit.** The rule is one line: **`AuditLog` records every action a tier permitted.** Referee rulings, roster changes made on a player's behalf, chart edits, tier role grants mirrored from `GUILD_MEMBER_UPDATE`, administrator promotions.
 
@@ -1542,9 +1554,11 @@ The page shows the full event log rendered, the current `pendingAction`, and the
 
 The roster is the seeding interface — one ordered list, with each entrant's check-in state and whether their check-in DM was deliverable.
 
+A player receives a seed automatically at the moment they join — the lowest-priority spot, at the back of the current order — rather than waiting on a TO to assign one. Check-in is its own column on that same list, not a grouping split: an entrant who hasn't checked in yet is still seeded, still reorderable, and stays that way for as long as the tournament hasn't started.
+
 **Two ways to move someone, one underlying operation.** Dragging handles small adjustments; typing a seed number directly handles moving someone from 40 to 2, where dragging against a scrolling list is miserable. Both submit the same reorder, which writes the whole normalized order in one statement — which is what the deferred unique constraint exists for.
 
-Unseeded entrants sit in a separate group below the ordered list, in join order, showing where they would land if seeding were committed as-is.
+Dropping no-shows and collapsing the survivors' seeds to 1..N happens exactly once, at tournament start — not at check-in close, which is a pure state change. Until that moment, a late check-in or a withdrawal can still change the field, so there is nothing to keep "committed" earlier than the start action itself.
 
 ### Everything else
 
@@ -1663,9 +1677,9 @@ The parser is shared code, but step 5 is not optional — the client fully contr
 
 **Parsing runs in a Web Worker.** A full StepMania pack is hundreds of simfiles; parsing on the main thread freezes the tab for long enough to look broken.
 
-**The parser is `simfile-parser` from npm, not written here.** It handles the grammar — `.sm` `#NOTES` blocks with colon-separated fields, `.ssc` `#NOTEDATA` sections with named tags — and the two coexist in a pack, often for the same song, so `.ssc` is preferred where both exist as the newer authored form.
+**The parser (`packages/shared/src/simfile-parser.ts`) is a metadata-only scanner written for this project, not `simfile-parser` from npm** — an earlier draft of this document assumed that package before implementation surfaced why it doesn't fit. That package parses arrows, freezes, and BPM/stop timing for rendering a stepchart — real work this project never needs, since a tournament pack only cares about the metadata a chart is drawn and displayed by. It also drops `#CREDIT`/`#DESCRIPTION` entirely (its chart-tag allowlist is only `stepstype`/`difficulty`/`meter`), which `ChartInput` requires. A scanner that stops at the first note line is both simpler and the only one that produces what this pack model actually stores. It still handles the grammar that matters — `.sm` `#NOTES` blocks with colon-separated fields, `.ssc` `#NOTEDATA` sections with named tags — and the two coexist in a pack, often for the same song, so `.ssc` is preferred where both exist as the newer authored form (`pickPreferredSimfile`). Only `dance-single`/`dance-double` and the five named difficulty slots are recognised; an `Edit` chart or a non-`dance-*` stepstype has nowhere to go in this schema and is silently skipped, the same tolerance an organizer's later edit already covers.
 
-The constraint to check it against is that **it must run in the browser**. Parsing is client-side in a Web Worker over an in-memory zip; a parser that assumes `fs` and directory walking needs its I/O layer wrapped rather than used directly.
+The constraint to check it against is that **it must run in the browser**. Parsing is client-side in a Web Worker over an in-memory zip (`parseZipEntries`, grouping the zip's flat file list into song folders and parsing each one's preferred simfile) — the scanner itself takes only a filename and file content, no `fs` or directory walking, so the same function also backs the server-side directory-copy path (`pack-import.ts`'s `readPackDirectory`) used for local dev seeding.
 
 **Three import rules sit on top of it:**
 

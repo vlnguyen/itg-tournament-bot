@@ -1,7 +1,39 @@
-import type { Entrant, PrismaClient, Tournament, TournamentState } from '@prisma/client';
+import { Prisma, type Entrant, type PrismaClient, type Tournament, type TournamentState } from '@prisma/client';
 import { logAction } from './audit-log.js';
 import type { Tx } from './engine.js';
-import { findActiveTournament, renormalizeSeeds } from './tournament-service.js';
+import { findActiveTournament } from './tournament-service.js';
+
+const UNIQUE_CONSTRAINT_VIOLATION = 'P2002';
+
+/**
+ * `entrant_seed_unique` is a per-`(tournamentId, seed)` constraint —
+ * concurrent joins can both compute the same "next" seed before either
+ * commits. Retried rather than serialized with a lock: this only matters
+ * under the rare case of two people registering in the same instant, and a
+ * retry is cheaper than a lock every single `/join` would pay for.
+ */
+async function withSeedRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (i === attempts - 1 || !(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== UNIQUE_CONSTRAINT_VIOLATION) {
+        throw err;
+      }
+    }
+  }
+  throw new Error('unreachable');
+}
+
+/** "The lowest seed" a new entrant can hold — the back of the line, one past whoever currently holds the last spot. */
+async function nextSeed(tx: Tx, tournamentId: string): Promise<number> {
+  const last = await tx.entrant.findFirst({
+    where: { tournamentId, status: 'ACTIVE' },
+    orderBy: { seed: { sort: 'desc', nulls: 'last' } },
+    select: { seed: true },
+  });
+  return (last?.seed ?? 0) + 1;
+}
 
 /**
  * `/join`, `/checkin`, `/leave`, and `/roster`'s on-behalf equivalents — see
@@ -31,23 +63,27 @@ export type JoinOutcome = { kind: 'JOINED'; entrant: Entrant } | { kind: 'ALREAD
 
 /**
  * Creates the entrant if none exists; reactivates one that previously
- * withdrew (status back to `ACTIVE`, `checkedIn` and `seed` reset, `joinedAt`
- * bumped to now — "the state that would have existed had the player [joined]
+ * withdrew (status back to `ACTIVE`, `checkedIn` reset, `joinedAt` bumped
+ * to now — "the state that would have existed had the player [joined]
  * during the window", same reasoning DESIGN.md gives for the late-checkin
- * path below). Already-`ACTIVE` is not an error: "a player who is not sure
- * whether their `/join` landed will run it again, and an error is a worse
- * answer than 'you are in, seed 12.'"
+ * path below). Either way lands at the back of the seed order — "the
+ * lowest seed at the time of registration," per DESIGN.md, "Seeding": one
+ * past whoever currently holds the last spot, immediately reorderable from
+ * the roster/seeding UI. Already-`ACTIVE` is not an error: "a player who is
+ * not sure whether their `/join` landed will run it again, and an error is
+ * a worse answer than 'you are in, seed 12.'"
  */
 async function joinOrReactivate(tx: Tx, tournamentId: string, discordUserId: string): Promise<JoinOutcome> {
   const existing = await tx.entrant.findUnique({ where: entrantWhere(tournamentId, discordUserId) });
   if (existing?.status === 'ACTIVE') return { kind: 'ALREADY_JOINED', entrant: existing };
 
+  const seed = await nextSeed(tx, tournamentId);
   const entrant = existing
     ? await tx.entrant.update({
         where: { id: existing.id },
-        data: { status: 'ACTIVE', checkedIn: false, seed: null, joinedAt: new Date() },
+        data: { status: 'ACTIVE', checkedIn: false, seed, joinedAt: new Date() },
       })
-    : await tx.entrant.create({ data: { tournamentId, discordUserId } });
+    : await tx.entrant.create({ data: { tournamentId, discordUserId, seed } });
   return { kind: 'JOINED', entrant };
 }
 
@@ -61,12 +97,14 @@ export type JoinResult = JoinOutcome | { kind: 'NO_TOURNAMENT' } | { kind: 'WIND
  * organizer chose to.
  */
 export async function joinTournament(prisma: PrismaClient, guildId: string, discordUserId: string): Promise<JoinResult> {
-  return prisma.$transaction(async (tx) => {
-    const tournament = await findActiveTournament(tx, guildId);
-    if (!tournament || tournament.state === 'DRAFT') return { kind: 'NO_TOURNAMENT' };
-    if (tournament.state !== 'REGISTRATION_OPEN') return { kind: 'WINDOW_CLOSED', phase: tournament.state };
-    return joinOrReactivate(tx, tournament.id, discordUserId);
-  });
+  return withSeedRetry(() =>
+    prisma.$transaction(async (tx) => {
+      const tournament = await findActiveTournament(tx, guildId);
+      if (!tournament || tournament.state === 'DRAFT') return { kind: 'NO_TOURNAMENT' };
+      if (tournament.state !== 'REGISTRATION_OPEN') return { kind: 'WINDOW_CLOSED', phase: tournament.state };
+      return joinOrReactivate(tx, tournament.id, discordUserId);
+    }),
+  );
 }
 
 /** "`/join` closes when registration closes; a TO can still add someone who missed it, right up until the bracket is generated." */
@@ -80,17 +118,19 @@ export async function rosterAdd(
   discordUserId: string,
   actorId: string,
 ): Promise<RosterAddResult> {
-  return prisma.$transaction(async (tx) => {
-    const tournament = await findActiveTournament(tx, guildId);
-    if (!tournament) return { kind: 'NO_TOURNAMENT' };
-    if (!ROSTER_ADD_STATES.includes(tournament.state)) return { kind: 'TOO_LATE', phase: tournament.state };
+  return withSeedRetry(() =>
+    prisma.$transaction(async (tx) => {
+      const tournament = await findActiveTournament(tx, guildId);
+      if (!tournament) return { kind: 'NO_TOURNAMENT' };
+      if (!ROSTER_ADD_STATES.includes(tournament.state)) return { kind: 'TOO_LATE', phase: tournament.state };
 
-    const outcome = await joinOrReactivate(tx, tournament.id, discordUserId);
-    if (outcome.kind === 'JOINED') {
-      await logAction(tx, actorId, 'ROSTER_ADD', 'Entrant', outcome.entrant.id, { discordUserId });
-    }
-    return outcome;
-  });
+      const outcome = await joinOrReactivate(tx, tournament.id, discordUserId);
+      if (outcome.kind === 'JOINED') {
+        await logAction(tx, actorId, 'ROSTER_ADD', 'Entrant', outcome.entrant.id, { discordUserId });
+      }
+      return outcome;
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -132,12 +172,11 @@ export type RosterCheckinResult =
 /**
  * "A player cannot check themselves in after check-in closes, so what
  * should an organizer doing it produce? ... The state that would have
- * existed had the player checked in during the window: `checkedIn` true,
- * status back to `ACTIVE`, and appended unseeded in join order so the next
- * normalization folds them into the order." Reactivates a withdrawn entrant
- * the same way `rosterAdd` does; when the tournament is already
- * `CHECKIN_CLOSED`, re-runs `renormalizeSeeds` immediately rather than
- * waiting for a normalization pass that already happened.
+ * existed had the player checked in during the window": `checkedIn` true,
+ * status back to `ACTIVE`, landing at the back of the seed order exactly
+ * like a fresh `/join` would. An already-registered entrant just gets
+ * `checkedIn: true` — their seed already exists from whenever they joined
+ * and is untouched here.
  */
 export async function rosterCheckin(
   prisma: PrismaClient,
@@ -145,29 +184,28 @@ export async function rosterCheckin(
   discordUserId: string,
   actorId: string,
 ): Promise<RosterCheckinResult> {
-  return prisma.$transaction(async (tx) => {
-    const tournament = await findActiveTournament(tx, guildId);
-    if (!tournament) return { kind: 'NO_TOURNAMENT' };
-    if (!ROSTER_CHECKIN_STATES.includes(tournament.state)) return { kind: 'WINDOW_CLOSED', phase: tournament.state };
+  return withSeedRetry(() =>
+    prisma.$transaction(async (tx) => {
+      const tournament = await findActiveTournament(tx, guildId);
+      if (!tournament) return { kind: 'NO_TOURNAMENT' };
+      if (!ROSTER_CHECKIN_STATES.includes(tournament.state)) return { kind: 'WINDOW_CLOSED', phase: tournament.state };
 
-    const entrant = await tx.entrant.findUnique({ where: entrantWhere(tournament.id, discordUserId) });
-    if (!entrant) return { kind: 'NOT_REGISTERED' };
-    if (entrant.status === 'ACTIVE' && entrant.checkedIn) return { kind: 'ALREADY_CHECKED_IN', entrant };
+      const entrant = await tx.entrant.findUnique({ where: entrantWhere(tournament.id, discordUserId) });
+      if (!entrant) return { kind: 'NOT_REGISTERED' };
+      if (entrant.status === 'ACTIVE' && entrant.checkedIn) return { kind: 'ALREADY_CHECKED_IN', entrant };
 
-    const wasWithdrawn = entrant.status === 'WITHDRAWN';
-    const updated = await tx.entrant.update({
-      where: { id: entrant.id },
-      data: wasWithdrawn
-        ? { status: 'ACTIVE', checkedIn: true, seed: null, joinedAt: new Date() }
-        : { checkedIn: true },
-    });
-    await logAction(tx, actorId, 'ROSTER_CHECKIN', 'Entrant', entrant.id, { discordUserId, reactivated: wasWithdrawn });
+      const wasWithdrawn = entrant.status === 'WITHDRAWN';
+      const updated = await tx.entrant.update({
+        where: { id: entrant.id },
+        data: wasWithdrawn
+          ? { status: 'ACTIVE', checkedIn: true, seed: await nextSeed(tx, tournament.id), joinedAt: new Date() }
+          : { checkedIn: true },
+      });
+      await logAction(tx, actorId, 'ROSTER_CHECKIN', 'Entrant', entrant.id, { discordUserId, reactivated: wasWithdrawn });
 
-    if (tournament.state === 'CHECKIN_CLOSED') {
-      await renormalizeSeeds(tx, tournament.id);
-    }
-    return { kind: 'CHECKED_IN', entrant: updated };
-  });
+      return { kind: 'CHECKED_IN', entrant: updated };
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -183,12 +221,9 @@ export type RosterUncheckinResult =
 
 /**
  * The reverse of `rosterCheckin`, with no self-service equivalent — DESIGN.md
- * only ever describes the organizer using it. When the tournament is already
- * `CHECKIN_CLOSED`, an un-checkin changes who counts as the seeded field the
- * same way a late withdrawal or late checkin does, so it re-runs
- * `renormalizeSeeds` for the same reason — not spelled out verbatim in
- * DESIGN.md, but the direct completion of "late additions and re-check-ins
- * re-run normalization, exactly as late withdrawals do."
+ * only ever describes the organizer using it. Seeding and check-in are
+ * independent now — un-checking someone in doesn't touch their seed, since
+ * only `checkedIn` decides whether tournament start keeps or drops them.
  */
 export async function rosterUncheckin(
   prisma: PrismaClient,
@@ -205,12 +240,9 @@ export async function rosterUncheckin(
     if (!entrant || entrant.status !== 'ACTIVE') return { kind: 'NOT_REGISTERED' };
     if (!entrant.checkedIn) return { kind: 'ALREADY_NOT_CHECKED_IN', entrant };
 
-    const updated = await tx.entrant.update({ where: { id: entrant.id }, data: { checkedIn: false, seed: null } });
+    const updated = await tx.entrant.update({ where: { id: entrant.id }, data: { checkedIn: false } });
     await logAction(tx, actorId, 'ROSTER_UNCHECKIN', 'Entrant', entrant.id, { discordUserId });
 
-    if (tournament.state === 'CHECKIN_CLOSED') {
-      await renormalizeSeeds(tx, tournament.id);
-    }
     return { kind: 'UNCHECKED_IN', entrant: updated };
   });
 }
@@ -219,17 +251,18 @@ export async function rosterUncheckin(
 // leave / roster remove
 // ---------------------------------------------------------------------------
 
+/**
+ * `seed: null` frees that seed number immediately — `entrant_seed_unique`
+ * is unconditional, not scoped to `ACTIVE`, so leaving it set would block
+ * anyone else from ever taking it. "Before check-in closes... a withdrawal
+ * is silent. After check-in closes... it raises an organizer alert" — a TO
+ * about to start is the audience for that alert, not seed bookkeeping,
+ * which now stays open (see `reorderSeeds`) all the way to tournament start
+ * regardless of when the withdrawal happens.
+ */
 async function withdraw(tx: Tx, tournament: Tournament, entrant: Entrant): Promise<{ entrant: Entrant; alertNeeded: boolean }> {
   const updated = await tx.entrant.update({ where: { id: entrant.id }, data: { status: 'WITHDRAWN', seed: null } });
-
-  // "Before check-in closes... a withdrawal is silent... Seed gaps do not
-  // matter yet." "After check-in closes... a withdrawal re-runs the
-  // normalization immediately... and raises an organizer alert."
-  if (tournament.state !== 'CHECKIN_CLOSED') {
-    return { entrant: updated, alertNeeded: false };
-  }
-  await renormalizeSeeds(tx, tournament.id);
-  return { entrant: updated, alertNeeded: true };
+  return { entrant: updated, alertNeeded: tournament.state === 'CHECKIN_CLOSED' };
 }
 
 export type LeaveResult =
@@ -289,5 +322,79 @@ export async function rosterRemove(
     const { entrant: updated } = await withdraw(tx, tournament, entrant);
     await logAction(tx, actorId, 'ROSTER_REMOVE', 'Entrant', entrant.id, { discordUserId });
     return { kind: 'REMOVED', entrant: updated };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// seeding — the console's roster-as-seeding-interface
+// ---------------------------------------------------------------------------
+
+export type RosterEntry = Pick<Entrant, 'id' | 'discordUserId' | 'displayName' | 'checkedIn' | 'seed' | 'joinedAt'>;
+
+/**
+ * The whole active roster, one ordered list by seed — every entrant has one
+ * from the moment they join (see `joinOrReactivate`), so check-in status is
+ * just its own column, not a grouping split. `nulls: 'last'` is a fallback
+ * for data predating that guarantee, not a state this produces going
+ * forward.
+ */
+export async function getRoster(prisma: PrismaClient, guildId: string): Promise<RosterEntry[]> {
+  const tournament = await findActiveTournament(prisma, guildId);
+  if (!tournament) return [];
+
+  return prisma.entrant.findMany({
+    where: { tournamentId: tournament.id, status: 'ACTIVE' },
+    orderBy: [{ seed: { sort: 'asc', nulls: 'last' } }, { joinedAt: 'asc' }],
+  });
+}
+
+/** Seeding is open from the first `/join` to the moment the tournament starts — the same upper bound `ROSTER_ADD_STATES` uses. */
+const SEEDING_STATES: readonly TournamentState[] = ['DRAFT', 'REGISTRATION_OPEN', 'REGISTRATION_CLOSED', 'CHECKIN_OPEN', 'CHECKIN_CLOSED'];
+
+export type ReorderSeedsResult =
+  | { kind: 'REORDERED' }
+  | { kind: 'NO_TOURNAMENT' }
+  | { kind: 'TOO_LATE'; phase: TournamentState }
+  | { kind: 'INVALID_ORDER' };
+
+/**
+ * "Two ways to move someone, one underlying operation... both submit the
+ * same reorder, which writes the whole normalized order in one statement."
+ * `orderedEntrantIds` must be exactly the tournament's whole active roster,
+ * checked-in or not — seeding and check-in are independent, so an entrant
+ * who hasn't checked in yet is still seeded — each once. A stale client
+ * (someone joined, checked in, or withdrew since this order was loaded) is
+ * rejected outright rather than partially applied, the same all-or-nothing
+ * posture `renormalizeSeeds` takes at tournament start.
+ *
+ * One `UPDATE` per entrant rather than a set-based statement, same reason
+ * `renormalizeSeeds` gives: `(tournamentId, seed)`'s uniqueness is a
+ * `DEFERRABLE INITIALLY DEFERRED` constraint, checked only at commit, so
+ * the whole list can pass through transiently colliding seed values.
+ */
+export async function reorderSeeds(
+  prisma: PrismaClient,
+  guildId: string,
+  orderedEntrantIds: string[],
+  actorId: string,
+): Promise<ReorderSeedsResult> {
+  return prisma.$transaction(async (tx) => {
+    const tournament = await findActiveTournament(tx, guildId);
+    if (!tournament) return { kind: 'NO_TOURNAMENT' };
+    if (!SEEDING_STATES.includes(tournament.state)) return { kind: 'TOO_LATE', phase: tournament.state };
+
+    const active = await tx.entrant.findMany({ where: { tournamentId: tournament.id, status: 'ACTIVE' } });
+    const activeIds = new Set(active.map((e) => e.id));
+    const givenIds = new Set(orderedEntrantIds);
+    const isExactMatch =
+      orderedEntrantIds.length === active.length && givenIds.size === active.length && [...activeIds].every((id) => givenIds.has(id));
+    if (!isExactMatch) return { kind: 'INVALID_ORDER' };
+
+    let seed = 1;
+    for (const id of orderedEntrantIds) {
+      await tx.entrant.update({ where: { id }, data: { seed: seed++ } });
+    }
+    await logAction(tx, actorId, 'SEEDING_REORDERED', 'Tournament', tournament.id, { order: orderedEntrantIds });
+    return { kind: 'REORDERED' };
   });
 }

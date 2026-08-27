@@ -147,7 +147,7 @@ describe('SET_RESULT_CONFIRMED', () => {
 });
 
 describe('referee events', () => {
-  it('SONG_RULED is legal only while AWAITING_TO', () => {
+  it('SONG_RULED is legal any time the named song is still the current one — pre-empting agreement, not just resolving a disagreement', () => {
     const d = opened();
     const ruling: MatchEvent = {
       seq: 0,
@@ -155,16 +155,30 @@ describe('referee events', () => {
       type: 'SONG_RULED',
       payload: { songIndex: 0, result: A },
     } as MatchEvent;
-    expect(isLegal(d.pending, ruling)).toBe(false); // nothing escalated yet
+    // Still being played, nothing escalated yet — a referee can pre-empt.
+    expect(isLegal(d.pending, ruling)).toBe(true);
+    expect(isLegal({ kind: 'SELECT_WINNER', actors: [A, B], songIndex: 0 }, ruling)).toBe(true);
+    // Escalated, the pre-existing path — unaffected.
     expect(isLegal({ kind: 'AWAITING_TO', reason: 'WINNER_DISAGREEMENT', songIndex: 0 }, ruling)).toBe(true);
+    // Wrong song — not the one currently live, whether mid-play or escalated.
+    expect(isLegal({ kind: 'SUBMIT_SCORE', actors: [A, B], songIndex: 1 }, ruling)).toBe(false);
     expect(isLegal({ kind: 'AWAITING_TO', reason: 'WINNER_DISAGREEMENT', songIndex: 1 }, ruling)).toBe(false);
+    // No song is "current" here — hasn't started (TIEBREAK_PICK), or every
+    // song is already decided (CONFIRM_RESULT, DONE).
+    expect(isLegal({ kind: 'TIEBREAK_PICK', actors: [A, B], round: 1, choices: [0] }, ruling)).toBe(false);
+    expect(isLegal({ kind: 'CONFIRM_RESULT', actors: [A, B] }, ruling)).toBe(false);
+    expect(isLegal({ kind: 'DONE' }, ruling)).toBe(false);
   });
 
-  it('SET_RESULT_RULED is legal only for a set-level disagreement, not a song-level one', () => {
+  it('SET_RESULT_RULED is legal any time the match is not DONE — same precedent as FORFEIT_APPLIED/DQ_APPLIED', () => {
     const ruling: MatchEvent = { seq: 0, actorId: 'ref', type: 'SET_RESULT_RULED', payload: { result: A } } as MatchEvent;
+    expect(isLegal({ kind: 'SEED_CHOICE', actor: A }, ruling)).toBe(true);
+    expect(isLegal({ kind: 'SUBMIT_SCORE', actors: [A, B], songIndex: 0 }, ruling)).toBe(true);
     expect(isLegal({ kind: 'AWAITING_TO', reason: 'SET_RESULT_DISAGREEMENT' }, ruling)).toBe(true);
-    expect(isLegal({ kind: 'AWAITING_TO', reason: 'WINNER_DISAGREEMENT', songIndex: 0 }, ruling)).toBe(false);
-    expect(isLegal({ kind: 'CONFIRM_RESULT', actors: [A, B] }, ruling)).toBe(false);
+    // Pre-empts a song-level disagreement too, not just a set-level one.
+    expect(isLegal({ kind: 'AWAITING_TO', reason: 'WINNER_DISAGREEMENT', songIndex: 0 }, ruling)).toBe(true);
+    expect(isLegal({ kind: 'CONFIRM_RESULT', actors: [A, B] }, ruling)).toBe(true);
+    expect(isLegal({ kind: 'DONE' }, ruling)).toBe(false);
   });
 
   it('PROTECT_VETO_RESET is legal before song 1 starts, not after', () => {

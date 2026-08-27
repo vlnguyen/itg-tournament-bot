@@ -1,5 +1,5 @@
 import { Prisma, type Guild, type PrismaClient, type Tournament, type TournamentState } from '@prisma/client';
-import { DEFAULT_TOURNAMENT_CONFIG } from '@itg/shared';
+import { DEFAULT_TOURNAMENT_CONFIG, type LifecycleAction, type LifecycleStatus } from '@itg/shared';
 import { Bo5ProtectVetoFormat } from '../domain/bo5.js';
 import { logAction } from './audit-log.js';
 import { materializeBracket } from './bracket-service.js';
@@ -96,6 +96,43 @@ export async function findActiveTournament(tx: Tx, guildId: string): Promise<Tou
   return tx.tournament.findFirst({ where: { guildId, state: { notIn: ['COMPLETE', 'CANCELLED'] } } });
 }
 
+/**
+ * The one case where a `DRAFT` tournament is meant to surface — the
+ * first-run wizard pointing its own organizer back at it to continue
+ * setup. Never call this from a path a non-organizer can reach; see
+ * `FirstRunStatus` in `@itg/shared` for why.
+ */
+export async function findDraftTournament(tx: Tx, guildId: string): Promise<Tournament | null> {
+  return tx.tournament.findFirst({ where: { guildId, state: 'DRAFT' } });
+}
+
+/**
+ * The *public* notion of "the guild's current tournament" — distinct from
+ * `findActiveTournament`: `DRAFT` is excluded, since "nothing public has
+ * happened yet... naming it would announce a tournament before its
+ * organizer chose to," per `discord/commands/tournament.ts`'s
+ * `handleStatus`. Shared by the landing-page redirect and `/pack`, which
+ * both need "is there a live one right now," not a fallback to history —
+ * `/pack` in particular: "a link to a past pack comes from that
+ * tournament's archived page, which is permanent anyway."
+ */
+export async function findPublicCurrentTournament(tx: Tx, guildId: string): Promise<Tournament | null> {
+  return tx.tournament.findFirst({ where: { guildId, state: { notIn: ['DRAFT', 'COMPLETE', 'CANCELLED'] } } });
+}
+
+/**
+ * Every tournament this guild has actually finished or called off, newest
+ * first — the `/g/:guildId` page's history section. `DRAFT` is excluded
+ * for the same reason `findPublicCurrentTournament` excludes it, and
+ * `RUNNING`/etc. are excluded because those are "active," not "history."
+ */
+export async function getTournamentHistory(tx: Tx, guildId: string): Promise<Tournament[]> {
+  return tx.tournament.findMany({
+    where: { guildId, state: { in: ['COMPLETE', 'CANCELLED'] } },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
 async function requireState(tx: Tx, tournamentId: string, expected: TournamentState): Promise<Tournament> {
   const t = await tx.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
   if (t.state !== expected) {
@@ -113,7 +150,7 @@ async function requireStateIn(tx: Tx, tournamentId: string, expected: readonly T
 }
 
 /** "Guild configured" from the `DRAFT → REGISTRATION_OPEN` guard — every channel and tier role `/setup` binds, checked as plain DB fields. Live Discord permission resolution is a different check, run at tournament start and in `/setup status`. */
-function missingGuildConfig(guild: Guild | null): string[] {
+export function missingGuildConfig(guild: Guild | null): string[] {
   if (!guild) {
     return ['matches channel', 'organizer alert channel', 'results channel', 'Referee role', 'Tournament Organizer role'];
   }
@@ -127,17 +164,29 @@ function missingGuildConfig(guild: Guild | null): string[] {
 }
 
 /**
- * `DRAFT → REGISTRATION_OPEN`, and also `REGISTRATION_CLOSED →
- * REGISTRATION_OPEN` — reopening, same reasoning as reopening check-in: a TO
- * who closed registration too early runs this again rather than needing a
- * dedicated "reopen" command. No "another tournament active" check here any
- * more — `createTournament` already guarantees this tournament is the only
- * non-terminal one this guild has, so there is nothing left to race against
- * by the time this transition runs.
+ * `DRAFT → REGISTRATION_OPEN`, and also `REGISTRATION_CLOSED`/
+ * `CHECKIN_OPEN`/`CHECKIN_CLOSED → REGISTRATION_OPEN` — reopening, from as
+ * far back as check-in having already closed. This is deliberately wider
+ * than the "one step back" reversal every other pre-`RUNNING` transition
+ * sticks to: reopening registration mid- or post-check-in is a real,
+ * larger correction (a TO who started check-in too early, or needs the
+ * field open again after closing it), not the single-step undo those
+ * exist for.
+ *
+ * A bare state flip, same as always — `checkedIn`/`seed` are untouched, so
+ * check-ins from before the reopen are preserved exactly as they were.
+ * There is no bulk "welcome back" recovery for anyone who withdrew or was
+ * dropped in the meantime; re-adding them is `/roster add`'s job, same as
+ * any other late addition.
+ *
+ * No "another tournament active" check here any more — `createTournament`
+ * already guarantees this tournament is the only non-terminal one this
+ * guild has, so there is nothing left to race against by the time this
+ * transition runs.
  */
 export async function openRegistration(prisma: PrismaClient, tournamentId: string, actorId: string): Promise<Tournament> {
   return prisma.$transaction(async (tx) => {
-    const t = await requireStateIn(tx, tournamentId, ['DRAFT', 'REGISTRATION_CLOSED']);
+    const t = await requireStateIn(tx, tournamentId, ['DRAFT', 'REGISTRATION_CLOSED', 'CHECKIN_OPEN', 'CHECKIN_CLOSED']);
     requireFormat(t.defaultFormatKey); // "format chosen" — cannot fail today; see DESIGN.md's note on the same assertion at start.
 
     const guild = await tx.guild.findUnique({ where: { id: t.guildId } });
@@ -204,14 +253,16 @@ export async function openCheckin(prisma: PrismaClient, tournamentId: string, ac
 }
 
 /**
- * Clears the seed of every active-but-not-checked-in entrant, then
- * renumbers the survivors from 1: currently-seeded ones first (preserving
- * their relative order), unseeded ones appended after in join order. Shared
- * by `closeCheckin` (the ordinary case, every active entrant is
- * "surviving" by definition since check-in hasn't dropped anyone yet — see
- * below) and by `roster-service.ts`'s late-withdrawal/late-checkin paths,
- * which "re-run normalization immediately" per DESIGN.md, "Leaving" and
- * "Acting on a player's behalf".
+ * The drop-and-collapse that happens at tournament start, not check-in
+ * close: "only players who complete check-in participate," so this clears
+ * the seed of every active-but-not-checked-in entrant (freeing those
+ * numbers — `entrant_seed_unique` is unconditional, not scoped to
+ * `checkedIn`), then renumbers the survivors from 1 in their existing
+ * relative seed order. Every survivor already holds a real seed by this
+ * point — seeding runs continuously from the first `/join`
+ * (`roster-service.ts`'s `joinOrReactivate`) — so the "unseeded, appended
+ * in join order" branch only ever matters for data predating that
+ * guarantee.
  *
  * One `UPDATE` per surviving entrant rather than a single set-based
  * statement — deliberately: `(tournamentId, seed)`'s uniqueness is a
@@ -243,23 +294,18 @@ export async function renormalizeSeeds(tx: Tx, tournamentId: string): Promise<{ 
 }
 
 /**
- * "Un-checked-in entrants have their seeds cleared; surviving seeds
- * renumbered from 1 in relative order; unseeded entrants appended in join
- * order — one transaction. No status changes: `checkedIn` already records
- * who was dropped." See DESIGN.md's lifecycle table and REQUIREMENTS.md,
- * "Seeding".
+ * A pure state transition — no seed mutation here. Seeding stays open
+ * (see `roster-service.ts`'s `reorderSeeds`) all the way through
+ * `CHECKIN_CLOSED`; dropping no-shows and collapsing the survivors'
+ * seeds to 1..N is deferred to the moment the tournament actually
+ * starts (`startTournament`'s own call to `renormalizeSeeds`), since
+ * until then a late check-in or withdrawal can still change the field.
  */
 export async function closeCheckin(prisma: PrismaClient, tournamentId: string, actorId: string): Promise<Tournament> {
   return prisma.$transaction(async (tx) => {
     await requireState(tx, tournamentId, 'CHECKIN_OPEN');
-
-    const { survivingCount } = await renormalizeSeeds(tx, tournamentId);
-
     const updated = await tx.tournament.update({ where: { id: tournamentId }, data: { state: 'CHECKIN_CLOSED' } });
-    await logAction(tx, actorId, 'CHECKIN_CLOSED', 'Tournament', tournamentId, {
-      survivingEntrants: survivingCount,
-      droppedForNoShow: await tx.entrant.count({ where: { tournamentId, status: 'ACTIVE', checkedIn: false } }),
-    });
+    await logAction(tx, actorId, 'CHECKIN_CLOSED', 'Tournament', tournamentId, {});
     return updated;
   });
 }
@@ -346,9 +392,10 @@ export interface StartTournamentResult {
  * threads, and notifies players." See REQUIREMENTS.md, "Starting the
  * tournament".
  *
- * Only the DB/domain half of that lives here: the seed-contiguity assertion
- * (normalization at check-in close already guarantees it; a violation means
- * that step is broken), the display-name snapshot, the pack-size warning,
+ * Only the DB/domain half of that lives here: dropping no-shows and
+ * collapsing the survivors' seeds to 1..N (`renormalizeSeeds` — seeding
+ * stays open, freely reorderable, all the way up to this exact moment, per
+ * DESIGN.md, "Seeding"), the display-name snapshot, the pack-size warning,
  * and bracket materialization. The permission preflight and the
  * tier-role-overlap warning both need a live guild member/role list, so the
  * command handler runs those *before* calling this — a blocking preflight
@@ -374,15 +421,8 @@ export async function startTournament(
     // is about to create.
     const format = requireFormat(t.defaultFormatKey);
 
-    const active = await tx.entrant.findMany({ where: { tournamentId, status: 'ACTIVE', checkedIn: true } });
-    const seeds = active.map((e) => e.seed).sort((a, b) => (a ?? 0) - (b ?? 0));
-    const contiguous = active.every((e) => e.seed !== null) && seeds.every((s, i) => s === i + 1);
-    if (!contiguous) {
-      throw new TournamentTransitionError(
-        tournamentId,
-        'active entrants are not seeded 1..N contiguously — close-checkin should have normalized this; refusing to start on a broken invariant',
-      );
-    }
+    const droppedForNoShow = await tx.entrant.count({ where: { tournamentId, status: 'ACTIVE', checkedIn: false } });
+    const { survivingCount } = await renormalizeSeeds(tx, tournamentId);
 
     // Both guarded *before* the state flips to RUNNING below — `generateBracket`
     // requires at least two entrants and `draw()` requires a non-empty pack;
@@ -390,14 +430,15 @@ export async function startTournament(
     // transaction — see the call below) would otherwise leave the tournament
     // stuck in RUNNING with no bracket and no way back through this state
     // machine, since every other transition requires a specific prior state.
-    if (active.length < 2) {
-      throw new TournamentTransitionError(tournamentId, `needs at least 2 checked-in entrants to start — has ${active.length}`);
+    if (survivingCount < 2) {
+      throw new TournamentTransitionError(tournamentId, `needs at least 2 checked-in entrants to start — has ${survivingCount}`);
     }
     const chartCount = await tx.chart.count({ where: { tournamentId } });
     if (chartCount === 0) {
       throw new TournamentTransitionError(tournamentId, 'the chart pack is empty — import a pack before starting');
     }
 
+    const active = await tx.entrant.findMany({ where: { tournamentId, status: 'ACTIVE', checkedIn: true } });
     for (const e of active) {
       const name = displayNames.get(e.id);
       if (name !== undefined && name !== e.displayName) {
@@ -406,7 +447,7 @@ export async function startTournament(
     }
 
     await tx.tournament.update({ where: { id: tournamentId }, data: { state: 'RUNNING' } });
-    await logAction(tx, actorId, 'TOURNAMENT_STARTED', 'Tournament', tournamentId, { entrantCount: active.length });
+    await logAction(tx, actorId, 'TOURNAMENT_STARTED', 'Tournament', tournamentId, { entrantCount: active.length, droppedForNoShow });
 
     return chartCount < format.recommendedPackSize ? { recommended: format.recommendedPackSize, actual: chartCount } : null;
   });
@@ -417,4 +458,54 @@ export async function startTournament(
 
   const tournament = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
   return { tournament, packSizeWarning };
+}
+
+/**
+ * Legal next actions per state — a direct read of the `requireState`/
+ * `requireStateIn` calls each transition above already makes; kept as its
+ * own table here rather than derived, since scattering "is this legal"
+ * across each function's own guard would need a second query per action to
+ * answer "what's legal right now" instead of one. `START` appears only for
+ * `CHECKIN_CLOSED` — this table names it as legal, but whether it actually
+ * fires still depends on the live Discord permission preflight
+ * `startTournamentWithDiscordEffects` runs, which nothing checkable from
+ * Postgres alone (this table included) can predict.
+ */
+const LEGAL_ACTIONS: Record<TournamentState, LifecycleAction[]> = {
+  DRAFT: ['OPEN_REGISTRATION', 'RENAME', 'CANCEL'],
+  REGISTRATION_OPEN: ['CLOSE_REGISTRATION', 'RENAME', 'CANCEL'],
+  REGISTRATION_CLOSED: ['OPEN_REGISTRATION', 'OPEN_CHECKIN', 'RENAME', 'CANCEL'],
+  CHECKIN_OPEN: ['OPEN_REGISTRATION', 'CLOSE_REGISTRATION', 'CLOSE_CHECKIN', 'RENAME', 'CANCEL'],
+  CHECKIN_CLOSED: ['OPEN_REGISTRATION', 'OPEN_CHECKIN', 'START', 'RENAME', 'CANCEL'],
+  RUNNING: ['RENAME', 'CANCEL'],
+  COMPLETE: [],
+  CANCELLED: [],
+};
+
+/**
+ * DESIGN.md, "Everything else": "current state, the transitions currently
+ * legal, and each one's guard shown as a checklist so a TO can see what is
+ * blocking a start before pressing it." `startGuards` covers everything
+ * checkable from Postgres alone — the live Discord permission preflight
+ * `/tournament start` also runs isn't included; see `LifecycleStatus`.
+ */
+export async function getLifecycleStatus(prisma: PrismaClient, tournamentId: string): Promise<LifecycleStatus> {
+  const tournament = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
+  const guild = await prisma.guild.findUnique({ where: { id: tournament.guildId } });
+
+  const [checkedInCount, chartCount] = await Promise.all([
+    prisma.entrant.count({ where: { tournamentId, status: 'ACTIVE', checkedIn: true } }),
+    prisma.chart.count({ where: { tournamentId } }),
+  ]);
+
+  return {
+    state: tournament.state,
+    name: tournament.name,
+    legalActions: LEGAL_ACTIONS[tournament.state],
+    startGuards: [
+      { label: 'Server is fully configured (channels and roles)', ok: missingGuildConfig(guild).length === 0 },
+      { label: 'At least 2 checked-in entrants', ok: checkedInCount >= 2 },
+      { label: 'Chart pack has at least 1 chart', ok: chartCount > 0 },
+    ],
+  };
 }

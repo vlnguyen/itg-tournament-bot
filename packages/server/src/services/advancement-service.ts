@@ -75,6 +75,11 @@ export async function computeTournamentStandings(
   tournamentId: string,
 ): Promise<StandingsRow[]> {
   const entrantCount = await entrantCountAtStart(prisma, tournamentId);
+  // No bracket exists yet — a tournament that hasn't started (or has no
+  // seeded entrants at all) has nothing to derive standings from.
+  // `generateBracket` requires at least 2, so this is also what keeps it
+  // from throwing here.
+  if (entrantCount < 2) return [];
   const bracket = generateBracket(entrantCount);
 
   const losersRows = await prisma.matchParticipant.findMany({

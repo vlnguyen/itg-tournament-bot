@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { GuildsController } from '../src/api/guilds.controller.js';
+import { DiscordGuildsService } from '../src/auth/discord-guilds.service.js';
 import { TierService } from '../src/auth/tier.service.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { findPublicCurrentTournament, getTournamentHistory } from '../src/services/tournament-service.js';
@@ -95,6 +96,7 @@ describe.skipIf(!(await isReachable()))('GET /api/guilds/:guildId/overview', () 
       providers: [
         { provide: PrismaService, useValue: prisma },
         { provide: TierService, useValue: {} },
+        { provide: DiscordGuildsService, useValue: {} },
       ],
     }).compile();
     controller = moduleRef.get(GuildsController);
@@ -156,6 +158,7 @@ describe.skipIf(!(await isReachable()))('POST /api/guilds/:guildId/tournaments',
       providers: [
         { provide: PrismaService, useValue: prisma },
         { provide: TierService, useValue: { hasTier: async () => hasTierResult } },
+        { provide: DiscordGuildsService, useValue: {} },
       ],
     }).compile();
     controller = moduleRef.get(GuildsController);

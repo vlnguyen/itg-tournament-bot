@@ -52,6 +52,9 @@ CREATE TABLE "User" (
     "displayName" TEXT,
     "avatarHash" TEXT,
     "lastSignInAt" TIMESTAMP(3),
+    "discordAccessToken" TEXT,
+    "discordRefreshToken" TEXT,
+    "discordTokenExpiresAt" TIMESTAMP(3),
 
     CONSTRAINT "User_pkey" PRIMARY KEY ("discordUserId")
 );

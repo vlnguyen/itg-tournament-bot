@@ -97,6 +97,15 @@ model User {
   displayName   String? // CURRENT name — never for historical rendering
   avatarHash    String?
   lastSignInAt  DateTime?
+
+  // The `guilds` OAuth2 scope's token pair — needed to ask Discord which
+  // servers this user administers, including ones the bot has never been
+  // added to (the gateway member cache only ever knows about the bot's own
+  // guilds). Null for anyone who signed in before this scope was added,
+  // until they sign in again. See DESIGN.md, "Authentication and Authorization".
+  discordAccessToken     String?
+  discordRefreshToken    String?
+  discordTokenExpiresAt  DateTime?
 }
 
 // No Organizer table — authority is Discord role membership, resolved to a

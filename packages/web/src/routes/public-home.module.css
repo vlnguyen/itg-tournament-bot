@@ -1,0 +1,25 @@
+.card {
+  /* Reset native <button> chrome for the "add to server" card variant —
+     harmless on the <a>-based variant, which never had any to begin with. */
+  appearance: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  width: 100%;
+  margin: 0;
+
+  cursor: pointer;
+  transition: border-color 100ms ease, transform 100ms ease;
+}
+
+.card:hover,
+.card:focus-visible {
+  border-color: var(--mantine-color-blue-6);
+  transform: translateY(-2px);
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--mantine-color-blue-6);
+  outline-offset: 2px;
+}

@@ -17,6 +17,7 @@ import type { Tournament } from '@prisma/client';
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, Param, Post } from '@nestjs/common';
 import { ZodError } from 'zod';
 import { CurrentUser } from '../auth/current-user.decorator.js';
+import { DiscordGuildsService } from '../auth/discord-guilds.service.js';
 import { TierService } from '../auth/tier.service.js';
 import { Tier } from '../discord/tier.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -45,6 +46,7 @@ export class GuildsController {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(TierService) private readonly tierService: TierService,
+    @Inject(DiscordGuildsService) private readonly discordGuildsService: DiscordGuildsService,
   ) {}
 
   /**
@@ -55,7 +57,7 @@ export class GuildsController {
    */
   @Get()
   async listMine(@CurrentUser() discordUserId: string | null): Promise<GuildSummaryWire[]> {
-    const guilds = discordUserId ? await this.tierService.guildsFor(discordUserId) : [];
+    const guilds = discordUserId ? await this.discordGuildsService.manageableGuildsFor(discordUserId) : [];
     return GuildSummarySchema.array().parse(guilds);
   }
 

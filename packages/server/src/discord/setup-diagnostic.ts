@@ -16,7 +16,6 @@ export const REQUIRED_BOT_PERMS = {
     'SendMessagesInThreads',
     'CreatePrivateThreads',
     'ManageThreads',
-    'AttachFiles',
     'EmbedLinks',
     'ReadMessageHistory',
   ],

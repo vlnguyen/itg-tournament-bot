@@ -815,7 +815,7 @@ What it reports, per target:
 
 | Target | Needs | Why |
 | --- | --- | --- |
-| Bot, in the matches channel | View Channel, Send Messages, Send Messages in Threads, Create Private Threads, Manage Threads, Attach Files, Embed Links, Read Message History | Running matches at all |
+| Bot, in the matches channel | View Channel, Send Messages, Send Messages in Threads, Create Private Threads, Manage Threads, Embed Links, Read Message History | Running matches at all |
 | Bot, in the organizer alert channel | View Channel, Send Messages, Embed Links, Read Message History | Raising and editing alerts |
 | Bot, in the results channel | View Channel, Send Messages, Embed Links | Posting the result feed |
 | Bot, in the general channel, if set | View Channel, Send Messages, Embed Links | Forwarding results |
@@ -838,7 +838,7 @@ The last is a warning rather than a gap, since a server may legitimately configu
 
 **Sign-in is information, never a gate.** A referee can rule entirely from Discord — alert buttons and slash commands are equal surfaces by requirement — so a referee who never opens the web UI is fully functional.
 
-**OAuth requests `identify` only.** Which servers a user may act in is resolved from role membership in the gateway cache. Requesting `guilds` would add a broader consent prompt and a second, staler notion of "may act here" beside the one that already exists.
+**OAuth requests `identify guilds`.** Which servers a user may *act* in — rule on a match, run a tournament, reconfigure a server the bot is already in — is still resolved from role membership in the gateway cache, exactly as before; `guilds` is not a second notion of that. It exists for one narrower question the gateway cache cannot answer at all: the homepage's "servers you manage" list, which by requirement includes a server the user administers even if the bot has never been added to it. There is no way to see that from the bot's own guild cache, only from Discord's own account-scoped guild list. The `guilds` scope's access/refresh token pair is persisted on `User` (`discordAccessToken`/`discordRefreshToken`/`discordTokenExpiresAt`) — the one deliberate exception to the session cookie carrying nothing but the Discord user id (see "Sessions are a signed cookie..." further down): the token itself lives on `User`, never in the cookie, and only `DiscordGuildsService` ever reads it, refreshing it on demand each time the homepage asks. Anyone who signed in before this scope existed simply sees an empty list until they sign in again — a stale answer for one page, not a wrong one, and never a forced re-auth.
 
 **The `User` table is a cache for current UI, never for history.** Requirements fix the display name as a snapshot taken at registration and stored per tournament, so past brackets show the name someone competed under. `User.displayName` serves organizer screens; rendering a bracket or match history from it would silently break that guarantee, and is the single most likely way to do so by accident.
 
@@ -1026,7 +1026,7 @@ Without `MessageContent`, a message event in a guild arrives with `content`, `em
 
 Preflight computes the missing set and names it at `/setup`, again at tournament start, and once more before each round's thread burst:
 
-View Channel, Send Messages, Send Messages in Threads, Create Private Threads, Manage Threads, Attach Files, Embed Links, Read Message History — scoped per channel as set out in the `/setup` diagnostic.
+View Channel, Send Messages, Send Messages in Threads, Create Private Threads, Manage Threads, Embed Links, Read Message History — scoped per channel as set out in the `/setup` diagnostic. (`Attach Files` was dropped from this set — nothing in the bot ever sends a file; it only reads the photo attachments players post, which needs no permission of its own.)
 
 `Manage Channels` and `Manage Roles` are **optional**, and the only optional permissions in the design. They let `/setup` create channels and repair overwrites; withheld, setup falls back to selection plus a diagnostic and nothing else changes.
 
@@ -1036,7 +1036,7 @@ View Channel, Send Messages, Send Messages in Threads, Create Private Threads, M
 
 The invite link needs the `bot` and `applications.commands` OAuth2 scopes, plus the base guild-level permission set — the union of everything any channel in "Required permissions" above ever asks for, since an invite grants guild-level permissions and `/setup` (and each channel's own overwrites) refine them from there:
 
-View Channel, Send Messages, Send Messages in Threads, Create Private Threads, Manage Threads, Attach Files, Embed Links, Read Message History, Add Reactions.
+View Channel, Send Messages, Send Messages in Threads, Create Private Threads, Manage Threads, Embed Links, Read Message History, Add Reactions.
 
 Two more are worth granting up front even though `/setup` degrades gracefully without them, per "optional" above:
 
@@ -1430,7 +1430,7 @@ Rows may be deleted, but deleting one that is also in the allowlist only lasts u
 
 Public bracket and match history need **no authentication** — sign-in only adds a personalized dashboard.
 
-**Sessions are a signed cookie carrying the Discord user ID**, and nothing else. There is no session table.
+**Sessions are a signed cookie carrying the Discord user ID**, and nothing else. There is no session table. (The `guilds` scope's OAuth token pair, added later for the homepage's server list, lives on `User` — see "OAuth requests `identify guilds`" above — not in the cookie and not in a new table.)
 
 The reasoning shifted once tiers moved to Discord roles: authorization now reads tier from the gateway member cache, so a request costs **zero database queries** to authorize. A session table would therefore *add* a query rather than replace one, plus a table and an expiry sweep, to serve a handful of privileged users per server.
 

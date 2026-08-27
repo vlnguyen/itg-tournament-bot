@@ -7,6 +7,7 @@ import { GuildsController } from '../src/api/guilds.controller.js';
 import { MatchesController } from '../src/api/matches.controller.js';
 import { PlayersController } from '../src/api/players.controller.js';
 import { TournamentsController } from '../src/api/tournaments.controller.js';
+import { DiscordGuildsService } from '../src/auth/discord-guilds.service.js';
 import { TierService } from '../src/auth/tier.service.js';
 import { DISCORD_CLIENT } from '../src/discord/discord.tokens.js';
 import { materializeBracket } from '../src/services/bracket-service.js';
@@ -39,6 +40,7 @@ describe.skipIf(!(await isReachable()))('public REST routes', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: TierService, useValue: { hasTier: async () => true } },
         { provide: DISCORD_CLIENT, useValue: { guilds: { cache: new Map(), fetch: async () => null } } },
+        { provide: DiscordGuildsService, useValue: {} },
       ],
     }).compile();
     matchesController = moduleRef.get(MatchesController);

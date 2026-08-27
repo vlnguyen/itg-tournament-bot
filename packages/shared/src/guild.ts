@@ -11,17 +11,21 @@ export const TournamentSummary = z.object({
 export type TournamentSummary = z.infer<typeof TournamentSummary>;
 
 /**
- * `GET /api/guilds` — the homepage's server list, DESIGN.md's "the list of
- * servers the user belongs to... where the bot is present." Resolved
- * bot-side (which of the bot's own guilds is this signed-in user a member
- * of), not from Discord's `guilds` OAuth scope — see `TierService.
- * guildsFor`'s comment. `iconUrl` is `null` whenever the guild has no icon
- * set; the client supplies its own fallback.
+ * `GET /api/guilds` — the homepage's server list: every Discord server
+ * this signed-in user holds Manage Guild (or ownership) in, from the
+ * `guilds` OAuth2 scope's token pair — see `DiscordGuildsService`. Unlike
+ * the bot's own gateway member cache, this includes servers the bot has
+ * never been added to; `botPresent` is what tells the client whether a
+ * card should link into `/g/:guildId` or offer `inviteUrl` instead.
+ * `iconUrl` is `null` whenever the guild has no icon set; the client
+ * supplies its own fallback.
  */
 export const GuildSummary = z.object({
   id: z.string().min(1),
   name: z.string(),
   iconUrl: z.string().nullable(),
+  botPresent: z.boolean(),
+  inviteUrl: z.string().nullable(),
 });
 export type GuildSummary = z.infer<typeof GuildSummary>;
 

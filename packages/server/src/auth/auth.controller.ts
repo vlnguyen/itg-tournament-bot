@@ -21,6 +21,8 @@ function isSecureBaseUrl(): boolean {
 
 interface DiscordTokenResponse {
   access_token: string;
+  refresh_token: string;
+  expires_in: number;
 }
 
 interface DiscordUserResponse {
@@ -32,10 +34,15 @@ interface DiscordUserResponse {
 }
 
 /**
- * Discord OAuth2, `identify` scope only, terminating in the signed session
- * cookie described in DESIGN.md, "Authentication and Authorization" — no
- * session table, no stored access token. The access token is used once, to
- * ask Discord who just authorized, and then discarded.
+ * Discord OAuth2, `identify guilds` scope, terminating in the signed
+ * session cookie described in DESIGN.md, "Authentication and
+ * Authorization" — no session table; the session cookie still carries only
+ * the Discord user id. The `guilds` scope's token pair *is* persisted
+ * (on `User`, not the cookie) — unlike the plain identify lookup, "which
+ * servers does this user administer" can't be answered from a single
+ * one-time call: the homepage needs to ask again on every visit, including
+ * for servers the bot has never been added to, which the gateway member
+ * cache has no way to see at all.
  */
 @Controller('api/auth')
 export class AuthController {
@@ -59,7 +66,7 @@ export class AuthController {
     url.searchParams.set('client_id', clientId);
     url.searchParams.set('redirect_uri', redirectUri);
     url.searchParams.set('response_type', 'code');
-    url.searchParams.set('scope', 'identify');
+    url.searchParams.set('scope', 'identify guilds');
     url.searchParams.set('state', state);
     res.redirect(url.toString());
   }
@@ -110,6 +117,9 @@ export class AuthController {
     // pages) gets written — there's no broader Discord member-sync yet, so
     // this stays accurate only for people who have actually signed in.
     // Player pages fall back to the tournament-snapshot name otherwise.
+    // The token pair is what `DiscordGuildsService` refreshes later to ask
+    // Discord which servers this user administers.
+    const tokenExpiresAt = new Date(Date.now() + token.expires_in * 1000);
     await this.prisma.user.upsert({
       where: { discordUserId: user.id },
       create: {
@@ -117,11 +127,17 @@ export class AuthController {
         displayName: user.global_name ?? user.username,
         avatarHash: user.avatar,
         lastSignInAt: new Date(),
+        discordAccessToken: token.access_token,
+        discordRefreshToken: token.refresh_token,
+        discordTokenExpiresAt: tokenExpiresAt,
       },
       update: {
         displayName: user.global_name ?? user.username,
         avatarHash: user.avatar,
         lastSignInAt: new Date(),
+        discordAccessToken: token.access_token,
+        discordRefreshToken: token.refresh_token,
+        discordTokenExpiresAt: tokenExpiresAt,
       },
     });
 

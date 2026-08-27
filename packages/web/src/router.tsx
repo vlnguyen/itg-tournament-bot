@@ -19,6 +19,7 @@ export const router = createBrowserRouter([
     children: [
       { path: '/', lazy: () => import('./routes/public-home').then((m) => ({ Component: m.default })) },
       { path: '/g/:guildId', lazy: () => import('./routes/guild-overview').then((m) => ({ Component: m.default })) },
+      { path: '/g/:guildId/setup', lazy: () => import('./routes/guild-setup').then((m) => ({ Component: m.default })) },
       { path: '/t/:tournamentId', lazy: () => import('./routes/tournament-bracket').then((m) => ({ Component: m.default })) },
       {
         path: '/t/:tournamentId/matches/:matchId',

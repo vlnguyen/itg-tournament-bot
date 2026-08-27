@@ -136,7 +136,11 @@ function FirstRunWizard({ guildId }: { guildId: string }): JSX.Element {
         <Stack align="center" gap="xs">
           <Title order={2}>This server isn't set up yet</Title>
           <Text c="dimmed">
-            Run <Code>/setup</Code> in Discord to configure:
+            Run <Code>/setup</Code> in Discord, or{' '}
+            <Anchor component={Link} to={`/g/${guildId}/setup`}>
+              configure it here
+            </Anchor>
+            , to set up:
           </Text>
           <List size="sm">
             {data.missingConfig.map((item) => (
@@ -200,6 +204,12 @@ export default function GuildOverview(): JSX.Element {
 
   return (
     <Stack gap="xl" p="md">
+      <Group justify="flex-end">
+        <Anchor component={Link} to={`/g/${guildId}/setup`} size="sm">
+          Server Settings
+        </Anchor>
+      </Group>
+
       <div>
         <Group gap="sm" mb="xs">
           <Title order={2} size="h3">

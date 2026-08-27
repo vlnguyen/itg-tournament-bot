@@ -11,6 +11,7 @@ import { MatchesController } from './matches.controller.js';
 import { PlayersController } from './players.controller.js';
 import { RosterController } from './roster.controller.js';
 import { RulingsController } from './rulings.controller.js';
+import { SetupController } from './setup.controller.js';
 import { TournamentsController } from './tournaments.controller.js';
 
 @Module({
@@ -24,6 +25,7 @@ import { TournamentsController } from './tournaments.controller.js';
     RulingsController,
     RosterController,
     LifecycleController,
+    SetupController,
     AdminController,
   ],
 })

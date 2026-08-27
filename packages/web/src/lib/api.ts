@@ -12,6 +12,9 @@ import {
   Roster,
   RulingRequest,
   RunView,
+  SetupChannelsRequest,
+  SetupRolesRequest,
+  SetupStatus,
   Standings,
   TournamentSnapshot,
 } from '@itg/shared';
@@ -69,6 +72,39 @@ export async function createTournamentForGuild(guildId: string, name: string): P
   });
   if (!res.ok) throw new ApiError(res.status, await describeError(res, `POST /api/guilds/${guildId}/tournaments -> ${res.status}`));
   return CreateTournamentResult.parse(await res.json()).tournamentId;
+}
+
+/** The web console's server-reconfiguration panel — the web equivalent of `/setup status`. 403s for anyone without Manage Server here. */
+export async function fetchSetupStatus(guildId: string): Promise<SetupStatus> {
+  const res = await fetch(`/api/guilds/${guildId}/setup`);
+  if (!res.ok) throw new ApiError(res.status, await describeError(res, `GET /api/guilds/${guildId}/setup -> ${res.status}`));
+  return SetupStatus.parse(await res.json());
+}
+
+export async function submitSetupChannels(guildId: string, request: SetupChannelsRequest): Promise<SetupStatus> {
+  const res = await fetch(`/api/guilds/${guildId}/setup/channels`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new ApiError(res.status, await describeError(res, `POST /api/guilds/${guildId}/setup/channels -> ${res.status}`));
+  return SetupStatus.parse(await res.json());
+}
+
+export async function submitSetupRoles(guildId: string, request: SetupRolesRequest): Promise<SetupStatus> {
+  const res = await fetch(`/api/guilds/${guildId}/setup/roles`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new ApiError(res.status, await describeError(res, `POST /api/guilds/${guildId}/setup/roles -> ${res.status}`));
+  return SetupStatus.parse(await res.json());
+}
+
+export async function submitSetupRepair(guildId: string): Promise<SetupStatus> {
+  const res = await fetch(`/api/guilds/${guildId}/setup/repair`, { method: 'POST' });
+  if (!res.ok) throw new ApiError(res.status, await describeError(res, `POST /api/guilds/${guildId}/setup/repair -> ${res.status}`));
+  return SetupStatus.parse(await res.json());
 }
 
 /** The Bot Administrator's read-only server list — 403s for anyone else, checked by the caller before rendering it as such. */

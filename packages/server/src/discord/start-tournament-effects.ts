@@ -1,22 +1,20 @@
 import type { Guild as GuildRow, Tournament } from '@prisma/client';
 import type { Guild as DiscordGuild } from 'discord.js';
 import { describeGap } from './permission-diagnostic.js';
-import { runFullDiagnostic, type RequiredTierRole } from './commands/setup.js';
+import { runFullDiagnostic, TIER_ROLE_LABELS } from './setup-effects.js';
 import type { CommandContext } from './commands/context.js';
 import type { ThreadRef } from './ports.js';
 import { provisionReadyThreads } from './thread-provisioning.js';
 import { hasTier, Tier } from './tier.js';
 import { startTournament, TournamentTransitionError } from '../services/tournament-service.js';
 
-const TIER_ROLE_LABEL: Record<RequiredTierRole, string> = { referee: 'Referee', organizer: 'Tournament Organizer' };
-
 function describePreflightFailure(diag: Awaited<ReturnType<typeof runFullDiagnostic>>): string {
   const lines = ["Can't start — Discord isn't fully set up yet:"];
   for (const role of diag.missingTierRoles) {
-    lines.push(`- The ${TIER_ROLE_LABEL[role]} role is not configured — run \`/setup roles\`.`);
+    lines.push(`- The ${TIER_ROLE_LABELS[role]} role is not configured — run \`/setup roles\`.`);
   }
   for (const role of diag.deletedTierRoles) {
-    lines.push(`- The configured ${TIER_ROLE_LABEL[role]} role no longer exists — run \`/setup roles\`.`);
+    lines.push(`- The configured ${TIER_ROLE_LABELS[role]} role no longer exists — run \`/setup roles\`.`);
   }
   for (const slot of diag.missingChannels) {
     lines.push(`- The configured ${slot} channel no longer exists — run \`/setup channels\`.`);
@@ -64,7 +62,7 @@ export async function startTournamentWithDiscordEffects(
   tournamentId: string,
   actorId: string,
 ): Promise<StartTournamentEffectsResult> {
-  const diag = await runFullDiagnostic(ctx, guild, guildRow);
+  const diag = await runFullDiagnostic(guild, guildRow);
   const blocking = diag.gaps.length > 0 || diag.missingChannels.length > 0 || diag.missingTierRoles.length > 0 || diag.deletedTierRoles.length > 0;
   if (blocking) {
     return { kind: 'BLOCKED', message: describePreflightFailure(diag) };

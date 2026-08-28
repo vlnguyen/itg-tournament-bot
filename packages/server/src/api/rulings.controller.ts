@@ -10,6 +10,9 @@ import type { EntrantId, MatchEvent, MatchState } from '../domain/types.js';
 import { Tier } from '../discord/tier.js';
 import { ALERT_PORT, MATCH_CHANNEL_PORT, PLAYER_NOTIFICATION_PORT } from '../discord/discord-adapters.module.js';
 import { REALTIME_PORT } from '../realtime/realtime.tokens.js';
+import { logToOrganizers, matchLinksBlock } from '../discord/commands/organizer-log.js';
+import { compactChartLabel } from '../discord/render/chart.js';
+import { LOG_COLOR } from '../discord/render/draw.js';
 import { buildResolvedAlert } from '../discord/render/escalation.js';
 import { renderDqLog, renderResetLog, renderRulingLog, renderSetRulingLog } from '../discord/log-messages.js';
 import { applyAppendResult, CANCELLED_MATCH_MESSAGE, describeStale } from '../discord/match-event-effects.js';
@@ -126,11 +129,26 @@ export class RulingsController {
       const outcome =
         ruling.result === 'VOID' ? 'voided' : ruling.result === 'TIE' ? 'ruled a tie' : `awarded to ${displayName(players, ruling.result)}`;
       await this.resolveAlertIfOpen(match, refName, outcome, ruling.songIndex);
+
+      const alertOutcome =
+        ruling.result === 'VOID' ? 'voided' : ruling.result === 'TIE' ? 'ruled a tie' : `awarded to **${displayName(players, ruling.result)}**`;
+      await logToOrganizers(
+        this.alert,
+        match.tournament.guildId,
+        `Song ${ruling.songIndex + 1} (${compactChartLabel(chart)}) ${alertOutcome} — ruling by **${refName}**\n\n${matchLinksBlock(match.tournament.guildId, ref, match.tournamentId)}`,
+        { title: '⚖️ Song resolution', color: LOG_COLOR.RULING },
+      );
     } else if (ruling.type === 'PROTECT_VETO_RESET') {
       await this.matchChannel.postLogMessage(ref, renderResetLog(refName));
     } else if (ruling.type === 'SET_RESULT_RULED') {
       await this.resolveAlertIfOpen(match, refName, `awarded the set to ${displayName(players, ruling.result)}`, undefined);
       await this.matchChannel.postLogMessage(ref, renderSetRulingLog(ruling.result as EntrantId, refName, players));
+      await logToOrganizers(
+        this.alert,
+        match.tournament.guildId,
+        `Set result awarded to **${displayName(players, ruling.result)}** — ruling by **${refName}**\n\n${matchLinksBlock(match.tournament.guildId, ref, match.tournamentId)}`,
+        { title: '⚖️ Set resolution', color: LOG_COLOR.RULING },
+      );
     } else {
       await this.matchChannel.postLogMessage(ref, renderDqLog(ruling.playerId as EntrantId, 'MATCH', refName, players));
     }

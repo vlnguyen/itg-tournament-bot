@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { GuildsController } from '../src/api/guilds.controller.js';
 import { DiscordGuildsService } from '../src/auth/discord-guilds.service.js';
 import { TierService } from '../src/auth/tier.service.js';
+import { DISCORD_CLIENT } from '../src/discord/discord.tokens.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { isReachable, prisma } from './support.js';
 
@@ -36,6 +37,7 @@ describe.skipIf(!(await isReachable()))('GET /api/guilds/:guildId/first-run', ()
           },
         },
         { provide: DiscordGuildsService, useValue: {} },
+        { provide: DISCORD_CLIENT, useValue: { guilds: { cache: new Map(), fetch: async () => null } } },
       ],
     }).compile();
     controller = moduleRef.get(GuildsController);

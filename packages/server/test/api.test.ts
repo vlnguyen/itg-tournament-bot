@@ -58,7 +58,7 @@ describe.skipIf(!(await isReachable()))('public REST routes', () => {
 
     it('returns an empty overview for a guild that has never had one', async () => {
       const body = await guildsController.getOverview('no-such-guild');
-      expect(body).toEqual({ activeTournament: null, history: [] });
+      expect(body).toEqual({ activeTournament: null, history: [], guildName: 'no-such-guild' });
     });
   });
 

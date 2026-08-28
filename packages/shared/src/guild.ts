@@ -36,11 +36,14 @@ export type GuildSummary = z.infer<typeof GuildSummary>;
  * `null` whenever nothing not-yet-announced-or-finished is running.
  * `history` is every `COMPLETE`/`CANCELLED` tournament this guild has run,
  * newest first — `DRAFT` never appears in either field, same reasoning as
- * `FirstRunStatus`.
+ * `FirstRunStatus`. `guildName` is resolved live from the bot's own
+ * client, same as `TournamentSnapshot.guildName` — falls back to the raw
+ * id if the bot isn't in the guild (or isn't connected).
  */
 export const GuildOverview = z.object({
   activeTournament: TournamentSummary.nullable(),
   history: z.array(TournamentSummary),
+  guildName: z.string(),
 });
 export type GuildOverview = z.infer<typeof GuildOverview>;
 

@@ -306,7 +306,7 @@ export default function MatchDetail(): JSX.Element {
 
   return (
     <Stack gap="lg" p="md">
-      <TournamentHeader tournamentId={tournamentId!} showGuild />
+      <TournamentHeader tournamentId={tournamentId!} />
       {content}
     </Stack>
   );

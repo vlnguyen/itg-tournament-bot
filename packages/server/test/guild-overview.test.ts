@@ -3,6 +3,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { GuildsController } from '../src/api/guilds.controller.js';
 import { DiscordGuildsService } from '../src/auth/discord-guilds.service.js';
 import { TierService } from '../src/auth/tier.service.js';
+import { DISCORD_CLIENT } from '../src/discord/discord.tokens.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { findPublicCurrentTournament, getTournamentHistory } from '../src/services/tournament-service.js';
 import { isReachable, prisma } from './support.js';
@@ -97,6 +98,7 @@ describe.skipIf(!(await isReachable()))('GET /api/guilds/:guildId/overview', () 
         { provide: PrismaService, useValue: prisma },
         { provide: TierService, useValue: {} },
         { provide: DiscordGuildsService, useValue: {} },
+        { provide: DISCORD_CLIENT, useValue: { guilds: { cache: new Map(), fetch: async () => null } } },
       ],
     }).compile();
     controller = moduleRef.get(GuildsController);
@@ -116,11 +118,11 @@ describe.skipIf(!(await isReachable()))('GET /api/guilds/:guildId/overview', () 
 
   it('returns an empty overview for a guild that has never run a tournament', async () => {
     const guildId = await makeGuild();
-    expect(await controller.getOverview(guildId)).toEqual({ activeTournament: null, history: [] });
+    expect(await controller.getOverview(guildId)).toEqual({ activeTournament: null, history: [], guildName: guildId });
   });
 
   it('returns an empty overview for an unknown guild id — no 404, nothing to distinguish', async () => {
-    expect(await controller.getOverview('no-such-guild')).toEqual({ activeTournament: null, history: [] });
+    expect(await controller.getOverview('no-such-guild')).toEqual({ activeTournament: null, history: [], guildName: 'no-such-guild' });
   });
 
   it('reports a running tournament as active', async () => {
@@ -135,7 +137,7 @@ describe.skipIf(!(await isReachable()))('GET /api/guilds/:guildId/overview', () 
     const guildId = await makeGuild();
     await tournament(guildId, 'draft', 'DRAFT');
     const body = await controller.getOverview(guildId);
-    expect(body).toEqual({ activeTournament: null, history: [] });
+    expect(body).toEqual({ activeTournament: null, history: [], guildName: guildId });
   });
 
   it('reports history alongside a null active tournament once everything has finished', async () => {
@@ -159,6 +161,7 @@ describe.skipIf(!(await isReachable()))('POST /api/guilds/:guildId/tournaments',
         { provide: PrismaService, useValue: prisma },
         { provide: TierService, useValue: { hasTier: async () => hasTierResult } },
         { provide: DiscordGuildsService, useValue: {} },
+        { provide: DISCORD_CLIENT, useValue: { guilds: { cache: new Map(), fetch: async () => null } } },
       ],
     }).compile();
     controller = moduleRef.get(GuildsController);

@@ -14,11 +14,13 @@ import {
   GuildSummary as GuildSummarySchema,
 } from '@itg/shared';
 import type { Tournament } from '@prisma/client';
+import type { Client } from 'discord.js';
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, Param, Post } from '@nestjs/common';
 import { ZodError } from 'zod';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { DiscordGuildsService } from '../auth/discord-guilds.service.js';
 import { TierService } from '../auth/tier.service.js';
+import { DISCORD_CLIENT } from '../discord/discord.tokens.js';
 import { Tier } from '../discord/tier.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
@@ -47,6 +49,7 @@ export class GuildsController {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(TierService) private readonly tierService: TierService,
     @Inject(DiscordGuildsService) private readonly discordGuildsService: DiscordGuildsService,
+    @Inject(DISCORD_CLIENT) private readonly client: Client,
   ) {}
 
   /**
@@ -67,9 +70,13 @@ export class GuildsController {
       findPublicCurrentTournament(this.prisma, guildId),
       getTournamentHistory(this.prisma, guildId),
     ]);
+    // `Guild` rows carry no cached name — resolved live from the bot's
+    // own client, same source `TournamentsController` already trusts.
+    const guild = this.client.guilds.cache.get(guildId);
     return GuildOverviewSchema.parse({
       activeTournament: active ? toSummary(active) : null,
       history: history.map(toSummary),
+      guildName: guild?.name ?? guildId,
     });
   }
 

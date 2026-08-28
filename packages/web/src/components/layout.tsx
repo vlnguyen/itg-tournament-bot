@@ -1,6 +1,7 @@
 import { ActionIcon, AppShell, Anchor, Button, Group, Text, Tooltip, useMantineColorScheme, useComputedColorScheme } from '@mantine/core';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet } from 'react-router-dom';
+import { HeaderBreadcrumbs } from './breadcrumbs.js';
 import { useCurrentUser } from '../hooks/use-current-user.js';
 
 /** Sun/moon/home as plain inline SVG rather than an icon-library dependency — Mantine itself ships no icons, and the app only needs these three. */
@@ -85,14 +86,17 @@ export default function Layout(): JSX.Element {
   return (
     <AppShell header={{ height: 48 }} padding={0}>
       <AppShell.Header>
-        <Group justify="space-between" h="100%" px="md" gap="md">
-          <Anchor component={Link} to="/" underline="never" c="inherit">
-            <Group gap="xs">
-              <HomeIcon />
-              <Text fw={700}>ITG Tournament Bot</Text>
-            </Group>
-          </Anchor>
-          <Group gap="md">
+        <Group justify="space-between" h="100%" px="md" gap="md" wrap="nowrap">
+          <Group gap="md" wrap="nowrap" style={{ minWidth: 0 }}>
+            <Anchor component={Link} to="/" underline="never" c="inherit" style={{ flexShrink: 0 }}>
+              <Group gap="xs" wrap="nowrap">
+                <HomeIcon />
+                <Text fw={700}>ITG Tournament Bot</Text>
+              </Group>
+            </Anchor>
+            <HeaderBreadcrumbs />
+          </Group>
+          <Group gap="md" wrap="nowrap" style={{ flexShrink: 0 }}>
             <Anchor component={Link} to="/help" size="sm">
               Help/FAQ
             </Anchor>

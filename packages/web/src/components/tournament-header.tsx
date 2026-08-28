@@ -1,5 +1,5 @@
 import type { TournamentState } from '@itg/shared';
-import { Anchor, Badge, Group, Stack, Text, Title } from '@mantine/core';
+import { Anchor, Badge, Group, Stack, Title } from '@mantine/core';
 import { Link, useLocation } from 'react-router-dom';
 import { useTournament } from '../hooks/use-tournament.js';
 
@@ -42,35 +42,24 @@ const TABS: { path: string; label: string }[] = [
  * the signed-in user's own tier, per DESIGN.md's "what a person sees is
  * filtered by tierOf, not by which console they opened."
  *
- * `showGuild` adds a subtitle naming and linking to the tournament's own
- * server (`/g/:guildId`) — off by default, since most pages here are only
- * ever reached by navigating within that server's own context already; a
- * match detail page is the one place someone plausibly lands from an
- * out-of-context link (a Discord message shared standalone) and needs
- * "which server is this" spelled out.
+ * The tournament's own server used to get a subtitle link here for match
+ * detail specifically — a page someone plausibly lands on from an
+ * out-of-context link. The header's own breadcrumb trail (`breadcrumbs.tsx`)
+ * now covers that on every tournament-scoped page, so it isn't repeated here.
  */
-export function TournamentHeader({ tournamentId, showGuild = false }: { tournamentId: string; showGuild?: boolean }): JSX.Element {
+export function TournamentHeader({ tournamentId }: { tournamentId: string }): JSX.Element {
   const { data: snapshot } = useTournament(tournamentId);
   const { pathname } = useLocation();
 
   return (
     <Stack gap={4}>
       {snapshot && (
-        <div>
-          <Group gap="xs" align="center">
-            <Title order={1}>{snapshot.name}</Title>
-            <Badge size="lg" {...(STATE_COLOR[snapshot.state] ? { color: STATE_COLOR[snapshot.state] } : {})}>
-              {STATE_LABEL[snapshot.state]}
-            </Badge>
-          </Group>
-          {showGuild && (
-            <Text size="sm" c="dimmed">
-              <Anchor component={Link} to={`/g/${snapshot.guildId}`} c="dimmed">
-                {snapshot.guildName}
-              </Anchor>
-            </Text>
-          )}
-        </div>
+        <Group gap="xs" align="center">
+          <Title order={1}>{snapshot.name}</Title>
+          <Badge size="lg" {...(STATE_COLOR[snapshot.state] ? { color: STATE_COLOR[snapshot.state] } : {})}>
+            {STATE_LABEL[snapshot.state]}
+          </Badge>
+        </Group>
       )}
 
       <Group gap="md" component="nav" aria-label="Tournament pages">

@@ -93,6 +93,9 @@ export default function Layout(): JSX.Element {
             </Group>
           </Anchor>
           <Group gap="md">
+            <Anchor component={Link} to="/help" size="sm">
+              Help/FAQ
+            </Anchor>
             <SignInControl />
             <ColorSchemeToggle />
           </Group>

@@ -44,6 +44,7 @@ export const router = createBrowserRouter([
         lazy: () => import('./routes/player-page').then((m) => ({ Component: m.default })),
       },
       { path: '/console', lazy: () => import('./routes/console-home').then((m) => ({ Component: m.default })) },
+      { path: '/help', lazy: () => import('./routes/help').then((m) => ({ Component: m.default })) },
     ],
   },
 ]);

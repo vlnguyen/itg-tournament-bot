@@ -199,6 +199,7 @@ export async function applyAppendResult(
       match.tournamentId,
       match.id,
       match.tournament.name,
+      publicMatch.songs,
     );
     await matchChannel.publishResult(ref, announcement);
 

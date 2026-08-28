@@ -1,4 +1,5 @@
 import { ChannelType, SlashCommandBuilder } from 'discord.js';
+import { FORMAT_LABEL, FormatKey } from '@itg/shared';
 
 /**
  * Every slash command this bot registers, guild-scoped — matches this
@@ -63,6 +64,18 @@ const tournament = new SlashCommandBuilder()
       .setName('rename')
       .setDescription('Rename the tournament this server is holding')
       .addStringOption((o) => o.setName('name').setDescription('New name').setRequired(true)),
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName('format')
+      .setDescription('Set the match ruleset this tournament generates its bracket with')
+      .addStringOption((o) =>
+        o
+          .setName('format')
+          .setDescription('Ruleset for every match this tournament generates')
+          .setRequired(true)
+          .addChoices(...FormatKey.options.map((key) => ({ name: FORMAT_LABEL[key], value: key }))),
+      ),
   );
 
 const roster = new SlashCommandBuilder()

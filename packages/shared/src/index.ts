@@ -3,6 +3,7 @@ export * from './admin.js';
 export * from './config.js';
 export * from './chart.js';
 export * from './bracket.js';
+export * from './formats.js';
 export * from './guild.js';
 export * from './lifecycle.js';
 export * from './match.js';

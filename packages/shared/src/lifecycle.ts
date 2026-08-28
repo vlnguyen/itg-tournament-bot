@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { TournamentState } from './enums.js';
+import { FormatKey } from './formats.js';
 
 /**
  * `GET`/`POST /api/tournaments/:id/lifecycle` — DESIGN.md, "Everything
@@ -24,6 +25,12 @@ export const LifecycleRequest = z.discriminatedUnion('action', [
   z.object({ action: z.literal('START') }),
   z.object({ action: z.literal('CANCEL') }),
   z.object({ action: z.literal('RENAME'), name: z.string().min(1) }),
+  // Deliberately not a `LifecycleAction` — that enum feeds `legalActions`,
+  // which the web page renders as a row of one-click buttons. A format
+  // change takes an argument (which format), so a button with no way to
+  // choose one would be the wrong control; the web format picker calls this
+  // action directly instead of reading it out of `legalActions`.
+  z.object({ action: z.literal('SET_FORMAT'), formatKey: FormatKey }),
 ]);
 export type LifecycleRequest = z.infer<typeof LifecycleRequest>;
 
@@ -36,5 +43,9 @@ export const LifecycleStatus = z.object({
   legalActions: z.array(LifecycleAction),
   /** Informational even outside `CHECKIN_CLOSED` — a TO can see what's still missing before it's even relevant. */
   startGuards: z.array(GuardCheck),
+  /** The tournament's current default, stamped onto every match at generation. */
+  defaultFormatKey: FormatKey,
+  /** False once the bracket is materialized (`RUNNING` onward) — changing it after that point would not affect any already-generated match. */
+  formatEditable: z.boolean(),
 });
 export type LifecycleStatus = z.infer<typeof LifecycleStatus>;

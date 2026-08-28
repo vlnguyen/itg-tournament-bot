@@ -386,7 +386,7 @@ Two conditions make this sound, and both are settled elsewhere in this document.
 
 ## Match Format as a Plugin
 
-Requirements demand additional formats be addable without rework, while only Bo5 ships. The boundary:
+Requirements demand additional formats be addable without rework. Two ship: Bo5 (`bo5-protect-veto`) and Bo3 (`bo3-protect-veto`), a shorter 5-song/2-point ruleset with a fixed Protect/Protect/Veto/Veto sequence rather than Bo5's ABBAAB and loser-preference play order. A TO picks between them per tournament with `/tournament format` or the web config page. The two keys and their display labels live in `FormatKey`/`FORMAT_LABEL` (`formats.ts`, `@itg/shared`); the domain-side lookup a match actually resolves through is `formatRegistry` (`golden/registry.ts`) — see "Format versioning and golden replay" below for why those are two separate, hand-kept lists rather than one shared across the client/server boundary. The boundary:
 
 ```ts
 interface MatchFormat {
@@ -409,7 +409,7 @@ interface MatchFormat {
 }
 ```
 
-Everything specific to Bo5 — the ABBAAB sequence, the loser-goes-next preference order, the tie fall-through to protect order, the Decider, reaching 3 points, the prisoner's dilemma loop — lives behind this interface in `Bo5ProtectVetoFormat`.
+Everything specific to a ruleset — the action sequence, the play-order rule, points needed to win, the Draw size — lives behind this interface. Bo5 and Bo3 share far more than they differ: the reducer, escalation handling, the outcome/effects logic, and the whole tiebreak loop (the Decider, reaching the target score, the prisoner's dilemma round) are identical between them, so that shared machinery lives once in `protect-veto.ts`'s `makeProtectVetoFormat`, parameterized by a small config (Draw size, points to win, the action sequence, and a `nextDrawSong` play-order function). `bo5.ts` and `bo3.ts` are each just that config plus their own `nextDrawSong` — Bo5's loser-preference fall-through, Bo3's fixed first-Protect/second-Protect/Decider order — exported as `Bo5ProtectVetoFormat` and `Bo3ProtectVetoFormat`. A third ruleset that isn't Protect/Veto-shaped at all (prisoner's-dilemma-only, fixed song list) would implement `MatchFormat` directly rather than going through `protect-veto.ts`, the same way Bo3 didn't have to.
 
 ### The format belongs to the match
 
@@ -417,9 +417,9 @@ Everything specific to Bo5 — the ABBAAB sequence, the loser-goes-next preferen
 
 Storing it per match anyway is not speculation, it is the same rule the rest of this design follows: **capture what applied at the moment it mattered, rather than inferring it later from a parent that can change.** Chart metadata is snapshotted into draw events for that reason; the display name is snapshotted at start for that reason. A match's rules are the same kind of fact, and reading them off the tournament would mean a format change mid-event silently rewrites how a finished match is interpreted.
 
-It also makes a known future feature a config change rather than a migration. Events where machines are scarce commonly run Bo3 until Winners Finals, Losers Finals and the Grand Finals, which are Bo5. Under this shape that is a rule for choosing which key to stamp during generation — the reducer, the event log, replay, and every projection already work per match. Under a tournament-level key it would be a schema change to a table holding live tournaments.
+It also makes a known future feature a config change rather than a migration. Today's picker is still all-or-nothing — a tournament's `defaultFormatKey` is one value, stamped onto every match `materializeBracket` generates. Events where machines are scarce commonly want *both* Bo3 and Bo5 in one bracket: Bo3 through the early rounds, Bo5 for Winners Finals, Losers Finals, the Grand Finals and its reset. Under this shape that is a rule for choosing which key to stamp *per match* during generation, not per tournament — the reducer, the event log, replay, and every projection already work per match regardless of which format each one carries. Under a tournament-level key alone it would have been a schema change to a table holding live tournaments; as it stands it is a `bracket-service.ts` change, not a migration.
 
-**What will need revisiting when exceptions ship** is the duration estimate. It currently multiplies bracket depth by one `perMatchAllocationMinutes`, which stops being right the moment a Bo3 round and a Bo5 round take visibly different times. That is a config shape question — an allocation per format — and it is noted here so it is found by reading rather than by a schedule that runs long.
+**This is now live, not merely anticipated**: the duration estimate needs revisiting the moment a real tournament runs Bo3. It currently multiplies bracket depth by one `perMatchAllocationMinutes`, which is already wrong for a Bo3 tournament (fewer songs per match than the estimate assumes) and will be wrong in a different way the moment per-round mixing above ships. That is a config shape question — an allocation per format — and it is noted here so it is found by reading rather than by a schedule that runs long.
 
 `effects` exists because of the derived commit. Something has to notice that song 3 just became final so the thread gets a summary and the match time-limit timer is cancelled, and with no commit event to subscribe to, the alternative is the service comparing `before` and `after` itself — which means a service reasoning about format-specific state shape, exactly the coupling the plugin boundary exists to prevent. Returning a *description* of what to do keeps it pure and testable: `SongCommitted`, `TiebreakResolved`, `EscalationOpened`, `SetDecided`. The service interprets them after the transaction commits. Effects are match-scoped only — bracket advancement is the service's reaction to `outcome() !== null`, because a format has no business knowing brackets exist.
 

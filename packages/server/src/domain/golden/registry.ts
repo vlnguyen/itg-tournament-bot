@@ -1,3 +1,4 @@
+import { Bo3ProtectVetoFormat } from '../bo3.js';
 import { Bo5ProtectVetoFormat } from '../bo5.js';
 import type { MatchFormat } from '../types.js';
 
@@ -7,8 +8,8 @@ import type { MatchFormat } from '../types.js';
  * default currently is. This registry is that lookup. See DESIGN.md,
  * "Format versioning and golden replay."
  *
- * Only one format ships. A second format key is added here, never by
- * mutating what `bo5-protect-veto` means underneath an existing key.
+ * A new ruleset is added here, never by mutating what an existing key
+ * (`bo5-protect-veto`, `bo3-protect-veto`) means underneath it.
  *
  * Typed with `| undefined` on the value, not just `MatchFormat`: a lookup
  * key here is an arbitrary string (a fixture's `formatKey`, eventually a
@@ -18,4 +19,5 @@ import type { MatchFormat } from '../types.js';
  */
 export const formatRegistry: Record<string, MatchFormat | undefined> = {
   [Bo5ProtectVetoFormat.key]: Bo5ProtectVetoFormat,
+  [Bo3ProtectVetoFormat.key]: Bo3ProtectVetoFormat,
 };

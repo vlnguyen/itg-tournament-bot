@@ -1,6 +1,6 @@
 import { EmbedBuilder, type ChatInputCommandInteraction } from 'discord.js';
 import type { Guild as GuildRow, Tournament } from '@prisma/client';
-import { plural } from '@itg/shared';
+import { FORMAT_LABEL, plural, type FormatKey } from '@itg/shared';
 import { startTournamentWithDiscordEffects } from '../start-tournament-effects.js';
 import {
   cancelTournament,
@@ -11,6 +11,7 @@ import {
   openCheckin,
   openRegistration,
   renameTournament,
+  setTournamentFormat,
   TournamentSlotOccupiedError,
   TournamentTransitionError,
 } from '../../services/tournament-service.js';
@@ -96,6 +97,15 @@ export async function handleTournament(interaction: ChatInputCommandInteraction,
         ctx,
         () => renameTournament(ctx.prisma, tournament.id, name, interaction.user.id),
         (t) => `Renamed to **${t.name}**.`,
+      );
+    }
+    case 'format': {
+      const formatKey = interaction.options.getString('format', true) as FormatKey;
+      return runTransition(
+        interaction,
+        ctx,
+        () => setTournamentFormat(ctx.prisma, tournament.id, formatKey, interaction.user.id),
+        () => `Format set to **${FORMAT_LABEL[formatKey]}**.`,
       );
     }
     default:

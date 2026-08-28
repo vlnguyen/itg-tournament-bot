@@ -8,6 +8,7 @@ function frame(overrides: Partial<PublicMatch> = {}, seq = 5): RealtimeFrame {
     seq,
     projection: {
       seq,
+      formatKey: 'bo5-protect-veto',
       bracket: 'WINNERS',
       round: 1,
       participants: [

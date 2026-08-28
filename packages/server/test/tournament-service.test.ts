@@ -1,4 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
+import { Bo3ProtectVetoFormat } from '../src/domain/bo3.js';
+import { Bo5ProtectVetoFormat } from '../src/domain/bo5.js';
 import {
   cancelTournament,
   closeCheckin,
@@ -7,6 +9,7 @@ import {
   openCheckin,
   openRegistration,
   renameTournament,
+  setTournamentFormat,
   startTournament,
   TournamentSlotOccupiedError,
   TournamentTransitionError,
@@ -335,6 +338,80 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
         const t = await createTournament(prisma, guildId, 'T', ACTOR);
         await cancelTournament(prisma, t.id, ACTOR);
         await expect(renameTournament(prisma, t.id, 'Too Late', ACTOR)).rejects.toThrow(TournamentTransitionError);
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+  });
+
+  describe('setTournamentFormat', () => {
+    it('changes the format in every pre-start state, and new tournaments default to Bo5', async () => {
+      const guildId = `ts-format-${Date.now()}`;
+      await makeGuild(guildId, true);
+      try {
+        const t = await createTournament(prisma, guildId, 'T', ACTOR);
+        expect(t.defaultFormatKey).toBe(Bo5ProtectVetoFormat.key);
+
+        const toBo3 = await setTournamentFormat(prisma, t.id, Bo3ProtectVetoFormat.key, ACTOR);
+        expect(toBo3.defaultFormatKey).toBe(Bo3ProtectVetoFormat.key);
+        expect(toBo3.state).toBe('DRAFT'); // setting the format doesn't move the state machine
+
+        await openRegistration(prisma, t.id, ACTOR);
+        await closeRegistration(prisma, t.id, ACTOR);
+        await openCheckin(prisma, t.id, ACTOR);
+        const stillEditable = await setTournamentFormat(prisma, t.id, Bo5ProtectVetoFormat.key, ACTOR);
+        expect(stillEditable.defaultFormatKey).toBe(Bo5ProtectVetoFormat.key);
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('rejects an unregistered format key', async () => {
+      const guildId = `ts-format-unknown-${Date.now()}`;
+      await makeGuild(guildId, true);
+      try {
+        const t = await createTournament(prisma, guildId, 'T', ACTOR);
+        await expect(setTournamentFormat(prisma, t.id, 'not-a-real-format', ACTOR)).rejects.toThrow(/unknown match format/);
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('refuses once the bracket is generated (RUNNING)', async () => {
+      const guildId = `ts-format-running-${Date.now()}`;
+      await makeGuild(guildId, true);
+      try {
+        const t = await createTournament(prisma, guildId, 'T', ACTOR);
+        await openRegistration(prisma, t.id, ACTOR);
+        await closeRegistration(prisma, t.id, ACTOR);
+        await openCheckin(prisma, t.id, ACTOR);
+        await addEntrant(t.id, 'p1', { seed: 1, checkedIn: true });
+        await addEntrant(t.id, 'p2', { seed: 2, checkedIn: true });
+        await closeCheckin(prisma, t.id, ACTOR);
+        for (let i = 0; i < 12; i++) {
+          await prisma.chart.create({
+            data: { tournamentId: t.id, title: `Song ${i}`, playStyle: 'SINGLE', difficulty: 'EXPERT', meter: 12 },
+          });
+        }
+        await startTournament(prisma, sequentialRandomPort(guildId), t.id, new Map(), ACTOR);
+
+        await expect(setTournamentFormat(prisma, t.id, Bo3ProtectVetoFormat.key, ACTOR)).rejects.toThrow(
+          TournamentTransitionError,
+        );
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('refuses once the tournament is cancelled', async () => {
+      const guildId = `ts-format-cancelled-${Date.now()}`;
+      await makeGuild(guildId, true);
+      try {
+        const t = await createTournament(prisma, guildId, 'T', ACTOR);
+        await cancelTournament(prisma, t.id, ACTOR);
+        await expect(setTournamentFormat(prisma, t.id, Bo3ProtectVetoFormat.key, ACTOR)).rejects.toThrow(
+          TournamentTransitionError,
+        );
       } finally {
         await dropGuild(guildId);
       }

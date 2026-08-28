@@ -1,5 +1,5 @@
 import type { PublicMatch } from '@itg/shared';
-import { displayStepartistLine, displayTitle, playstylePrefix, sectionLabel } from '@itg/shared';
+import { displayStepartistLine, displayTitle, FORMAT_LABEL, playstylePrefix, sectionLabel } from '@itg/shared';
 import { Alert, Badge, Center, Divider, Group, Loader, Stack, Table, Text, Title } from '@mantine/core';
 import { useParams } from 'react-router-dom';
 import { RefereeOverrides } from '../components/referee-overrides.js';
@@ -209,7 +209,9 @@ export default function MatchDetail(): JSX.Element {
           <Title order={1}>
             {isBye ? `${p0?.displayName ?? p1?.displayName ?? 'TBD'} (BYE)` : `${p0?.displayName ?? 'TBD'} vs ${p1?.displayName ?? 'TBD'}`}
           </Title>
-          <Text c="dimmed">{sectionLabel(pub.bracket, pub.round)}</Text>
+          <Text c="dimmed">
+            {sectionLabel(pub.bracket, pub.round)} &middot; {FORMAT_LABEL[pub.formatKey]}
+          </Text>
           <Group gap="xs">
             {p0 && (
               <Badge variant={pub.outcome?.placements.find((pl) => pl.entrantId === p0.entrantId)?.place === 1 ? 'filled' : 'light'}>

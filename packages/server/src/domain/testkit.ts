@@ -1,7 +1,7 @@
 import type { ChartSnapshot } from '@itg/shared';
-import { Bo5ProtectVetoFormat as F, TIEBREAK_SIZE } from './bo5.js';
+import { Bo5ProtectVetoFormat, TIEBREAK_SIZE } from './bo5.js';
 import { draw } from './draw.js';
-import type { EntrantId, MatchEvent, MatchState, PendingAction } from './types.js';
+import type { EntrantId, MatchEvent, MatchFormat, MatchState, PendingAction } from './types.js';
 import { emptyState } from './types.js';
 
 export const chart = (n: number): ChartSnapshot => ({
@@ -36,15 +36,18 @@ export class MatchDriver {
   private seq = 0;
   private botSteps = 0;
 
-  constructor(private readonly pack: ChartSnapshot[] = makePack(20)) {}
+  constructor(
+    private readonly pack: ChartSnapshot[] = makePack(20),
+    private readonly format: MatchFormat = Bo5ProtectVetoFormat,
+  ) {}
 
   get pending(): PendingAction {
-    return F.pendingAction(this.state);
+    return this.format.pendingAction(this.state);
   }
 
   apply(event: Omit<MatchEvent, 'seq'>): this {
     const full = { ...event, seq: ++this.seq } as MatchEvent;
-    this.state = F.reduce(this.state, full);
+    this.state = this.format.reduce(this.state, full);
     this.events.push(full);
     this.settle();
     return this;
@@ -53,11 +56,11 @@ export class MatchDriver {
   /** Run the bot's side until a person is on the clock. */
   settle(): this {
     for (;;) {
-      const p = F.pendingAction(this.state);
+      const p = this.format.pendingAction(this.state);
       if (p.kind !== 'AWAITING_BOT') return this;
       if (++this.botSteps > 200) throw new Error('bot directive loop did not settle');
       const event = this.eventFor(p) as MatchEvent;
-      this.state = F.reduce(this.state, event);
+      this.state = this.format.reduce(this.state, event);
       this.events.push(event);
     }
   }
@@ -138,7 +141,7 @@ export class MatchDriver {
     });
   }
 
-  /** Take the first legal option at each of the six ABBAAB steps. */
+  /** Take the first legal option at each Protect/Veto step, in whatever sequence the format defines. */
   runProtectVeto(): this {
     for (;;) {
       const p = this.pending;

@@ -221,7 +221,13 @@ A TO configures a tournament by **choosing its default match ruleset** and **set
 
 **A ruleset belongs to a match, not to a tournament.** Every match records the ruleset it ran under, and for now every match in a tournament is stamped with the tournament's default. The distinction exists because it will not always be so: events short on machines commonly play Bo3 through the early rounds and Bo5 for Winners Finals, Losers Finals, the Grand Finals and its reset. When that ships, a TO defines per-round exceptions to the default — and nothing about how matches are stored, replayed or displayed has to change.
 
-The match ruleset is **pluggable** rather than hardcoded logic, so further rulesets — Bo3, prisoner's-dilemma-only, fixed song list, and others — can be added without reworking the system. **Only the Bo5 ruleset specified in this document ships initially**, so the picker offers a single option at launch; it exists so that adding the second requires no change to the TO's workflow.
+The match ruleset is **pluggable** rather than hardcoded logic, so further rulesets — prisoner's-dilemma-only, fixed song list, and others — can be added without reworking the system. **Bo5 and Bo3 both ship**, selected with `/tournament format` or the web config page; a tournament defaults to Bo5 and keeps that default until the bracket is generated.
+
+Bo3 plays the same way as Bo5 in every respect not called out below: the same photo-and-EX% scoring step, the same tiebreak process once the Draw is exhausted. It differs in scale and one structural rule:
+
+- **5-chart Draw**, not 7. A player wins the set by reaching **2 points**, not 3.
+- **Protect, Protect, Veto, Veto** — no second Protect round. Protects go to whichever player took the first Protect (A) then the other (B), same as Bo5. Vetoes go **by seed**, not by role: the higher seed automatically holds the first Veto, the lower seed the second — the counterpart to the higher seed's own choice between the first and second Protect.
+- **Play order is fixed**, not loser-preference: the first Protect, then the second Protect, then the Decider if the set is still undecided. Unlike Bo5, who won the previous song has no bearing on which chart plays next.
 
 ## Automation Boundary
 

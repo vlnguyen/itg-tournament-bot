@@ -21,6 +21,7 @@ describe('shouldApplyFrame', () => {
 function emptyPublicMatch(seq: number): PublicMatch {
   return {
     seq,
+    formatKey: 'bo5-protect-veto',
     bracket: 'WINNERS',
     round: 1,
     participants: [],

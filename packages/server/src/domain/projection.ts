@@ -68,6 +68,8 @@ export interface PublicMatch {
    * nothing to compare a late, reordered frame against.
    */
   seq: number;
+  /** The ruleset this match ran under. Known to the projection directly — unlike `bracket`/`round`, this needs no outside join. */
+  formatKey: string;
   participants: { entrantId: EntrantId; seed: number }[];
   a?: EntrantId | undefined;
   b?: EntrantId | undefined;
@@ -101,6 +103,7 @@ function toPublicTiebreak(t: TiebreakRound): PublicTiebreakRound {
 export function toPublicMatch(format: MatchFormat, state: MatchState): PublicMatch {
   return {
     seq: state.seq,
+    formatKey: format.key,
     participants: state.participants,
     a: state.a,
     b: state.b,

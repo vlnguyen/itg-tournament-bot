@@ -219,6 +219,46 @@ export async function renameTournament(prisma: PrismaClient, tournamentId: strin
 }
 
 /**
+ * States in which `Tournament.defaultFormatKey` still means something.
+ * `RUNNING` onward, the bracket is materialized and every match already
+ * carries its own `formatKey` stamped at generation (`bracket-service.ts`) —
+ * changing the tournament's default past that point would silently affect
+ * nothing already on the board.
+ */
+const FORMAT_EDITABLE_STATES: readonly TournamentState[] = [
+  'DRAFT',
+  'REGISTRATION_OPEN',
+  'REGISTRATION_CLOSED',
+  'CHECKIN_OPEN',
+  'CHECKIN_CLOSED',
+];
+
+/**
+ * The picker DESIGN.md's "Configurability" section anticipates: which
+ * ruleset gets stamped onto every match this tournament generates. Modelled
+ * directly on `renameTournament` below, but gated to `FORMAT_EDITABLE_STATES`
+ * rather than "any non-terminal state" — unlike a name, a format change
+ * after the bracket exists would be misleading rather than merely late.
+ */
+export async function setTournamentFormat(
+  prisma: PrismaClient,
+  tournamentId: string,
+  formatKey: string,
+  actorId: string,
+): Promise<Tournament> {
+  return prisma.$transaction(async (tx) => {
+    const t = await tx.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
+    if (!FORMAT_EDITABLE_STATES.includes(t.state)) {
+      throw new TournamentTransitionError(tournamentId, `the bracket is already generated, so the format is locked (state is ${t.state})`);
+    }
+    requireFormat(formatKey); // throws on an unregistered key before it ever reaches the column.
+    const updated = await tx.tournament.update({ where: { id: tournamentId }, data: { defaultFormatKey: formatKey } });
+    await logAction(tx, actorId, 'TOURNAMENT_FORMAT_SET', 'Tournament', tournamentId, { from: t.defaultFormatKey, to: formatKey });
+    return updated;
+  });
+}
+
+/**
  * `REGISTRATION_OPEN → REGISTRATION_CLOSED`, and also `CHECKIN_OPEN →
  * REGISTRATION_CLOSED` — undoing an `open-checkin` that ran too early,
  * without needing a dedicated "reopen registration... but not really"
@@ -507,5 +547,7 @@ export async function getLifecycleStatus(prisma: PrismaClient, tournamentId: str
       { label: 'At least 2 checked-in entrants', ok: checkedInCount >= 2 },
       { label: 'Chart pack has at least 1 chart', ok: chartCount > 0 },
     ],
+    defaultFormatKey: tournament.defaultFormatKey as LifecycleStatus['defaultFormatKey'],
+    formatEditable: FORMAT_EDITABLE_STATES.includes(tournament.state),
   };
 }

@@ -1,5 +1,6 @@
 import type { LifecycleAction } from '@itg/shared';
-import { Alert, Button, Center, Group, List, Loader, Stack, Text, TextInput, Title } from '@mantine/core';
+import { FORMAT_LABEL, FormatKey } from '@itg/shared';
+import { Alert, Button, Center, Group, List, Loader, Select, Stack, Text, TextInput, Title } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
@@ -49,6 +50,16 @@ export default function TournamentLifecycle(): JSX.Element {
       // until something else happens to refetch it.
       void queryClient.invalidateQueries({ queryKey: ['tournament', tournamentId] });
       setRenaming(false);
+    },
+  });
+
+  // Separate from `mutation` above: SET_FORMAT isn't a `LifecycleAction` (see
+  // that type's comment in `@itg/shared`) — it takes an argument, so it's a
+  // Select's onChange, not one of the one-click buttons below.
+  const formatMutation = useMutation({
+    mutationFn: (formatKey: FormatKey) => submitLifecycleAction(tournamentId!, { action: 'SET_FORMAT', formatKey }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['lifecycle', tournamentId], updated);
     },
   });
 
@@ -123,6 +134,28 @@ export default function TournamentLifecycle(): JSX.Element {
             </Button>
           </Group>
         )}
+
+        <div>
+          <Group gap="xs" mb="xs">
+            <Title order={2} size="h3">
+              Format
+            </Title>
+            {formatMutation.isPending && <Loader size="xs" aria-label="Updating format" />}
+          </Group>
+          <Select
+            maw={320}
+            data={FormatKey.options.map((key) => ({ value: key, label: FORMAT_LABEL[key] }))}
+            value={status.defaultFormatKey}
+            disabled={!status.formatEditable || formatMutation.isPending}
+            allowDeselect={false}
+            onChange={(value) => value && formatMutation.mutate(value as FormatKey)}
+          />
+          {!status.formatEditable && (
+            <Text size="xs" c="dimmed" mt={4}>
+              Locked: the bracket is already generated under this format.
+            </Text>
+          )}
+        </div>
 
         <div>
           <Title order={2} size="h3" mb="xs">

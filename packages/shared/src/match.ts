@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ChartSnapshot } from './chart.js';
 import { BracketSide, TournamentState } from './enums.js';
+import { FormatKey } from './formats.js';
 
 /**
  * The wire shape `toPublicMatch`/`toBracketMatch`
@@ -161,6 +162,8 @@ export const PublicMatch = z.object({
    */
   bracket: BracketSide,
   round: z.number().int().positive(),
+  /** The ruleset this match ran under — stamped at generation, immutable per DESIGN.md, "The format belongs to the match". */
+  formatKey: FormatKey,
   participants: z.array(Participant),
   a: EntrantId.optional(),
   b: EntrantId.optional(),

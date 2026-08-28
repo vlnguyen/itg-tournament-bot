@@ -53,6 +53,7 @@ export const SUBCOMMAND_GROUP: Partial<Record<string, Partial<Record<string, Gro
     start: 'ORGANIZER',
     cancel: 'ORGANIZER',
     rename: 'ORGANIZER',
+    format: 'ORGANIZER',
   },
   roster: {
     list: 'ANYONE',

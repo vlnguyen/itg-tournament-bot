@@ -15,23 +15,26 @@
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Bo3ProtectVetoFormat } from '../bo3.js';
 import { Bo5ProtectVetoFormat as F } from '../bo5.js';
 import { MatchDriver, makePack } from '../testkit.js';
+import type { MatchFormat } from '../types.js';
 import type { GoldenFixture } from './types.js';
 
 const A = 'alice';
 const B = 'bob';
 const REF = 'referee-casey';
+const B3 = Bo3ProtectVetoFormat;
 const FIXTURES_DIR = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
-function toFixture(name: string, driver: MatchDriver): GoldenFixture {
+function toFixture(name: string, driver: MatchDriver, format: MatchFormat): GoldenFixture {
   return {
     name,
-    formatKey: F.key,
+    formatKey: format.key,
     events: driver.events,
     expected: {
       committedSongs: driver.state.songs.map((s) => ({ source: s.source, result: s.result })),
-      outcome: F.outcome(driver.state),
+      outcome: format.outcome(driver.state),
     },
   };
 }
@@ -43,7 +46,7 @@ const fixtures: GoldenFixture[] = [];
 {
   const d = new MatchDriver(makePack(20)).create(A, B).chooseSeed('FIRST').runProtectVeto();
   d.playSong(A).playSong(A).playSong(A).confirmResult();
-  fixtures.push(toFixture('straight-sweep', d));
+  fixtures.push(toFixture('straight-sweep', d, F));
 }
 
 // Song 1 ties, so there is no loser to hand their own protect to. Play
@@ -52,7 +55,7 @@ const fixtures: GoldenFixture[] = [];
 {
   const d = new MatchDriver(makePack(20)).create(A, B).chooseSeed('FIRST').runProtectVeto();
   d.playSong('TIE').playSong(A).playSong(A).playSong(A).confirmResult();
-  fixtures.push(toFixture('tie-falls-through-to-protect-order', d));
+  fixtures.push(toFixture('tie-falls-through-to-protect-order', d, F));
 }
 
 // A 2-2 split after four songs forces the fifth to be the Decider — the
@@ -60,7 +63,7 @@ const fixtures: GoldenFixture[] = [];
 {
   const d = new MatchDriver(makePack(20)).create(A, B).chooseSeed('FIRST').runProtectVeto();
   d.playSong(A).playSong(B).playSong(A).playSong(B);
-  fixtures.push(toFixture('decider-used', d));
+  fixtures.push(toFixture('decider-used', d, F));
 }
 
 // Every one of the five Draw-position songs ties, exhausting the Draw
@@ -74,7 +77,7 @@ const fixtures: GoldenFixture[] = [];
   d.tiebreakPick(0).playSong(A);
   d.tiebreakPick(0).playSong(A);
   d.confirmResult();
-  fixtures.push(toFixture('tiebreak-round', d));
+  fixtures.push(toFixture('tiebreak-round', d, F));
 }
 
 // The players disagree on song 1; a referee rules it, and play continues
@@ -98,7 +101,7 @@ const fixtures: GoldenFixture[] = [];
   }
   d.apply({ actorId: REF, type: 'SONG_RULED', payload: { songIndex: 0, result: A } });
   d.playSong(A).playSong(A).confirmResult();
-  fixtures.push(toFixture('referee-ruling-on-disagreement', d));
+  fixtures.push(toFixture('referee-ruling-on-disagreement', d, F));
 }
 
 // A settings violation voids song 1 rather than awarding it — nobody gets
@@ -112,7 +115,7 @@ const fixtures: GoldenFixture[] = [];
   });
   d.apply({ actorId: REF, type: 'SONG_RULED', payload: { songIndex: 0, result: 'VOID' } });
   d.playSong(A).playSong(A).playSong(A).confirmResult();
-  fixtures.push(toFixture('settings-violation-void', d));
+  fixtures.push(toFixture('settings-violation-void', d, F));
 }
 
 // A referee ends the match early with a forfeit, after one song has
@@ -121,7 +124,7 @@ const fixtures: GoldenFixture[] = [];
   const d = new MatchDriver(makePack(20)).create(A, B).chooseSeed('FIRST').runProtectVeto();
   d.playSong(B);
   d.apply({ actorId: REF, type: 'FORFEIT_APPLIED', payload: { winnerId: A } });
-  fixtures.push(toFixture('forfeit-ends-set', d));
+  fixtures.push(toFixture('forfeit-ends-set', d, F));
 }
 
 // A match-scope DQ ends the match as an ordinary loss, preserving points
@@ -130,7 +133,7 @@ const fixtures: GoldenFixture[] = [];
   const d = new MatchDriver(makePack(20)).create(A, B).chooseSeed('FIRST').runProtectVeto();
   d.playSong(A);
   d.apply({ actorId: REF, type: 'DQ_APPLIED', payload: { playerId: B, scope: 'MATCH' } });
-  fixtures.push(toFixture('dq-match-scope', d));
+  fixtures.push(toFixture('dq-match-scope', d, F));
 }
 
 // The players disagree on who won the set, not any one song — a referee
@@ -141,14 +144,41 @@ const fixtures: GoldenFixture[] = [];
   d.playSong(A).playSong(A).playSong(A);
   d.confirmResult({ [A]: A, [B]: B });
   d.ruleSetResult(A);
-  fixtures.push(toFixture('set-result-disagreement', d));
+  fixtures.push(toFixture('set-result-disagreement', d, F));
 }
 
 // A round-1 bye: no Draw, no Protect/Veto, no play at all.
 {
   const d = new MatchDriver(makePack(20)).create(A, B);
   d.apply({ actorId: null, type: 'WALKOVER', payload: { winnerId: A } });
-  fixtures.push(toFixture('walkover-bye', d));
+  fixtures.push(toFixture('walkover-bye', d, F));
+}
+
+// Bo3: a clean 2-0 sweep — the Decider position is never used.
+{
+  const d = new MatchDriver(makePack(20), B3).create(A, B).chooseSeed('FIRST').runProtectVeto();
+  d.playSong(A).playSong(A).confirmResult();
+  fixtures.push(toFixture('bo3-straight-sweep', d, B3));
+}
+
+// Bo3: a 1-1 split after the two protects forces the third song to be the
+// Decider — the one chart neither player protected or vetoed.
+{
+  const d = new MatchDriver(makePack(20), B3).create(A, B).chooseSeed('FIRST').runProtectVeto();
+  d.playSong(A).playSong(B).playSong(A).confirmResult();
+  fixtures.push(toFixture('bo3-decider-used', d, B3));
+}
+
+// Bo3: every one of the three Draw-position songs ties, exhausting the Draw
+// without anyone reaching two points — resolved in the same shared tiebreak
+// loop Bo5 uses, here in two rounds.
+{
+  const d = new MatchDriver(makePack(20), B3).create(A, B).chooseSeed('FIRST').runProtectVeto();
+  d.playSong('TIE').playSong('TIE').playSong('TIE');
+  d.tiebreakPick(0).playSong(A);
+  d.tiebreakPick(0).playSong(A);
+  d.confirmResult();
+  fixtures.push(toFixture('bo3-tiebreak-round', d, B3));
 }
 
 for (const fixture of fixtures) {

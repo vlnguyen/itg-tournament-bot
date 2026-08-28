@@ -1,5 +1,5 @@
 import type { LifecycleStatus as LifecycleStatusWire } from '@itg/shared';
-import { LifecycleRequest, LifecycleStatus as LifecycleStatusSchema, plural } from '@itg/shared';
+import { FORMAT_LABEL, LifecycleRequest, LifecycleStatus as LifecycleStatusSchema, plural } from '@itg/shared';
 import { EmbedBuilder, type Client } from 'discord.js';
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post } from '@nestjs/common';
 import { ZodError } from 'zod';
@@ -25,6 +25,7 @@ import {
   openCheckin,
   openRegistration,
   renameTournament,
+  setTournamentFormat,
   TournamentTransitionError,
 } from '../services/tournament-service.js';
 
@@ -200,6 +201,11 @@ export class LifecycleController {
       case 'RENAME': {
         const t = await renameTournament(this.prisma, tournamentId, request.name, actorId);
         await this.log(guildId, actorName, linkifyTournamentName(`Renamed to **${t.name}**.`, t.name, t.id));
+        return;
+      }
+      case 'SET_FORMAT': {
+        const t = await setTournamentFormat(this.prisma, tournamentId, request.formatKey, actorId);
+        await this.log(guildId, actorName, linkifyTournamentName(`Format set to **${FORMAT_LABEL[request.formatKey]}** for **${t.name}**.`, t.name, t.id));
         return;
       }
     }

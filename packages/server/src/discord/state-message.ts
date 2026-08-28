@@ -12,6 +12,7 @@ import { encodeCustomId } from './custom-id.js';
 import type { RenderedMessage } from './ports.js';
 import { buildConfirmResultMessage } from './render/confirm-result.js';
 import { fullChartDescription, selectOptionDescription, selectOptionLabel } from './render/chart.js';
+import { LOG_COLOR } from './render/draw.js';
 import { buildDrawStatusLines } from './render/draw-status.js';
 import { buildAwaitingRefereeMessage } from './render/escalation.js';
 import { buildScoreTicksLines } from './render/score-ticks.js';
@@ -80,7 +81,11 @@ export function renderStateMessage(
 
 function renderNotYetImplemented(pending: PendingAction): RenderedMessage {
   return {
-    content: `_Match state is waiting on **${pending.kind}**. Rendering for this step isn't built yet — the underlying state is correct in the database._`,
+    embeds: [
+      new EmbedBuilder().setDescription(
+        `_Match state is waiting on **${pending.kind}**. Rendering for this step isn't built yet — the underlying state is correct in the database._`,
+      ),
+    ],
   };
 }
 
@@ -101,7 +106,8 @@ function resetButtonRow(matchId: string): ActionRowBuilder<ButtonBuilder> {
 
 function renderSeedChoice(matchId: string, actorId: EntrantId, players: PlayerDirectory): RenderedMessage {
   const embed = new EmbedBuilder()
-    .setTitle('Choose your Protect order')
+    .setTitle('🪙 Protect order')
+    .setColor(LOG_COLOR.PROTECT_ORDER)
     .setDescription(
       `${mention(players, actorId)}, you have the higher seed. Looking at the Draw above, do you want to Protect first or second?`,
     );
@@ -129,8 +135,10 @@ function renderProtectVeto(
   players: PlayerDirectory,
 ): RenderedMessage {
   const verb = kind === 'PROTECT' ? 'Protect' : 'Veto';
+  const icon = kind === 'PROTECT' ? '🛡️' : '🚫';
   const embed = new EmbedBuilder()
-    .setTitle(`${verb} a chart`)
+    .setTitle(`${icon} ${verb}`)
+    .setColor(kind === 'PROTECT' ? LOG_COLOR.PROTECT : LOG_COLOR.VETO)
     .setDescription(`${mention(players, actorId)}, choose a chart to ${verb.toLowerCase()} from the Draw above.`)
     .addFields({
       name: 'Draw status',

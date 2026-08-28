@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import type { ChatInputCommandInteraction } from 'discord.js';
+import { EmbedBuilder, type ChatInputCommandInteraction } from 'discord.js';
 import type { Guild as GuildRow, Tournament } from '@prisma/client';
 import type { ChartInput } from '@itg/shared';
 import { startTournamentWithDiscordEffects } from '../start-tournament-effects.js';
@@ -15,7 +15,8 @@ import {
   TournamentSlotOccupiedError,
   TournamentTransitionError,
 } from '../../services/tournament-service.js';
-import { tournamentUrl } from '../../web-url.js';
+import { linkifyTournamentName, tournamentUrl } from '../../web-url.js';
+import { LOG_COLOR } from '../render/draw.js';
 import { requireOrganizerTier } from './authz.js';
 import type { CommandContext } from './context.js';
 import { logToOrganizers } from './organizer-log.js';
@@ -164,7 +165,7 @@ async function handleCreate(interaction: ChatInputCommandInteraction, ctx: Comma
     // Alert-channel messages name the actor by their raw Discord username —
     // that channel is organizer-private, unlike the general channel, which
     // uses the server display name. See `player-notification-adapter.ts`.
-    await logToOrganizers(ctx.alert, interaction.guildId!, `🆕 **${interaction.user.username}** created tournament **${t.name}** — ${url}`);
+    await logToOrganizers(ctx.alert, interaction.guildId!, `🆕 **${interaction.user.username}** created tournament [**${t.name}**](${url})`);
 
     // DEBUG — see the block above.
     try {
@@ -204,7 +205,7 @@ async function runTransition(
     const t = await run();
     const description = describe(t);
     await interaction.editReply(description);
-    await logToOrganizers(ctx.alert, interaction.guildId!, `📋 **${interaction.user.username}**: ${description}`);
+    await logToOrganizers(ctx.alert, interaction.guildId!, `📋 **${interaction.user.username}**: ${linkifyTournamentName(description, t.name, t.id)}`);
     ctx.realtime.publishLifecycleChanged(t.id);
     if (afterSuccess) await afterSuccess(t);
   } catch (err) {
@@ -242,7 +243,7 @@ async function handleOpenCheckin(interaction: ChatInputCommandInteraction, ctx: 
   if (unreachable.length > 0) lines.push(`⚠️ Could not DM: ${unreachable.map((id) => `<@${id}>`).join(', ')}.`);
   await interaction.editReply(lines.join('\n'));
 
-  const logLines = [`📋 **${interaction.user.username}**: check-in is open for **${opened.name}**.`];
+  const logLines = [`📋 **${interaction.user.username}**: check-in is open for [**${opened.name}**](${tournamentUrl(opened.id)}).`];
   if (unreachable.length > 0) logLines.push(`⚠️ Could not DM: ${unreachable.map((id) => `<@${id}>`).join(', ')}.`);
   await logToOrganizers(ctx.alert, interaction.guildId!, logLines.join('\n'));
 }
@@ -279,13 +280,19 @@ async function handleCancel(interaction: ChatInputCommandInteraction, ctx: Comma
 
   for (const m of cancelledWithThreads) {
     const ref = { matchId: m.id, threadId: m.threadId! };
-    await ctx.matchChannel.postLogMessage(ref, { content: '⚠️ This tournament has been cancelled. This match will not be completed.' });
+    await ctx.matchChannel.postLogMessage(ref, {
+      embeds: [new EmbedBuilder().setColor(LOG_COLOR.TOURNAMENT_CANCELLED).setDescription('⚠️ This tournament has been cancelled. This match will not be completed.')],
+    });
     // Replaces whatever was last — Protect/Veto, a score-submit button, a
     // tiebreak select, anything — with a plain, component-free message, so
     // there's no live prompt left to click. `postMatchState` edits the
     // current state message in place (or reposts) with exactly the
     // components given; omitting them here clears whatever was there.
-    await ctx.matchChannel.postMatchState(ref, { content: 'This match has been cancelled — no further action is possible.' });
+    // Same color/shape as the log line just above — this is the same
+    // event, restated as the closing state rather than a permanent entry.
+    await ctx.matchChannel.postMatchState(ref, {
+      embeds: [new EmbedBuilder().setColor(LOG_COLOR.TOURNAMENT_CANCELLED).setDescription('⚠️ This match has been cancelled — no further action is possible.')],
+    });
     await ctx.matchChannel.archiveThread(ref);
   }
 
@@ -296,7 +303,8 @@ async function handleCancel(interaction: ChatInputCommandInteraction, ctx: Comma
   await interaction.editReply(lines.join('\n'));
   ctx.realtime.publishLifecycleChanged(result.tournament.id);
 
-  await logToOrganizers(ctx.alert, interaction.guildId!, [`📋 **${interaction.user.username}**:`, ...lines].join('\n'));
+  const orgLines = [linkifyTournamentName(lines[0]!, result.tournament.name, result.tournament.id), ...lines.slice(1)];
+  await logToOrganizers(ctx.alert, interaction.guildId!, [`📋 **${interaction.user.username}**:`, ...orgLines].join('\n'));
   await ctx.playerNotification.tournamentCancelled(interaction.guildId!, result.tournament.name);
 }
 
@@ -339,7 +347,8 @@ async function handleStart(
   }
   await interaction.editReply(lines.join('\n'));
 
-  await logToOrganizers(ctx.alert, interaction.guildId!, [`📋 **${interaction.user.username}**:`, ...lines].join('\n'));
+  const orgLines = [linkifyTournamentName(lines[0]!, outcome.tournament.name, outcome.tournament.id), ...lines.slice(1)];
+  await logToOrganizers(ctx.alert, interaction.guildId!, [`📋 **${interaction.user.username}**:`, ...orgLines].join('\n'));
   await ctx.playerNotification.tournamentStarted(interaction.guildId!, outcome.tournament.name);
   ctx.realtime.publishLifecycleChanged(outcome.tournament.id);
   // Starting drops no-shows and collapses seeds — a real roster change a

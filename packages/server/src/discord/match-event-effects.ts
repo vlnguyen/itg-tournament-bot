@@ -189,16 +189,26 @@ export async function applyAppendResult(
     const summary = buildResultSummaryEmbed(publicMatch.songs, publicMatch.points, outcome, participantIds, nameOf);
     await matchChannel.postLogMessage(ref, { embeds: [summary] });
 
-    const announcement = buildResultAnnouncement(match.bracket, match.round, outcome, publicMatch.points, participantIds, nameOf);
+    const announcement = buildResultAnnouncement(
+      match.bracket,
+      match.round,
+      outcome,
+      publicMatch.points,
+      participantIds,
+      nameOf,
+      match.tournamentId,
+      match.id,
+      match.tournament.name,
+    );
     await matchChannel.publishResult(ref, announcement);
 
-    // Whatever was last on the state message — Protect/Veto, a score-submit
-    // button, "Confirm result," anything — is now stale: nothing is pending
-    // any more. Replaced with a plain, component-free message before
-    // archiving, the same cleanup `handleCancel` (tournament.ts) already
-    // does for its own out-of-band ending, so no live prompt survives a
-    // player action ending the match either.
-    await matchChannel.postMatchState(ref, { content: 'This match is decided — see the result above.' });
+    // No closing state message — the result summary embed just above is
+    // already the match-complete signal for anyone reading the thread.
+    // The previous prompt's buttons/select menu (Protect/Veto, "Confirm
+    // result," whatever was last pending) are left as they were: a click
+    // on one now fails the existing stale-match guard in `interactions.ts`
+    // and gets an ephemeral "this match no longer exists" in response,
+    // rather than silently doing nothing.
     await matchChannel.archiveThread(ref);
 
     // This match was the one that decided the whole tournament — the grand
@@ -210,7 +220,7 @@ export async function applyAppendResult(
     // forwarded to general by `publishResult` itself.
     if (result.tournamentCompleted) {
       const standings = await computeTournamentStandings(prisma, match.tournamentId);
-      await matchChannel.publishResult(ref, buildTournamentCompleteAnnouncement(match.tournament.name, standings));
+      await matchChannel.publishResult(ref, buildTournamentCompleteAnnouncement(match.tournamentId, match.tournament.name, standings));
       return;
     }
 

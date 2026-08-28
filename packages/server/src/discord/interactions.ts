@@ -22,8 +22,10 @@ import { decodeCustomId, encodeCustomId, type CustomId } from './custom-id.js';
 import { renderResetLog, renderRulingLog, renderSetRulingLog } from './log-messages.js';
 import { applyAppendResult, CANCELLED_MATCH_MESSAGE, describeStale } from './match-event-effects.js';
 import { buildPlayerDirectory, loadMatch } from './match-lookup.js';
+import { logToOrganizers, matchLinksBlock } from './commands/organizer-log.js';
 import type { AlertPort, MatchChannelPort, PlayerNotificationPort, ThreadRef } from './ports.js';
 import { compactChartLabel } from './render/chart.js';
+import { LOG_COLOR } from './render/draw.js';
 import { buildResolvedAlert } from './render/escalation.js';
 import { memberDisplayName } from './member-display-name.js';
 import { hasTier, Tier, type TierRoleConfig } from './tier.js';
@@ -324,6 +326,12 @@ async function handleRulingButton(
       }
       await matchChannel.postLogMessage(ref, renderSetRulingLog(winnerId, refDisplayName, players));
       await applyAppendResult(prisma, matchChannel, alert, playerNotification, realtime, match, format, event, result);
+      await logToOrganizers(
+        alert,
+        interaction.guildId!,
+        `Set result awarded to **${displayName(players, winnerId)}** — ruling by **${refDisplayName}**\n\n${matchLinksBlock(interaction.guildId!, ref, match.tournamentId)}`,
+        { title: '⚖️ Set resolution', color: LOG_COLOR.RULING },
+      );
     } catch (err) {
       if (err instanceof IllegalActionError) {
         await interaction.followUp({
@@ -359,6 +367,14 @@ async function handleRulingButton(
     await matchChannel.postLogMessage(ref, renderRulingLog(songIndex, chart, rulingResult, refDisplayName, players));
 
     await applyAppendResult(prisma, matchChannel, alert, playerNotification, realtime, match, format, event, result);
+
+    const alertOutcome = rulingResult === 'VOID' ? 'voided' : `awarded to **${displayName(players, rulingResult)}**`;
+    await logToOrganizers(
+      alert,
+      interaction.guildId!,
+      `Song ${songIndex + 1} (${compactChartLabel(chart)}) ${alertOutcome} — ruling by **${refDisplayName}**\n\n${matchLinksBlock(interaction.guildId!, ref, match.tournamentId)}`,
+      { title: '⚖️ Song resolution', color: LOG_COLOR.RULING },
+    );
   } catch (err) {
     if (err instanceof IllegalActionError) {
       await interaction.followUp({

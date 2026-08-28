@@ -1,8 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { ChartSnapshot } from '@itg/shared';
 import type { MatchOutcome } from '../../domain/types.js';
 import type { PublicMatch } from '../../domain/projection.js';
 import { buildResultAnnouncement, buildResultSummaryEmbed } from './result-summary.js';
+
+const ORIGINAL_BASE_URL = process.env['PUBLIC_BASE_URL'];
+afterEach(() => {
+  if (ORIGINAL_BASE_URL === undefined) delete process.env['PUBLIC_BASE_URL'];
+  else process.env['PUBLIC_BASE_URL'] = ORIGINAL_BASE_URL;
+});
 
 const chart = (n: number): ChartSnapshot => ({
   chartId: `c${n}`,
@@ -85,15 +91,35 @@ describe('buildResultSummaryEmbed', () => {
 });
 
 describe('buildResultAnnouncement', () => {
-  it('reports the flag, round label, both names, the winner, and the score for an ordinary decision', () => {
-    const message = buildResultAnnouncement('WINNERS', 2, outcome, { alice: 3, bob: 1 }, participantIds, nameOf);
-    expect(message.content).toBe('🏁 WR2 · Alice vs Bob - Alice advances (3-1)');
+  it('titles the embed with the round label and both names, linked to the match', () => {
+    process.env['PUBLIC_BASE_URL'] = 'https://itg.example.com';
+    const message = buildResultAnnouncement('WINNERS', 2, outcome, { alice: 3, bob: 1 }, participantIds, nameOf, 't1', 'm1', 'Fort Rapids VII');
+    const embed = message.embeds![0]!;
+    expect(embed.data.title).toBe('WR2 — Alice vs Bob');
+    expect(embed.data.url).toBe('https://itg.example.com/t/t1/matches/m1');
+  });
+
+  it('leaves the title unlinked rather than throwing when PUBLIC_BASE_URL is unset', () => {
+    delete process.env['PUBLIC_BASE_URL'];
+    const message = buildResultAnnouncement('WINNERS', 2, outcome, { alice: 3, bob: 1 }, participantIds, nameOf, 't1', 'm1', 'Fort Rapids VII');
+    expect(message.embeds![0]!.data.url).toBeUndefined();
+  });
+
+  it('describes who advances, the score, and links the tournament name below a blank line', () => {
+    const message = buildResultAnnouncement('WINNERS', 2, outcome, { alice: 3, bob: 1 }, participantIds, nameOf, 't1', 'm1', 'Fort Rapids VII');
+    const embed = message.embeds![0]!;
+    expect(embed.data.description).toBe('Alice advances (3-1)\n\n[Fort Rapids VII](/t/t1)');
+  });
+
+  it('is colored green', () => {
+    const message = buildResultAnnouncement('WINNERS', 2, outcome, { alice: 3, bob: 1 }, participantIds, nameOf, 't1', 'm1', 'Fort Rapids VII');
+    expect(message.embeds![0]!.data.color).toBe(0x2ecc71);
   });
 
   it('uses the same "advances (score)" wording for a forfeit, not a defeats-scoreline', () => {
     const forfeited: MatchOutcome = { ...outcome, by: 'FORFEIT' };
-    const message = buildResultAnnouncement('WINNERS', 2, forfeited, { alice: 0, bob: 0 }, participantIds, nameOf);
-    expect(message.content).toBe('🏁 WR2 · Alice vs Bob - Alice advances (0-0)');
+    const message = buildResultAnnouncement('WINNERS', 2, forfeited, { alice: 0, bob: 0 }, participantIds, nameOf, 't1', 'm1', 'T');
+    expect(message.embeds![0]!.data.description).toContain('Alice advances (0-0)');
   });
 
   it('names both players in seat order regardless of who won', () => {
@@ -104,7 +130,9 @@ describe('buildResultAnnouncement', () => {
       ],
       by: 'AGREEMENT',
     };
-    const message = buildResultAnnouncement('LOSERS', 3, bobWins, { alice: 1, bob: 3 }, participantIds, nameOf);
-    expect(message.content).toBe('🏁 LR3 · Alice vs Bob - Bob advances (3-1)');
+    const message = buildResultAnnouncement('LOSERS', 3, bobWins, { alice: 1, bob: 3 }, participantIds, nameOf, 't1', 'm1', 'T');
+    const embed = message.embeds![0]!;
+    expect(embed.data.title).toBe('LR3 — Alice vs Bob');
+    expect(embed.data.description).toContain('Bob advances (3-1)');
   });
 });

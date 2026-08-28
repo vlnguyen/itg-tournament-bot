@@ -2,6 +2,7 @@ import { EmbedBuilder } from 'discord.js';
 import type { BracketSide } from '@itg/shared';
 import type { EntrantId, MatchOutcome } from '../../domain/types.js';
 import type { PublicMatch } from '../../domain/projection.js';
+import { isAbsoluteWebUrl, matchUrl, tournamentUrl } from '../../web-url.js';
 import type { RenderedMessage } from '../ports.js';
 import { compactChartLabel } from './chart.js';
 import { LOG_COLOR } from './draw.js';
@@ -70,15 +71,20 @@ export function buildResultSummaryEmbed(
 }
 
 /**
- * "One public line per finished match, outside any thread." See
- * DESIGN.md's `PlayerNotificationPort`/`MatchChannelPort` design and the
- * Phase 4 plan's "byes excluded, forfeits/DQs worded as advancement" —
- * byes never reach this (no thread, no confirmation to trigger it). Worded
- * as advancement uniformly, whether the set was actually played out or
- * ended by ruling, forfeit, DQ or walkover: the score in parentheses is
- * whatever `points` holds either way — 0–0 for a match that never saw a
- * song — so the line never claims a scoreline that didn't happen while
- * still always naming who's through.
+ * One embed per finished match, outside any thread. See DESIGN.md's
+ * `PlayerNotificationPort`/`MatchChannelPort` design and the Phase 4
+ * plan's "byes excluded, forfeits/DQs worded as advancement" — byes never
+ * reach this (no thread, no confirmation to trigger it). Worded as
+ * advancement uniformly, whether the set was actually played out or ended
+ * by ruling, forfeit, DQ or walkover: the score in parentheses is whatever
+ * `points` holds either way — 0–0 for a match that never saw a song — so
+ * the description never claims a scoreline that didn't happen while still
+ * always naming who's through.
+ *
+ * The title is the whole embed's link target (`setURL`) — Discord embed
+ * titles render as plain text with no inline markdown, so "round label,
+ * then player vs player as a hyperlink" is one link covering the whole
+ * title, not two spans with different treatment.
  */
 export function buildResultAnnouncement(
   bracket: BracketSide,
@@ -87,13 +93,27 @@ export function buildResultAnnouncement(
   points: Record<EntrantId, number>,
   participantIds: readonly [EntrantId, EntrantId],
   nameOf: NameLookup,
+  tournamentId: string,
+  matchId: string,
+  tournamentName: string,
 ): RenderedMessage {
   const winner = outcome.placements.find((p) => p.place === 1)!;
   const [a, b] = participantIds;
   const loserId = a === winner.entrantId ? b : a;
   const label = roundLabel(bracket, round);
 
-  return {
-    content: `🏁 ${label} · ${nameOf(a)} vs ${nameOf(b)} - ${nameOf(winner.entrantId)} advances (${points[winner.entrantId] ?? 0}-${points[loserId] ?? 0})`,
-  };
+  const link = matchUrl(tournamentId, matchId);
+  const embed = new EmbedBuilder()
+    .setTitle(`${label} — ${nameOf(a)} vs ${nameOf(b)}`)
+    .setColor(LOG_COLOR.RESULT_ANNOUNCEMENT)
+    .setDescription(
+      [
+        `${nameOf(winner.entrantId)} advances (${points[winner.entrantId] ?? 0}-${points[loserId] ?? 0})`,
+        '',
+        `[${tournamentName}](${tournamentUrl(tournamentId)})`,
+      ].join('\n'),
+    );
+  if (isAbsoluteWebUrl(link)) embed.setURL(link);
+
+  return { embeds: [embed] };
 }

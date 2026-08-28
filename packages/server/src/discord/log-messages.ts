@@ -1,7 +1,9 @@
+import { EmbedBuilder } from 'discord.js';
 import type { ChartSnapshot } from '@itg/shared';
 import type { EntrantId, TiebreakRound } from '../domain/types.js';
 import type { RenderedMessage } from './ports.js';
 import { compactChartLabel } from './render/chart.js';
+import { LOG_COLOR } from './render/draw.js';
 import { displayName, type PlayerDirectory } from './state-message.js';
 
 /**
@@ -9,7 +11,9 @@ import { displayName, type PlayerDirectory } from './state-message.js';
  * web app" — each Protect/Veto action gets a permanent line of its own,
  * not just the disposable state message's draw-status field, so the
  * *sequence* survives once the state message has moved on to something
- * else entirely.
+ * else entirely. Every match-thread message is an embed — see DESIGN.md,
+ * "Two kinds of bot message" — so this is a description-only embed rather
+ * than plain content.
  */
 export function renderProtectVetoLog(
   kind: 'PROTECT' | 'VETO',
@@ -19,7 +23,8 @@ export function renderProtectVetoLog(
 ): RenderedMessage {
   const verb = kind === 'PROTECT' ? 'protects' : 'vetoes';
   const emoji = kind === 'PROTECT' ? '🛡️' : '🚫';
-  return { content: `${emoji} **${displayName(players, actorId)}** ${verb} ${compactChartLabel(chart)}` };
+  const color = kind === 'PROTECT' ? LOG_COLOR.PROTECT : LOG_COLOR.VETO;
+  return { embeds: [new EmbedBuilder().setColor(color).setDescription(`${emoji} **${displayName(players, actorId)}** ${verb} ${compactChartLabel(chart)}`)] };
 }
 
 export function renderSeedChoiceLog(
@@ -28,7 +33,7 @@ export function renderSeedChoiceLog(
   players: PlayerDirectory,
 ): RenderedMessage {
   const choice = order === 'FIRST' ? 'to Protect first' : 'to let their opponent Protect first';
-  return { content: `🪙 **${displayName(players, actorId)}** chooses ${choice}` };
+  return { embeds: [new EmbedBuilder().setColor(LOG_COLOR.PROTECT).setDescription(`🪙 **${displayName(players, actorId)}** chooses ${choice}`)] };
 }
 
 /** A song committed by player agreement — "each committed song result" from DESIGN.md's log-message list. */
@@ -39,9 +44,9 @@ export function renderSongResultLog(
   players: PlayerDirectory,
 ): RenderedMessage {
   const label = `Song ${songIndex + 1} (${compactChartLabel(chart)})`;
-  if (winner === 'TIE') return { content: `🤝 ${label} tied — no points awarded.` };
-  if (winner === 'VOID') return { content: `🚫 ${label} voided.` };
-  return { content: `🏆 **${displayName(players, winner)}** wins ${label}` };
+  const description =
+    winner === 'TIE' ? `🤝 ${label} tied — no points awarded.` : winner === 'VOID' ? `🚫 ${label} voided.` : `🏆 **${displayName(players, winner)}** wins ${label}`;
+  return { embeds: [new EmbedBuilder().setColor(LOG_COLOR.SONG_RESULT).setDescription(description)] };
 }
 
 /**
@@ -60,9 +65,8 @@ export function renderRulingLog(
 ): RenderedMessage {
   const outcome =
     result === 'VOID' ? 'voided' : result === 'TIE' ? 'ruled a tie' : `awarded to **${displayName(players, result)}**`;
-  return {
-    content: `⚖️ Song ${songIndex + 1} (${compactChartLabel(chart)}) ${outcome} — ruling by **${refereeDisplayName}**`,
-  };
+  const description = `⚖️ Song ${songIndex + 1} (${compactChartLabel(chart)}) ${outcome} — ruling by **${refereeDisplayName}**`;
+  return { embeds: [new EmbedBuilder().setColor(LOG_COLOR.RULING).setDescription(description)] };
 }
 
 /** A referee's ruling on a set-level disagreement — no chart or song index, it isn't about any one song. */
@@ -71,9 +75,8 @@ export function renderSetRulingLog(
   refereeDisplayName: string,
   players: PlayerDirectory,
 ): RenderedMessage {
-  return {
-    content: `⚖️ Set result awarded to **${displayName(players, winnerId)}** — ruling by **${refereeDisplayName}**`,
-  };
+  const description = `⚖️ Set result awarded to **${displayName(players, winnerId)}** — ruling by **${refereeDisplayName}**`;
+  return { embeds: [new EmbedBuilder().setColor(LOG_COLOR.RULING).setDescription(description)] };
 }
 
 /**
@@ -96,14 +99,12 @@ export function renderTiebreakRevealLog(
       ? `Both picked the same chart — it plays: ${compactChartLabel(resultChart)}`
       : `Different picks — the unselected chart plays: ${compactChartLabel(resultChart)}`;
 
-  return {
-    content: [
-      `🎲 Tiebreak round ${round.round} — picks revealed`,
-      `**${displayName(players, a)}** chose ${compactChartLabel(pickA)}`,
-      `**${displayName(players, b)}** chose ${compactChartLabel(pickB)}`,
-      rule,
-    ].join('\n'),
-  };
+  const embed = new EmbedBuilder()
+    .setColor(LOG_COLOR.TIEBREAK)
+    .setTitle(`Tiebreak round ${round.round} — picks revealed`)
+    .setDescription([`**${displayName(players, a)}** chose ${compactChartLabel(pickA)}`, `**${displayName(players, b)}** chose ${compactChartLabel(pickB)}`, rule].join('\n'));
+
+  return { embeds: [embed] };
 }
 
 /**
@@ -113,7 +114,13 @@ export function renderTiebreakRevealLog(
  * cleared going forward.
  */
 export function renderResetLog(refereeDisplayName: string): RenderedMessage {
-  return { content: `🔄 **${refereeDisplayName}** reset the Protect/Veto sequence. The Draw stands.` };
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setColor(LOG_COLOR.RESET)
+        .setDescription(`🔄 **${refereeDisplayName}** reset the Protect/Veto sequence. The Draw stands.`),
+    ],
+  };
 }
 
 /**
@@ -130,7 +137,6 @@ export function renderDqLog(
   players: PlayerDirectory,
 ): RenderedMessage {
   const scopeLabel = scope === 'TOURNAMENT' ? 'from the tournament' : 'from this match';
-  return {
-    content: `⛔ **${displayName(players, playerId)}** disqualified ${scopeLabel} — ruling by **${refereeDisplayName}**`,
-  };
+  const description = `⛔ **${displayName(players, playerId)}** disqualified ${scopeLabel} — ruling by **${refereeDisplayName}**`;
+  return { embeds: [new EmbedBuilder().setColor(LOG_COLOR.RULING).setDescription(description)] };
 }

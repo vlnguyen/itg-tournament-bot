@@ -1,6 +1,8 @@
-import { ChannelType, type Client } from 'discord.js';
+import { ChannelType, EmbedBuilder, type Client } from 'discord.js';
 import type { PrismaClient } from '@prisma/client';
 import type { PlayerNotificationPort, ThreadRef } from './ports.js';
+import { LOG_COLOR } from './render/draw.js';
+import { matchUrl } from '../web-url.js';
 
 const CANNOT_SEND_TO_USER = 50007;
 const NO_MUTUAL_GUILDS = 50278;
@@ -17,10 +19,10 @@ function isExpectedDmFailure(err: unknown): err is { code: number } {
  * error. Returns whether it actually landed, so a caller can report who it
  * could not reach.
  */
-async function tryDm(client: Client, userId: string, content: string): Promise<boolean> {
+async function tryDm(client: Client, userId: string, embed: EmbedBuilder): Promise<boolean> {
   try {
     const user = await client.users.fetch(userId);
-    await user.send(content);
+    await user.send({ embeds: [embed] });
     return true;
   } catch (err) {
     if (!isExpectedDmFailure(err)) throw err;
@@ -53,17 +55,32 @@ function channelLink(guildId: string, channelId: string): string {
  */
 export function createPlayerNotificationAdapter(client: Client, prisma: PrismaClient): PlayerNotificationPort {
   return {
-    async matchReady(playerIds: string[], thread: ThreadRef): Promise<void> {
+    async matchReady(players: readonly { discordUserId: string; displayName: string }[], thread: ThreadRef, tournamentId: string): Promise<void> {
       const channel = await client.channels.fetch(thread.threadId);
       if (!channel || !channel.isThread()) {
         throw new Error(`expected a thread channel for ${thread.threadId}, got ${channel?.type ?? 'null'}`);
       }
 
-      await channel.send({ content: `${playerIds.map((id) => `<@${id}>`).join(' ')} — your match is ready.` });
+      const threadLink = `https://discord.com/channels/${channel.guildId}/${channel.id}`;
+      const [p0, p1] = players;
 
-      const link = `https://discord.com/channels/${channel.guildId}/${channel.id}`;
-      for (const userId of playerIds) {
-        await tryDm(client, userId, `Your match is ready: ${link}`);
+      // The mention has to live in `content` to actually notify — Discord
+      // does not reliably deliver a push/highlight notification for a
+      // mention that appears only inside an embed. Same split
+      // `buildEscalationAlert` already uses for its referee-role mention.
+      await channel.send({
+        content: players.map((p) => `<@${p.discordUserId}>`).join(' '),
+        embeds: [
+          new EmbedBuilder()
+            .setTitle(`${p0!.displayName} vs ${p1!.displayName}`)
+            .setColor(LOG_COLOR.MATCH_READY)
+            .setDescription(`Your match is ready.\n\n**[Match Link](${matchUrl(tournamentId, thread.matchId)})**`),
+        ],
+      });
+
+      const dm = new EmbedBuilder().setTitle('Your match is ready').setColor(LOG_COLOR.MATCH_READY).setDescription(`**Match Thread**\n${threadLink}`);
+      for (const p of players) {
+        await tryDm(client, p.discordUserId, dm);
       }
     },
 
@@ -83,13 +100,14 @@ export function createPlayerNotificationAdapter(client: Client, prisma: PrismaCl
       const guild = await prisma.guild.findUnique({ where: { id: guildId } });
       const landingLink = guild?.generalChannelId ? `\n${channelLink(guildId, guild.generalChannelId)}` : '';
 
+      const dm = new EmbedBuilder()
+        .setTitle('Tournament starting')
+        .setColor(LOG_COLOR.TOURNAMENT_STARTING)
+        .setDescription(`Check-in is now open for **${tournamentName}** — use \`/checkin\` to confirm you're playing.${landingLink}`);
+
       const unreachable: string[] = [];
       for (const userId of playerIds) {
-        const reached = await tryDm(
-          client,
-          userId,
-          `Check-in is now open for **${tournamentName}** — use \`/checkin\` to confirm you're playing.${landingLink}`,
-        );
+        const reached = await tryDm(client, userId, dm);
         if (!reached) unreachable.push(userId);
       }
       return { unreachable };

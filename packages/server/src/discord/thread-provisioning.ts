@@ -62,11 +62,14 @@ export async function provisionReadyThreads(
         p1!.entrant.displayName ?? p1!.entrant.discordUserId,
         tournamentName,
       );
-    const playerIds = [p0!.entrant.discordUserId, p1!.entrant.discordUserId];
+    const matchPlayers = [
+      { discordUserId: p0!.entrant.discordUserId, displayName: p0!.entrant.displayName ?? p0!.entrant.discordUserId },
+      { discordUserId: p1!.entrant.discordUserId, displayName: p1!.entrant.displayName ?? p1!.entrant.discordUserId },
+    ];
 
     const ref = await matchChannel.createMatchThread({ matchId: match.id, title });
     await prisma.match.update({ where: { id: match.id }, data: { threadId: ref.threadId } });
-    await playerNotification.matchReady(playerIds, ref);
+    await playerNotification.matchReady(matchPlayers, ref, match.tournamentId);
 
     // "The Draw is revealed before the higher seed chooses" — both are
     // already settled in `match.state` by the time a match reaches

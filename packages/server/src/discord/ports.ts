@@ -50,7 +50,13 @@ export interface MatchChannelPort {
 
 /** "Tell these players their match is ready" — the adapter decides how (thread mention, best-effort DM, or both). */
 export interface PlayerNotificationPort {
-  matchReady(playerIds: string[], thread: ThreadRef): Promise<void>;
+  /**
+   * Display names are for the thread ping's "player vs player" title — the
+   * mention itself still uses `discordUserId`. `tournamentId` is what lets
+   * the thread ping's "Match Link" point at the public web UI's match page
+   * (`webUrl.matchUrl`) rather than the Discord thread itself.
+   */
+  matchReady(players: readonly { discordUserId: string; displayName: string }[], thread: ThreadRef, tournamentId: string): Promise<void>;
   /**
    * "The bot announces when check-in opens, in the general channel, and
    * direct messages every registered player. The channel post carries no

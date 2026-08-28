@@ -2,14 +2,39 @@ import { EmbedBuilder } from 'discord.js';
 import type { ChartSnapshot } from '@itg/shared';
 import { fullChartDescription } from './chart.js';
 
-/** Distinguishes a log message's *kind* at a glance when scrolling back — not tied to match outcome. */
+/**
+ * Distinguishes a message's *kind* at a glance when scrolling back — not
+ * tied to match outcome. Shared by both in-thread log embeds and the
+ * results-channel embeds (`render/result-summary.ts`'s
+ * `buildResultAnnouncement`, `render/tournament-complete.ts`) — one place
+ * for every embed accent color in the design.
+ */
 export const LOG_COLOR = {
   DRAW: 0x3498db,
   SONG_RESULT: 0x2ecc71,
   TIEBREAK: 0x9b59b6,
   RULING: 0xe67e22,
-  RESET: 0x95a5a6,
+  /** A referee resetting Protect/Veto — a warning-toned action, same family as `RULING`/`AWAITING_REFEREE`/`TOURNAMENT_CANCELLED`. */
+  RESET: 0xe67e22,
   RESULT_SUMMARY: 0xf1c40f,
+  /** The per-match results-channel announcement. */
+  RESULT_ANNOUNCEMENT: 0x2ecc71,
+  /** The tournament-complete standings announcement — gold, distinct from the per-match green. */
+  TOURNAMENT_COMPLETE: 0xffd700,
+  /** Protect, and its permanent log line. The seed-choice ("Protect order") *log* line reuses this same green; its state-message prompt does not — see `PROTECT_ORDER` below. */
+  PROTECT: 0x2ecc71,
+  /** Veto — the state-message prompt and its permanent log line. */
+  VETO: 0xe74c3c,
+  /** The seed-choice ("Protect order") state-message prompt — yellow, distinct from its own green log line. */
+  PROTECT_ORDER: 0xf1c40f,
+  /** A match/song escalated, awaiting a referee's ruling. */
+  AWAITING_REFEREE: 0xe67e22,
+  /** The in-thread note that the tournament was cancelled mid-match. */
+  TOURNAMENT_CANCELLED: 0xe67e22,
+  /** The thread's own "your match is ready" ping. */
+  MATCH_READY: 0x3498db,
+  /** The DM announcing check-in has opened. */
+  TOURNAMENT_STARTING: 0x3498db,
 } as const;
 
 /**

@@ -1,5 +1,8 @@
+import { EmbedBuilder } from 'discord.js';
 import type { StandingsRow } from '../../services/advancement-service.js';
+import { isAbsoluteWebUrl, tournamentUrl } from '../../web-url.js';
 import type { RenderedMessage } from '../ports.js';
+import { LOG_COLOR } from './draw.js';
 
 /**
  * "The Discord post mirrors the match result feed — full placement order
@@ -9,8 +12,16 @@ import type { RenderedMessage } from '../ports.js';
  * players share a placement, the next placement skips), so this can render
  * anywhere from five to eight names depending on how the last spot shown
  * ties out, never a lone "8th" a differently-shaped bracket can't produce.
+ *
+ * The title itself is the link target (`setURL`) — same "whole title is
+ * one hyperlink" constraint as `buildResultAnnouncement`, since Discord
+ * embed titles render as plain text with no inline markdown.
  */
-export function buildTournamentCompleteAnnouncement(tournamentName: string, standings: readonly StandingsRow[]): RenderedMessage {
+export function buildTournamentCompleteAnnouncement(
+  tournamentId: string,
+  tournamentName: string,
+  standings: readonly StandingsRow[],
+): RenderedMessage {
   const byPlace = new Map<number, StandingsRow[]>();
   for (const row of standings) {
     if (row.place > 8) continue;
@@ -29,5 +40,12 @@ export function buildTournamentCompleteAnnouncement(tournamentName: string, stan
       return `**${place}.** ${names}`;
     });
 
-  return { content: [`## 🏆 ${tournamentName} — Final Standings`, '', ...lines].join('\n') };
+  const link = tournamentUrl(tournamentId);
+  const embed = new EmbedBuilder()
+    .setTitle(`🏆 ${tournamentName} — Final Standings`)
+    .setColor(LOG_COLOR.TOURNAMENT_COMPLETE)
+    .setDescription(lines.length > 0 ? lines.join('\n') : 'No standings available.');
+  if (isAbsoluteWebUrl(link)) embed.setURL(link);
+
+  return { embeds: [embed] };
 }

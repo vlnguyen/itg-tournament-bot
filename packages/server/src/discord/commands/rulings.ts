@@ -10,11 +10,13 @@ import { applyAppendResult, CANCELLED_MATCH_MESSAGE, describeStale } from '../ma
 import { buildPlayerDirectory, loadMatch, loadMatchByThreadId, type MatchWithParticipants } from '../match-lookup.js';
 import { memberDisplayName } from '../member-display-name.js';
 import type { ThreadRef } from '../ports.js';
+import { LOG_COLOR } from '../render/draw.js';
 import { buildResolvedAlert } from '../render/escalation.js';
+import { compactChartLabel } from '../render/chart.js';
 import { displayName } from '../state-message.js';
 import { requireRefereeTier } from './authz.js';
 import type { CommandContext } from './context.js';
-import { logToOrganizers } from './organizer-log.js';
+import { logToOrganizers, matchLinksBlock } from './organizer-log.js';
 
 /**
  * `/dq` — the referee ruling that ends a match outright rather than
@@ -152,7 +154,12 @@ async function handleMatchScopeDq(interaction: ChatInputCommandInteraction, ctx:
     await applyAppendResult(ctx.prisma, ctx.matchChannel, ctx.alert, ctx.playerNotification, ctx.realtime, match, format, event, result);
 
     await interaction.editReply(`Disqualified **${playerName}** from this match.`);
-    await logToOrganizers(ctx.alert, interaction.guildId!, `⛔ **${interaction.user.username}** disqualified **${playerName}** from a match.`);
+    await logToOrganizers(
+      ctx.alert,
+      interaction.guildId!,
+      `**${interaction.user.username}** disqualified **${playerName}** from a match.\n\n${matchLinksBlock(interaction.guildId!, ref, match.tournamentId)}`,
+      { title: '⛔ Disqualification', color: LOG_COLOR.RULING },
+    );
   } catch (err) {
     if (err instanceof IllegalActionError) {
       await interaction.editReply(`Can't rule on that — ${describeStale(err)}.`);
@@ -182,6 +189,9 @@ async function handleTournamentScopeDq(interaction: ChatInputCommandInteraction,
   const playerName = entrantDisplayName(entrant);
   const { resolvedMatch } = await disqualifyFromTournament(ctx.prisma, ctx.random, tournament.id, entrant.id, interaction.user.id);
 
+  // No match/thread to link when the player wasn't mid-set — the DQ still
+  // walked the bracket, just with nothing live for an organizer to jump to.
+  let linksBlock = '';
   if (resolvedMatch) {
     const match = await loadMatch(ctx.prisma, resolvedMatch.matchId);
     if (match) {
@@ -192,6 +202,7 @@ async function handleTournamentScopeDq(interaction: ChatInputCommandInteraction,
 
       await ctx.matchChannel.postLogMessage(ref, renderDqLog(entrant.id as EntrantId, 'TOURNAMENT', refName, players));
       await applyAppendResult(ctx.prisma, ctx.matchChannel, ctx.alert, ctx.playerNotification, ctx.realtime, match, format, resolvedMatch.event, resolvedMatch.result);
+      linksBlock = `\n\n${matchLinksBlock(interaction.guildId!, ref, match.tournamentId)}`;
     }
   }
 
@@ -201,7 +212,8 @@ async function handleTournamentScopeDq(interaction: ChatInputCommandInteraction,
   await logToOrganizers(
     ctx.alert,
     interaction.guildId!,
-    `⛔ **${interaction.user.username}** disqualified **${playerName}** from the tournament.`,
+    `**${interaction.user.username}** disqualified **${playerName}** from the tournament.${linksBlock}`,
+    { title: '⛔ Disqualification', color: LOG_COLOR.RULING },
   );
 }
 
@@ -298,6 +310,12 @@ export async function handleRule(interaction: ChatInputCommandInteraction, ctx: 
       }
       await ctx.matchChannel.postLogMessage(ref, renderSetRulingLog(rulingResult, refName, players));
       await applyAppendResult(ctx.prisma, ctx.matchChannel, ctx.alert, ctx.playerNotification, ctx.realtime, match, format, event, result);
+      await logToOrganizers(
+        ctx.alert,
+        interaction.guildId!,
+        `Set result awarded to **${displayName(players, rulingResult)}** — ruling by **${refName}**\n\n${matchLinksBlock(interaction.guildId!, ref, match.tournamentId)}`,
+        { title: '⚖️ Set resolution', color: LOG_COLOR.RULING },
+      );
       await interaction.editReply(`Awarded the set to **${displayName(players, rulingResult)}**.`);
     } catch (err) {
       if (err instanceof IllegalActionError) {
@@ -341,6 +359,14 @@ export async function handleRule(interaction: ChatInputCommandInteraction, ctx: 
 
     await ctx.matchChannel.postLogMessage(ref, renderRulingLog(songIndex, chart, rulingResult, refName, players));
     await applyAppendResult(ctx.prisma, ctx.matchChannel, ctx.alert, ctx.playerNotification, ctx.realtime, match, format, event, result);
+
+    const alertOutcome = rulingResult === 'VOID' ? 'voided' : rulingResult === 'TIE' ? 'ruled a tie' : `awarded to **${displayName(players, rulingResult)}**`;
+    await logToOrganizers(
+      ctx.alert,
+      interaction.guildId!,
+      `Song ${songIndex + 1} (${compactChartLabel(chart)}) ${alertOutcome} — ruling by **${refName}**\n\n${matchLinksBlock(interaction.guildId!, ref, match.tournamentId)}`,
+      { title: '⚖️ Song resolution', color: LOG_COLOR.RULING },
+    );
 
     const outcomeText = rulingResult === 'VOID' ? 'Voided' : rulingResult === 'TIE' ? 'Ruled a tie for' : `Awarded to **${displayName(players, rulingResult)}** —`;
     await interaction.editReply(`${outcomeText} song ${songIndex + 1}.`);

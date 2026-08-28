@@ -208,20 +208,29 @@ export default function GuildOverview(): JSX.Element {
     );
   }
 
+  const nav = (
+    <Group justify="flex-end" gap="md">
+      <Anchor component={Link} to={`/g/${guildId}/dashboard`} size="sm">
+        Dashboard
+      </Anchor>
+      <Anchor component={Link} to={`/g/${guildId}/setup`} size="sm">
+        Server Settings
+      </Anchor>
+    </Group>
+  );
+
   if (!data.activeTournament && data.history.length === 0) {
-    return <FirstRunWizard guildId={guildId!} />;
+    return (
+      <Stack gap="xl" p="md">
+        {nav}
+        <FirstRunWizard guildId={guildId!} />
+      </Stack>
+    );
   }
 
   return (
     <Stack gap="xl" p="md">
-      <Group justify="flex-end" gap="md">
-        <Anchor component={Link} to={`/g/${guildId}/dashboard`} size="sm">
-          Dashboard
-        </Anchor>
-        <Anchor component={Link} to={`/g/${guildId}/setup`} size="sm">
-          Server Settings
-        </Anchor>
-      </Group>
+      {nav}
 
       <div>
         <Group gap="sm" mb="xs">

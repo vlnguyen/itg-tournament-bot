@@ -152,6 +152,28 @@ export default function GuildSetup(): JSX.Element {
 
         <div>
           <Title order={3} size="h4" mb="xs">
+            Recommended
+          </Title>
+          <Stack gap={4} maw={480}>
+            <Text size="sm">
+              Select &quot;Create automatically&quot; for both the Referee and Tournament Organizer roles, then click Save
+              Roles.
+            </Text>
+            <Text size="sm">
+              Then select &quot;Create automatically&quot; for the Matches, Organizer alerts, and Results channels, point
+              the General channel to where discussion during a tournament is most likely to happen, and click Save
+              Channels.
+            </Text>
+            <Text size="sm">Doing it in this order guarantees that the correct role permissions get assigned to the created channels.</Text>
+            <Text size="sm">
+              If repairing with overwrites doesn&apos;t resolve View Channel on the Matches channel, add the bot or the
+              bot&apos;s role to the assigned Matches channel and give it the View Channels privilege.
+            </Text>
+          </Stack>
+        </div>
+
+        <div>
+          <Title order={3} size="h4" mb="xs">
             Diagnostic
           </Title>
           <Stack gap={4}>
@@ -200,43 +222,6 @@ export default function GuildSetup(): JSX.Element {
 
         <div>
           <Title order={3} size="h4" mb="xs">
-            Channels
-          </Title>
-          <Stack gap="sm" maw={480}>
-            {CHANNEL_SLOTS.map(({ slot, label, hint, creatable }) => (
-              <Select
-                key={slot}
-                label={label}
-                description={hint}
-                placeholder="Not configured"
-                data={[
-                  ...(creatable ? [{ value: CREATE, label: 'Create automatically' }] : []),
-                  ...data.channels.map((c) => ({ value: c.id, label: `#${c.name}` })),
-                ]}
-                value={channels[slot] ?? null}
-                onChange={(value) => setChannels((prev) => ({ ...prev, [slot]: value }))}
-                searchable
-                clearable
-              />
-            ))}
-          </Stack>
-          {channelsMutation.isError && (
-            <Alert color="red" mt="sm" title="Couldn't save channels">
-              {channelsMutation.error instanceof ApiError ? channelsMutation.error.message : 'Something went wrong.'}
-            </Alert>
-          )}
-          {channelsMutation.data && channelsMutation.data.notes.length > 0 && (
-            <Text size="sm" c="dimmed" mt="sm">
-              {channelsMutation.data.notes.join(' ')}
-            </Text>
-          )}
-          <Button mt="sm" onClick={() => channelsMutation.mutate()} loading={channelsMutation.isPending}>
-            Save Channels
-          </Button>
-        </div>
-
-        <div>
-          <Title order={3} size="h4" mb="xs">
             Roles
           </Title>
           <Stack gap="sm" maw={480}>
@@ -269,6 +254,43 @@ export default function GuildSetup(): JSX.Element {
           )}
           <Button mt="sm" onClick={() => rolesMutation.mutate()} loading={rolesMutation.isPending}>
             Save Roles
+          </Button>
+        </div>
+
+        <div>
+          <Title order={3} size="h4" mb="xs">
+            Channels
+          </Title>
+          <Stack gap="sm" maw={480}>
+            {CHANNEL_SLOTS.map(({ slot, label, hint, creatable }) => (
+              <Select
+                key={slot}
+                label={label}
+                description={hint}
+                placeholder="Not configured"
+                data={[
+                  ...(creatable ? [{ value: CREATE, label: 'Create automatically' }] : []),
+                  ...data.channels.map((c) => ({ value: c.id, label: `#${c.name}` })),
+                ]}
+                value={channels[slot] ?? null}
+                onChange={(value) => setChannels((prev) => ({ ...prev, [slot]: value }))}
+                searchable
+                clearable
+              />
+            ))}
+          </Stack>
+          {channelsMutation.isError && (
+            <Alert color="red" mt="sm" title="Couldn't save channels">
+              {channelsMutation.error instanceof ApiError ? channelsMutation.error.message : 'Something went wrong.'}
+            </Alert>
+          )}
+          {channelsMutation.data && channelsMutation.data.notes.length > 0 && (
+            <Text size="sm" c="dimmed" mt="sm">
+              {channelsMutation.data.notes.join(' ')}
+            </Text>
+          )}
+          <Button mt="sm" onClick={() => channelsMutation.mutate()} loading={channelsMutation.isPending}>
+            Save Channels
           </Button>
         </div>
       </Stack>

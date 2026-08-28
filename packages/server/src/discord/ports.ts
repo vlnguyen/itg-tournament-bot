@@ -71,24 +71,25 @@ export interface PlayerNotificationPort {
    * A public, no-mentions announcement in the general channel that `/join`
    * is now open — there is no one registered yet to DM, unlike
    * `checkinOpened`. Skipped (not an error) when no general channel is
-   * configured.
+   * configured. `tournamentId` is for hyperlinking the tournament name to
+   * its web page.
    */
-  registrationOpened(guildId: string, tournamentName: string): Promise<void>;
+  registrationOpened(guildId: string, tournamentId: string, tournamentName: string): Promise<void>;
   /**
    * A public, no-mentions announcement in the general channel each time
    * someone joins — names who, and reminds anyone reading how to join
    * themselves. Skipped (not an error) when no general channel is
-   * configured.
+   * configured. `tournamentId` is for hyperlinking the tournament name.
    */
-  entrantJoined(guildId: string, displayName: string): Promise<void>;
-  /** Same idea as `entrantJoined`, for a self-service check-in. */
+  entrantJoined(guildId: string, displayName: string, tournamentId: string, tournamentName: string): Promise<void>;
+  /** Same idea as `entrantJoined`, for a self-service check-in — no tournament hyperlink here, unlike its sibling. */
   entrantCheckedIn(guildId: string, displayName: string): Promise<void>;
-  /** A public, no-mentions announcement in the general channel that a tournament was cancelled. Skipped (not an error) when no general channel is configured. */
-  tournamentCancelled(guildId: string, tournamentName: string): Promise<void>;
-  /** A public, no-mentions announcement in the general channel that check-in has closed. Skipped (not an error) when no general channel is configured. */
-  checkinClosed(guildId: string, tournamentName: string): Promise<void>;
-  /** A public, no-mentions announcement in the general channel that the tournament has started. Skipped (not an error) when no general channel is configured. */
-  tournamentStarted(guildId: string, tournamentName: string): Promise<void>;
+  /** A public, no-mentions announcement in the general channel that a tournament was cancelled. Skipped (not an error) when no general channel is configured. `tournamentId` is for hyperlinking the tournament name. */
+  tournamentCancelled(guildId: string, tournamentId: string, tournamentName: string): Promise<void>;
+  /** A public, no-mentions announcement in the general channel that check-in has closed. Skipped (not an error) when no general channel is configured. `tournamentId` is for hyperlinking the tournament name. */
+  checkinClosed(guildId: string, tournamentId: string, tournamentName: string): Promise<void>;
+  /** A public, no-mentions announcement in the general channel that the tournament has started. Skipped (not an error) when no general channel is configured. `tournamentId` is for hyperlinking the tournament name. */
+  tournamentStarted(guildId: string, tournamentId: string, tournamentName: string): Promise<void>;
 }
 
 export interface AlertRef {

@@ -171,7 +171,7 @@ describe.skipIf(!(await isReachable()))('POST /api/matches/:id/rulings', () => {
     // `EntrantId` (a `cm...` cuid) straight into the message.
     expect(resolvedAlerts).toHaveLength(1);
     const winnerEntrant = await prisma.entrant.findUniqueOrThrow({ where: { id: a! } });
-    expect(resolvedAlerts[0]!.content).toContain(`awarded to ${winnerEntrant.discordUserId}`);
-    expect(resolvedAlerts[0]!.content).not.toContain(a!);
+    expect(resolvedAlerts[0]!.embeds![0]!.data.description).toContain(`awarded to ${winnerEntrant.discordUserId}`);
+    expect(resolvedAlerts[0]!.embeds![0]!.data.description).not.toContain(a!);
   });
 });

@@ -1,10 +1,32 @@
 import { escalationReasonLabel } from '@itg/shared';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import type { EntrantId, EscalationReason } from '../../domain/types.js';
+import { matchUrl } from '../../web-url.js';
 import { Action } from '../actions.js';
 import { encodeCustomId } from '../custom-id.js';
 import type { RenderedMessage } from '../ports.js';
 import { LOG_COLOR } from './draw.js';
+
+type EscalationPlayers = readonly [{ entrantId: EntrantId; name: string }, { entrantId: EntrantId; name: string }];
+
+function escalationTitle(songIndex: number | undefined, reason: EscalationReason): string {
+  return songIndex === undefined ? 'Set result disagreement' : reason === 'WINNER_DISAGREEMENT' ? 'Song disagreement' : 'Settings violation reported';
+}
+
+/** Shared by the raised alert and its resolution — "identical to the original escalation embed" is the point, so both build from the same description. */
+function escalationDescription(
+  songIndex: number | undefined,
+  threadLink: string,
+  tournamentId: string,
+  matchId: string,
+  players: EscalationPlayers,
+): string {
+  const header =
+    songIndex === undefined
+      ? `**${players[0].name}** vs **${players[1].name}**`
+      : `Song ${songIndex + 1} — **${players[0].name}** vs **${players[1].name}**`;
+  return `${header}\n${threadLink}\n**[Match Link](${matchUrl(tournamentId, matchId)})**`;
+}
 
 /**
  * "Award A · Award B · Void song" — three buttons, no tie: a disagreement
@@ -74,23 +96,36 @@ export function buildEscalationAlert(
   reason: EscalationReason,
   refereeMention: string,
   threadLink: string,
-  players: readonly [{ entrantId: EntrantId; name: string }, { entrantId: EntrantId; name: string }],
+  tournamentId: string,
+  players: EscalationPlayers,
 ): RenderedMessage {
-  const isSetLevel = songIndex === undefined;
-  const title = isSetLevel
-    ? 'Set result disagreement'
-    : reason === 'WINNER_DISAGREEMENT'
-      ? 'Song disagreement'
-      : 'Settings violation reported';
-  const description = isSetLevel
-    ? `**${players[0].name}** vs **${players[1].name}**\n${threadLink}`
-    : `Song ${songIndex + 1} — **${players[0].name}** vs **${players[1].name}**\n${threadLink}`;
-  const embed = new EmbedBuilder().setTitle(title).setDescription(description);
+  const embed = new EmbedBuilder()
+    .setTitle(`⚖️ ${escalationTitle(songIndex, reason)}`)
+    .setColor(LOG_COLOR.AWAITING_REFEREE)
+    .setDescription(escalationDescription(songIndex, threadLink, tournamentId, matchId, players));
 
   return { content: refereeMention, embeds: [embed], components: [rulingButtons(matchId, songIndex, players)] };
 }
 
-/** Replaces the alert message in place once ruled — "buttons removed, body replaced with who ruled and what they chose." */
-export function buildResolvedAlert(refereeDisplayName: string, rulingLabel: string): RenderedMessage {
-  return { content: `✅ Resolved by **${refereeDisplayName}**: ${rulingLabel}` };
+/**
+ * Replaces the alert message in place once ruled — identical to the
+ * original escalation embed (same title, same description), with a
+ * "Resolved by" line appended at the bottom, the referee mention dropped
+ * from `content`, and the ruling buttons gone.
+ */
+export function buildResolvedAlert(
+  matchId: string,
+  songIndex: number | undefined,
+  reason: EscalationReason,
+  threadLink: string,
+  tournamentId: string,
+  players: EscalationPlayers,
+  refereeDisplayName: string,
+  rulingLabel: string,
+): RenderedMessage {
+  const embed = new EmbedBuilder()
+    .setTitle(`⚖️ ${escalationTitle(songIndex, reason)}`)
+    .setColor(LOG_COLOR.AWAITING_REFEREE)
+    .setDescription(`${escalationDescription(songIndex, threadLink, tournamentId, matchId, players)}\n\n✅ Resolved by **${refereeDisplayName}**: ${rulingLabel}`);
+  return { embeds: [embed] };
 }

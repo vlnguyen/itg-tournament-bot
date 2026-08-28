@@ -35,29 +35,45 @@ describe('buildAwaitingRefereeMessage', () => {
 
 describe('buildEscalationAlert', () => {
   it('has exactly three buttons: award each player, and void', () => {
-    const msg = buildEscalationAlert('m1', 0, 'WINNER_DISAGREEMENT', '<@&ref-role>', 'https://thread', players);
+    const msg = buildEscalationAlert('m1', 0, 'WINNER_DISAGREEMENT', '<@&ref-role>', 'https://thread', 't1', players);
     const row = msg.components![0]!;
     expect(row.components).toHaveLength(3);
   });
 
   it('carries the referee mention as content, separate from the embed', () => {
-    const msg = buildEscalationAlert('m1', 0, 'WINNER_DISAGREEMENT', '<@&ref-role>', 'https://thread', players);
+    const msg = buildEscalationAlert('m1', 0, 'WINNER_DISAGREEMENT', '<@&ref-role>', 'https://thread', 't1', players);
     expect(msg.content).toBe('<@&ref-role>');
   });
 
-  it('titles a settings-violation report distinctly from a disagreement', () => {
-    const disagreement = buildEscalationAlert('m1', 0, 'WINNER_DISAGREEMENT', '@ref', 'https://t', players);
-    const settings = buildEscalationAlert('m1', 0, 'SETTINGS_VIOLATION', '@ref', 'https://t', players);
-    expect(disagreement.embeds![0]!.data.title).toBe('Song disagreement');
-    expect(settings.embeds![0]!.data.title).toBe('Settings violation reported');
+  it('titles a settings-violation report distinctly from a disagreement, with the scales icon', () => {
+    const disagreement = buildEscalationAlert('m1', 0, 'WINNER_DISAGREEMENT', '@ref', 'https://t', 't1', players);
+    const settings = buildEscalationAlert('m1', 0, 'SETTINGS_VIOLATION', '@ref', 'https://t', 't1', players);
+    expect(disagreement.embeds![0]!.data.title).toBe('⚖️ Song disagreement');
+    expect(settings.embeds![0]!.data.title).toBe('⚖️ Settings violation reported');
+  });
+
+  it('hyperlinks the match below the thread link', () => {
+    const msg = buildEscalationAlert('m1', 0, 'WINNER_DISAGREEMENT', '@ref', 'https://thread', 't1', players);
+    const description = msg.embeds![0]!.data.description!;
+    const lines = description.split('\n');
+    expect(lines[1]).toBe('https://thread');
+    expect(lines[2]).toContain('[Match Link]');
   });
 });
 
 describe('buildResolvedAlert', () => {
-  it('has no components once resolved', () => {
-    const msg = buildResolvedAlert('RefName', 'awarded to Alice');
+  it('is identical to the escalation embed, with a Resolved-by line appended', () => {
+    const escalation = buildEscalationAlert('m1', 0, 'WINNER_DISAGREEMENT', '@ref', 'https://thread', 't1', players);
+    const resolved = buildResolvedAlert('m1', 0, 'WINNER_DISAGREEMENT', 'https://thread', 't1', players, 'RefName', 'awarded to Alice');
+
+    expect(resolved.embeds![0]!.data.title).toBe(escalation.embeds![0]!.data.title);
+    expect(resolved.embeds![0]!.data.description).toContain(escalation.embeds![0]!.data.description);
+  });
+
+  it('has no components and no content once resolved', () => {
+    const msg = buildResolvedAlert('m1', 0, 'WINNER_DISAGREEMENT', 'https://thread', 't1', players, 'RefName', 'awarded to Alice');
     expect(msg.components).toBeUndefined();
-    expect(msg.content).toContain('RefName');
-    expect(msg.content).toContain('awarded to Alice');
+    expect(msg.content).toBeUndefined();
+    expect(msg.embeds![0]!.data.description).toContain('Resolved by **RefName**: awarded to Alice');
   });
 });

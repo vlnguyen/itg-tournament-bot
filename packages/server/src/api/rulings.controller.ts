@@ -125,20 +125,40 @@ export class RulingsController {
       await this.matchChannel.postLogMessage(ref, renderRulingLog(ruling.songIndex, chart, ruling.result, refName, players));
       const outcome =
         ruling.result === 'VOID' ? 'voided' : ruling.result === 'TIE' ? 'ruled a tie' : `awarded to ${displayName(players, ruling.result)}`;
-      await this.resolveAlertIfOpen(match, refName, outcome);
+      await this.resolveAlertIfOpen(match, refName, outcome, ruling.songIndex);
     } else if (ruling.type === 'PROTECT_VETO_RESET') {
       await this.matchChannel.postLogMessage(ref, renderResetLog(refName));
     } else if (ruling.type === 'SET_RESULT_RULED') {
-      await this.resolveAlertIfOpen(match, refName, `awarded the set to ${displayName(players, ruling.result)}`);
+      await this.resolveAlertIfOpen(match, refName, `awarded the set to ${displayName(players, ruling.result)}`, undefined);
       await this.matchChannel.postLogMessage(ref, renderSetRulingLog(ruling.result as EntrantId, refName, players));
     } else {
       await this.matchChannel.postLogMessage(ref, renderDqLog(ruling.playerId as EntrantId, 'MATCH', refName, players));
     }
   }
 
-  private async resolveAlertIfOpen(match: MatchWithParticipants, refName: string, outcome: string): Promise<void> {
+  /**
+   * The original escalation reason (winner disagreement vs. settings
+   * violation) isn't tracked once resolution reaches this far — only
+   * `match.alertMsgId` says "this was escalated." Song-level defaults to
+   * `WINNER_DISAGREEMENT`, the far more common case; a set-level
+   * disagreement is unambiguous, since it's the only reason without a
+   * `songIndex`.
+   */
+  private async resolveAlertIfOpen(match: MatchWithParticipants, refName: string, outcome: string, songIndex: number | undefined): Promise<void> {
     if (!match.alertMsgId) return;
-    await this.alert.resolve(match.tournament.guildId, { messageId: match.alertMsgId }, buildResolvedAlert(refName, outcome));
+    const players = buildPlayerDirectory(match);
+    const threadLink = `https://discord.com/channels/${match.tournament.guildId}/${match.threadId}`;
+    const [p0, p1] = match.participants;
+    const escalationPlayers: readonly [{ entrantId: EntrantId; name: string }, { entrantId: EntrantId; name: string }] = [
+      { entrantId: p0!.entrantId, name: displayName(players, p0!.entrantId) },
+      { entrantId: p1!.entrantId, name: displayName(players, p1!.entrantId) },
+    ];
+    const reason = songIndex === undefined ? 'SET_RESULT_DISAGREEMENT' : 'WINNER_DISAGREEMENT';
+    await this.alert.resolve(
+      match.tournament.guildId,
+      { messageId: match.alertMsgId },
+      buildResolvedAlert(match.id, songIndex, reason, threadLink, match.tournamentId, escalationPlayers, refName, outcome),
+    );
     await this.prisma.match.update({ where: { id: match.id }, data: { alertMsgId: null } });
   }
 }

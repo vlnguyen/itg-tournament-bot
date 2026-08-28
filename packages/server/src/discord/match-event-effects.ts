@@ -166,7 +166,7 @@ export async function applyAppendResult(
       : '';
     const [p0, p1] = match.participants;
     const threadLink = `https://discord.com/channels/${match.tournament.guildId}/${match.threadId}`;
-    const alertMessage = buildEscalationAlert(match.id, pending.songIndex, pending.reason, mention, threadLink, [
+    const alertMessage = buildEscalationAlert(match.id, pending.songIndex, pending.reason, mention, threadLink, match.tournamentId, [
       { entrantId: p0!.entrantId, name: displayName(players, p0!.entrantId) },
       { entrantId: p1!.entrantId, name: displayName(players, p1!.entrantId) },
     ]);

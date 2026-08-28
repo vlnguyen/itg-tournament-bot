@@ -2,7 +2,7 @@ import { ChannelType, EmbedBuilder, type Client } from 'discord.js';
 import type { PrismaClient } from '@prisma/client';
 import type { PlayerNotificationPort, ThreadRef } from './ports.js';
 import { LOG_COLOR } from './render/draw.js';
-import { matchUrl } from '../web-url.js';
+import { matchUrl, tournamentUrl } from '../web-url.js';
 
 const CANNOT_SEND_TO_USER = 50007;
 const NO_MUTUAL_GUILDS = 50278;
@@ -32,12 +32,21 @@ async function tryDm(client: Client, userId: string, embed: EmbedBuilder): Promi
 }
 
 /** Posts a no-mentions announcement to the guild's general channel, if one is configured — a silent no-op otherwise, same as every other use of that optional forward target. */
-async function postToGeneralChannel(client: Client, prisma: PrismaClient, guildId: string, content: string): Promise<void> {
+async function postToGeneralChannel(
+  client: Client,
+  prisma: PrismaClient,
+  guildId: string,
+  content: string,
+  opts: { title?: string; color?: number } = {},
+): Promise<void> {
   const guild = await prisma.guild.findUnique({ where: { id: guildId } });
   if (!guild?.generalChannelId) return;
   const channel = await client.channels.fetch(guild.generalChannelId).catch(() => null);
   if (channel && channel.type === ChannelType.GuildText) {
-    await channel.send({ content });
+    const embed = new EmbedBuilder().setDescription(content);
+    if (opts.title) embed.setTitle(opts.title);
+    if (opts.color !== undefined) embed.setColor(opts.color);
+    await channel.send({ embeds: [embed] });
   }
 }
 
@@ -117,32 +126,52 @@ export function createPlayerNotificationAdapter(client: Client, prisma: PrismaCl
     // ("Registration is open for **{name}**"), with a different addendum —
     // this one is public, so it points a reader at the command instead of
     // confirming the transition to the TO who ran it.
-    async registrationOpened(guildId: string, tournamentName: string): Promise<void> {
-      await postToGeneralChannel(client, prisma, guildId, `Registration is open for **${tournamentName}** — Type \`/join\` to enter.`);
+    async registrationOpened(guildId: string, tournamentId: string, tournamentName: string): Promise<void> {
+      await postToGeneralChannel(
+        client,
+        prisma,
+        guildId,
+        `Registration is open for [**${tournamentName}**](${tournamentUrl(tournamentId)}) — Type \`/join\` to enter.`,
+        { title: '📝 Registration open', color: LOG_COLOR.REGISTRATION_OPEN },
+      );
     },
 
-    async entrantJoined(guildId: string, displayName: string): Promise<void> {
-      await postToGeneralChannel(client, prisma, guildId, `**${displayName}** joined the tournament. Type \`/join\` to enter the tournament.`);
+    async entrantJoined(guildId: string, displayName: string, tournamentId: string, tournamentName: string): Promise<void> {
+      await postToGeneralChannel(
+        client,
+        prisma,
+        guildId,
+        `📝 **${displayName}** joined [**${tournamentName}**](${tournamentUrl(tournamentId)}). Type \`/join\` to enter the tournament.`,
+        { color: LOG_COLOR.ENTRANT_JOINED },
+      );
     },
 
     async entrantCheckedIn(guildId: string, displayName: string): Promise<void> {
-      await postToGeneralChannel(client, prisma, guildId, `**${displayName}** checked in. Type \`/checkin\` to confirm your spot.`);
+      await postToGeneralChannel(client, prisma, guildId, `✅ **${displayName}** checked in. Type \`/checkin\` to confirm your spot.`, {
+        color: LOG_COLOR.ENTRANT_CHECKED_IN,
+      });
     },
 
     // Same lead phrasing as the ephemeral reply in `discord/commands/tournament.ts`.
-    async tournamentCancelled(guildId: string, tournamentName: string): Promise<void> {
-      await postToGeneralChannel(client, prisma, guildId, `**${tournamentName}** is cancelled.`);
+    async tournamentCancelled(guildId: string, tournamentId: string, tournamentName: string): Promise<void> {
+      await postToGeneralChannel(client, prisma, guildId, `🚫 [**${tournamentName}**](${tournamentUrl(tournamentId)}) is cancelled.`, {
+        color: LOG_COLOR.GENERAL_TOURNAMENT_CANCELLED,
+      });
     },
 
-    async checkinClosed(guildId: string, tournamentName: string): Promise<void> {
-      await postToGeneralChannel(client, prisma, guildId, `Check-in is closed for **${tournamentName}**.`);
+    async checkinClosed(guildId: string, tournamentId: string, tournamentName: string): Promise<void> {
+      await postToGeneralChannel(client, prisma, guildId, `🔒 Check-in is closed for [**${tournamentName}**](${tournamentUrl(tournamentId)}).`, {
+        color: LOG_COLOR.CHECKIN_CLOSED,
+      });
     },
 
     // Deliberately just the headline, not the operational detail (thread
     // count, pack-size/tier-role/referee-pool warnings) the ephemeral reply
     // and organizer-alert log carry — those are for the TO, not spectators.
-    async tournamentStarted(guildId: string, tournamentName: string): Promise<void> {
-      await postToGeneralChannel(client, prisma, guildId, `🏁 **${tournamentName}** has started!`);
+    async tournamentStarted(guildId: string, tournamentId: string, tournamentName: string): Promise<void> {
+      await postToGeneralChannel(client, prisma, guildId, `🏁 [**${tournamentName}**](${tournamentUrl(tournamentId)}) has started!`, {
+        color: LOG_COLOR.TOURNAMENT_STARTED,
+      });
     },
   };
 }

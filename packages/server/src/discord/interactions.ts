@@ -321,7 +321,17 @@ async function handleRulingButton(
       const result = await appendMatchEvent(prisma, random, match.id, event, interaction.id);
       if (match.alertMsgId) {
         const outcome = `awarded the set to ${displayName(players, winnerId)}`;
-        await alert.resolve(match.tournament.guildId, { messageId: match.alertMsgId }, buildResolvedAlert(refDisplayName, outcome));
+        const threadLink = `https://discord.com/channels/${match.tournament.guildId}/${match.threadId}`;
+        const [ep0, ep1] = match.participants;
+        const escalationPlayers: readonly [{ entrantId: EntrantId; name: string }, { entrantId: EntrantId; name: string }] = [
+          { entrantId: ep0!.entrantId, name: displayName(players, ep0!.entrantId) },
+          { entrantId: ep1!.entrantId, name: displayName(players, ep1!.entrantId) },
+        ];
+        await alert.resolve(
+          match.tournament.guildId,
+          { messageId: match.alertMsgId },
+          buildResolvedAlert(match.id, cachedPending.songIndex, cachedPending.reason, threadLink, match.tournamentId, escalationPlayers, refDisplayName, outcome),
+        );
         await prisma.match.update({ where: { id: match.id }, data: { alertMsgId: null } });
       }
       await matchChannel.postLogMessage(ref, renderSetRulingLog(winnerId, refDisplayName, players));
@@ -360,7 +370,17 @@ async function handleRulingButton(
     if (match.alertMsgId) {
       const outcome =
         rulingResult === 'VOID' ? 'voided' : `awarded to ${displayName(players, rulingResult)}`;
-      await alert.resolve(match.tournament.guildId, { messageId: match.alertMsgId }, buildResolvedAlert(refDisplayName, outcome));
+      const threadLink = `https://discord.com/channels/${match.tournament.guildId}/${match.threadId}`;
+      const [ep0, ep1] = match.participants;
+      const escalationPlayers: readonly [{ entrantId: EntrantId; name: string }, { entrantId: EntrantId; name: string }] = [
+        { entrantId: ep0!.entrantId, name: displayName(players, ep0!.entrantId) },
+        { entrantId: ep1!.entrantId, name: displayName(players, ep1!.entrantId) },
+      ];
+      await alert.resolve(
+        match.tournament.guildId,
+        { messageId: match.alertMsgId },
+        buildResolvedAlert(match.id, cachedPending.songIndex, cachedPending.reason, threadLink, match.tournamentId, escalationPlayers, refDisplayName, outcome),
+      );
       await prisma.match.update({ where: { id: match.id }, data: { alertMsgId: null } });
     }
 

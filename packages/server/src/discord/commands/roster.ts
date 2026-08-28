@@ -106,7 +106,8 @@ async function handleAdd(interaction: ChatInputCommandInteraction, ctx: CommandC
       await logToOrganizers(ctx.alert, interaction.guildId!, `📋 **${interaction.user.username}** added **${player.username}** to the roster.`);
       // "Anything a player can do for themselves, a Tournament Organizer can
       // do for them" — same public general-channel hype line `/join` posts.
-      await ctx.playerNotification.entrantJoined(interaction.guildId!, playerName);
+      const tournament = await ctx.prisma.tournament.findUniqueOrThrow({ where: { id: result.entrant.tournamentId } });
+      await ctx.playerNotification.entrantJoined(interaction.guildId!, playerName, tournament.id, tournament.name);
       ctx.realtime.publishRosterChanged(result.entrant.tournamentId);
       return;
     }

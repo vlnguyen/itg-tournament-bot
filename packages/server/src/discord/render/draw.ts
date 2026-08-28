@@ -35,6 +35,18 @@ export const LOG_COLOR = {
   MATCH_READY: 0x3498db,
   /** The DM announcing check-in has opened. */
   TOURNAMENT_STARTING: 0x3498db,
+  /** General channel — registration opened. */
+  REGISTRATION_OPEN: 0x2ecc71,
+  /** General channel — an entrant joined. */
+  ENTRANT_JOINED: 0x2ecc71,
+  /** General channel — an entrant checked in. */
+  ENTRANT_CHECKED_IN: 0x3498db,
+  /** General channel — the tournament was cancelled. Red, distinct from `TOURNAMENT_CANCELLED`'s orange in-thread note — this is the public-facing announcement, not an organizer-facing status line. */
+  GENERAL_TOURNAMENT_CANCELLED: 0xe74c3c,
+  /** General channel — check-in closed. Gray, distinct from cancellation's red — this is a routine phase change, not a bad outcome. */
+  CHECKIN_CLOSED: 0x95a5a6,
+  /** General channel — the tournament started. */
+  TOURNAMENT_STARTED: 0x2ecc71,
 } as const;
 
 /**

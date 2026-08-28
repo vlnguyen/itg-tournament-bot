@@ -39,7 +39,8 @@ export async function handleJoin(interaction: ChatInputCommandInteraction, ctx: 
       // `player-notification-adapter.ts`.
       await logToOrganizers(ctx.alert, interaction.guildId!, `📋 **${interaction.user.username}** joined the tournament.`);
       const displayName = memberDisplayName(interaction.member, interaction.user);
-      await ctx.playerNotification.entrantJoined(interaction.guildId!, displayName);
+      const tournament = await ctx.prisma.tournament.findUniqueOrThrow({ where: { id: result.entrant.tournamentId } });
+      await ctx.playerNotification.entrantJoined(interaction.guildId!, displayName, tournament.id, tournament.name);
       ctx.realtime.publishRosterChanged(result.entrant.tournamentId);
       return;
     }

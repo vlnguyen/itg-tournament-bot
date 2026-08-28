@@ -105,7 +105,7 @@ export class LifecycleController {
       case 'OPEN_REGISTRATION': {
         const t = await openRegistration(this.prisma, tournamentId, actorId);
         await this.log(guildId, actorName, linkifyTournamentName(`Registration is open for **${t.name}** — \`/join\` now works.`, t.name, t.id));
-        await this.playerNotification.registrationOpened(guildId, t.name);
+        await this.playerNotification.registrationOpened(guildId, t.id, t.name);
         return;
       }
       case 'CLOSE_REGISTRATION': {
@@ -135,7 +135,7 @@ export class LifecycleController {
       case 'CLOSE_CHECKIN': {
         const t = await closeCheckin(this.prisma, tournamentId, actorId);
         await this.log(guildId, actorName, linkifyTournamentName(`Check-in is closed for **${t.name}**.`, t.name, t.id));
-        await this.playerNotification.checkinClosed(guildId, t.name);
+        await this.playerNotification.checkinClosed(guildId, t.id, t.name);
         return;
       }
       case 'START': {
@@ -174,7 +174,7 @@ export class LifecycleController {
           lines.push(`⚠️ These entrants also hold a tier role: ${outcome.holdsTierRole.join(', ')}.`);
         }
         await this.log(guildId, actorName, linkifyTournamentName(lines.join(' '), outcome.tournament.name, outcome.tournament.id));
-        await this.playerNotification.tournamentStarted(guildId, outcome.tournament.name);
+        await this.playerNotification.tournamentStarted(guildId, outcome.tournament.id, outcome.tournament.name);
         // Starting drops no-shows and collapses seeds — a real roster
         // change a seeding page held open elsewhere needs to hear about.
         this.realtime.publishRosterChanged(tournamentId);
@@ -185,7 +185,7 @@ export class LifecycleController {
         await this.closeCancelledThreads(result.cancelledMatchIds);
         const suffix = result.cancelledMatchIds.length > 0 ? ` ⚠️ ${result.cancelledMatchIds.length} in-progress match(es) were cancelled.` : '';
         await this.log(guildId, actorName, linkifyTournamentName(`**${result.tournament.name}** is cancelled.${suffix}`, result.tournament.name, result.tournament.id));
-        await this.playerNotification.tournamentCancelled(guildId, result.tournament.name);
+        await this.playerNotification.tournamentCancelled(guildId, result.tournament.id, result.tournament.name);
         return;
       }
       case 'RENAME': {

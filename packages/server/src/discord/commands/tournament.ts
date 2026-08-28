@@ -65,7 +65,7 @@ export async function handleTournament(interaction: ChatInputCommandInteraction,
         ctx,
         () => openRegistration(ctx.prisma, tournament.id, interaction.user.id),
         (t) => `Registration is open for **${t.name}** — \`/join\` now works.`,
-        (t) => ctx.playerNotification.registrationOpened(interaction.guildId!, t.name),
+        (t) => ctx.playerNotification.registrationOpened(interaction.guildId!, t.id, t.name),
       );
     case 'close-registration':
       return runTransition(
@@ -82,7 +82,7 @@ export async function handleTournament(interaction: ChatInputCommandInteraction,
         ctx,
         () => closeCheckin(ctx.prisma, tournament.id, interaction.user.id),
         (t) => `Check-in is closed for **${t.name}**.`,
-        (t) => ctx.playerNotification.checkinClosed(interaction.guildId!, t.name),
+        (t) => ctx.playerNotification.checkinClosed(interaction.guildId!, t.id, t.name),
       );
     case 'start':
       return handleStart(interaction, ctx, tournament, guildRow!);
@@ -305,7 +305,7 @@ async function handleCancel(interaction: ChatInputCommandInteraction, ctx: Comma
 
   const orgLines = [linkifyTournamentName(lines[0]!, result.tournament.name, result.tournament.id), ...lines.slice(1)];
   await logToOrganizers(ctx.alert, interaction.guildId!, [`📋 **${interaction.user.username}**:`, ...orgLines].join('\n'));
-  await ctx.playerNotification.tournamentCancelled(interaction.guildId!, result.tournament.name);
+  await ctx.playerNotification.tournamentCancelled(interaction.guildId!, result.tournament.id, result.tournament.name);
 }
 
 /**
@@ -349,7 +349,7 @@ async function handleStart(
 
   const orgLines = [linkifyTournamentName(lines[0]!, outcome.tournament.name, outcome.tournament.id), ...lines.slice(1)];
   await logToOrganizers(ctx.alert, interaction.guildId!, [`📋 **${interaction.user.username}**:`, ...orgLines].join('\n'));
-  await ctx.playerNotification.tournamentStarted(interaction.guildId!, outcome.tournament.name);
+  await ctx.playerNotification.tournamentStarted(interaction.guildId!, outcome.tournament.id, outcome.tournament.name);
   ctx.realtime.publishLifecycleChanged(outcome.tournament.id);
   // Starting drops no-shows and collapses seeds — a real roster change a
   // seeding page held open elsewhere needs to hear about, the same

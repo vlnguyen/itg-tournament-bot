@@ -305,7 +305,17 @@ export async function handleRule(interaction: ChatInputCommandInteraction, ctx: 
       const result = await appendMatchEvent(ctx.prisma, ctx.random, match.id, event, interaction.id);
       if (match.alertMsgId) {
         const outcome = `awarded the set to ${displayName(players, rulingResult)}`;
-        await ctx.alert.resolve(match.tournament.guildId, { messageId: match.alertMsgId }, buildResolvedAlert(refName, outcome));
+        const threadLink = `https://discord.com/channels/${match.tournament.guildId}/${match.threadId}`;
+        const [ep0, ep1] = match.participants;
+        const escalationPlayers: readonly [{ entrantId: EntrantId; name: string }, { entrantId: EntrantId; name: string }] = [
+          { entrantId: ep0!.entrantId, name: displayName(players, ep0!.entrantId) },
+          { entrantId: ep1!.entrantId, name: displayName(players, ep1!.entrantId) },
+        ];
+        await ctx.alert.resolve(
+          match.tournament.guildId,
+          { messageId: match.alertMsgId },
+          buildResolvedAlert(match.id, undefined, 'SET_RESULT_DISAGREEMENT', threadLink, match.tournamentId, escalationPlayers, refName, outcome),
+        );
         await ctx.prisma.match.update({ where: { id: match.id }, data: { alertMsgId: null } });
       }
       await ctx.matchChannel.postLogMessage(ref, renderSetRulingLog(rulingResult, refName, players));
@@ -353,7 +363,18 @@ export async function handleRule(interaction: ChatInputCommandInteraction, ctx: 
 
     if (match.alertMsgId) {
       const outcome = rulingResult === 'VOID' ? 'voided' : rulingResult === 'TIE' ? 'ruled a tie' : `awarded to ${displayName(players, rulingResult)}`;
-      await ctx.alert.resolve(match.tournament.guildId, { messageId: match.alertMsgId }, buildResolvedAlert(refName, outcome));
+      const threadLink = `https://discord.com/channels/${match.tournament.guildId}/${match.threadId}`;
+      const [ep0, ep1] = match.participants;
+      const escalationPlayers: readonly [{ entrantId: EntrantId; name: string }, { entrantId: EntrantId; name: string }] = [
+        { entrantId: ep0!.entrantId, name: displayName(players, ep0!.entrantId) },
+        { entrantId: ep1!.entrantId, name: displayName(players, ep1!.entrantId) },
+      ];
+      const escalationReason = pending.kind === 'AWAITING_TO' ? pending.reason : 'WINNER_DISAGREEMENT';
+      await ctx.alert.resolve(
+        match.tournament.guildId,
+        { messageId: match.alertMsgId },
+        buildResolvedAlert(match.id, songIndex, escalationReason, threadLink, match.tournamentId, escalationPlayers, refName, outcome),
+      );
       await ctx.prisma.match.update({ where: { id: match.id }, data: { alertMsgId: null } });
     }
 

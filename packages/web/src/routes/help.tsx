@@ -61,7 +61,7 @@ export default function Help(): JSX.Element {
         <Text mt="xs">
           Sign in with the <Anchor href="/api/auth/login">Sign in</Anchor> link in the header — it's Discord's own login, and it
           never gates anything the bot can do. A referee can rule on every match from Discord alone, buttons and slash commands,
-          and never needs to open the web app at all.
+          and never needs to open the web app.
         </Text>
         <Text mt="xs">
           What signing in adds: the homepage lists every Discord server you manage (even ones the bot hasn't been added to yet),
@@ -78,8 +78,8 @@ export default function Help(): JSX.Element {
           Sign in, then look at the <Anchor component={Link} to="/">home page</Anchor>. Every server where you have Discord's{' '}
           <strong>Manage Server</strong> permission shows up as a card. One the bot already shares with you links straight to
           that server's page; one it hasn't joined yet shows an <Badge variant="light">Add to server</Badge> badge — click it,
-          confirm, and you're handed off to Discord's own authorization screen, where you pick the channels and grant the
-          permissions the invite asks for.
+          confirm, and Discord takes you to its own authorization screen, where you pick the channels and grant the permissions
+          the invite asks for.
         </Text>
       </div>
 
@@ -89,15 +89,14 @@ export default function Help(): JSX.Element {
         </Title>
         <Text mt="xs">
           Whoever has Manage Server runs setup — either <Cmd>/setup channels</Cmd> and <Cmd>/setup roles</Cmd> in Discord, or the{' '}
-          <strong>Server Settings</strong> page linked from your server's overview. Both do exactly the same thing and are safe
-          to mix.
+          <strong>Server Settings</strong> page linked from your server's overview. Both do the same thing and are safe to mix.
         </Text>
         <Text mt="xs">Setup points the bot at:</Text>
         <List size="sm" mt={4}>
           <List.Item>
-            <strong>Four channels</strong> — <em>Matches</em> (where private match threads are created), <em>Organizer alerts</em>{' '}
-            (the referee/organizer work queue), <em>Results</em> (a clean, chronological log of every finished match), and
-            optionally <em>General</em> (where results and announcements get forwarded for competitors to see).
+            <strong>Four channels</strong> — <em>Matches</em> (holds private match threads), <em>Organizer alerts</em> (the
+            referee/organizer work queue), <em>Results</em> (a clean, chronological log of every finished match), and optionally{' '}
+            <em>General</em> (forwards results and announcements for competitors to see).
           </List.Item>
           <List.Item>
             <strong>Two roles</strong> — <em>Referee</em> (can rule on disputed matches) and <em>Tournament Organizer</em> (can
@@ -107,9 +106,9 @@ export default function Help(): JSX.Element {
         </List>
         <Text mt="xs">
           Every channel and role can either be created for you or point at something that already exists. Setup accepts any
-          selection and then reports a diagnostic — exactly what's still missing and where the permission was actually lost — with
-          a <em>Re-check</em> button so the loop is fix-in-Discord → click → see what remains. Nothing here blocks a save; the
-          diagnostic is only enforced when the tournament actually starts.
+          selection and then reports a diagnostic listing what's still missing and where the permission was lost. Fix the
+          problem in Discord, click <em>Re-check</em>, and see what's left. Nothing here blocks a save; the diagnostic is only
+          enforced when the tournament starts.
         </Text>
       </div>
 
@@ -120,8 +119,8 @@ export default function Help(): JSX.Element {
         <Text mt="xs">
           A Tournament Organizer runs <Cmd>/tournament create &lt;name&gt;</Cmd>, or clicks <strong>Create</strong> next to
           "Active Tournament" on the server's page. Either way the tournament starts in <Badge color="gray">Draft</Badge> and
-          claims the server's one tournament slot — a server can only hold one tournament at a time, draft included, so it has to
-          be renamed, cancelled, or carried through before another can be created.
+          claims the server's one tournament slot — a server can only hold one tournament at a time, draft included, so you have
+          to rename it, cancel it, or carry it through before creating another.
         </Text>
       </div>
 
@@ -131,7 +130,7 @@ export default function Help(): JSX.Element {
         </Title>
         <Text mt="xs">
           Open the tournament's <strong>Song Pack</strong> tab and use <strong>Import pack</strong> to load a StepMania folder or
-          a <Code>.zip</Code> — everything is parsed in your browser, so the simfiles themselves never reach the server. From
+          a <Code>.zip</Code> — your browser parses everything, so the simfiles themselves never reach the server. From
           there, edit any chart's metadata, toggle flags, remove charts, and search across title, subtitle, and stepartist
           (original and transliterated). Editing is safe at any time, even mid-tournament, and copying a pack from a past
           tournament is the fastest way to start a recurring event.
@@ -156,8 +155,8 @@ export default function Help(): JSX.Element {
         <Text mt="xs">
           Run <Cmd>/tournament open-checkin</Cmd> to close registration and open check-in. Every registered player gets a direct
           message with a link back to the server, and can confirm attendance with <Cmd>/checkin</Cmd>. The{' '}
-          <strong>Seeding</strong> page marks who has checked in and whose check-in DM couldn't be delivered, so an organizer can
-          chase down anyone the bot couldn't reach.
+          <strong>Seeding</strong> page marks who has checked in and whose check-in DM the bot couldn't deliver, so an organizer
+          can chase down anyone it couldn't reach.
         </Text>
       </div>
 
@@ -166,12 +165,11 @@ export default function Help(): JSX.Element {
           Seeding
         </Title>
         <Text mt="xs">
-          A player is seeded automatically the moment they join, at the back of the order. On the tournament's{' '}
-          <strong>Seeding</strong> page, drag an entry to reorder it, or type a seed number directly for a big jump. Nothing is
-          locked in until the tournament actually starts — a late check-in or a withdrawal can still change the field right up to
-          that moment. An organizer can also act on a player's behalf with <Cmd>/roster add</Cmd>, <Cmd>/roster checkin</Cmd>,{' '}
-          <Cmd>/roster uncheckin</Cmd>, and <Cmd>/roster remove</Cmd>; <Cmd>/roster list</Cmd> is public and needs no permission
-          at all.
+          The bot seeds a player automatically the moment they join, at the back of the order. On the tournament's{' '}
+          <strong>Seeding</strong> page, drag an entry to reorder it, or type a seed number directly for a big jump. Nothing
+          locks in until the tournament starts — a late check-in or a withdrawal can still change the field right up to that
+          moment. An organizer can also act on a player's behalf with <Cmd>/roster add</Cmd>, <Cmd>/roster checkin</Cmd>,{' '}
+          <Cmd>/roster uncheckin</Cmd>, and <Cmd>/roster remove</Cmd>; <Cmd>/roster list</Cmd> is public and needs no permission.
         </Text>
       </div>
 
@@ -181,9 +179,9 @@ export default function Help(): JSX.Element {
         </Title>
         <Text mt="xs">
           Run <Cmd>/tournament start</Cmd> once there are at least two checked-in entrants. Starting checks Discord permissions
-          one more time and blocks on anything missing; a song pack below the recommended size warns but never blocks. On
-          success, anyone who never checked in is dropped, the survivors are renumbered from 1, the bracket is generated, a
-          private match thread is created for every round-one match, and each pair of players is notified.
+          again and blocks on anything missing; a song pack below the recommended size warns but never blocks. On success,
+          starting drops anyone who never checked in, renumbers the survivors from 1, generates the bracket, opens a private
+          match thread for every round-one match, and notifies each pair of players.
         </Text>
       </div>
 
@@ -198,7 +196,7 @@ export default function Help(): JSX.Element {
             For each song, both players submit their EX% score and post a results-screen photo; once both have, they agree on a
             winner (or a tie) with one tap each.
           </List.Item>
-          <List.Item>The bot posts a running log as the set continues, and a final result summary once it's decided.</List.Item>
+          <List.Item>The bot posts a running log as the set continues, and a final result summary once the set ends.</List.Item>
         </List>
       </div>
 
@@ -207,9 +205,9 @@ export default function Help(): JSX.Element {
           Handling disputes
         </Title>
         <Text mt="xs">
-          If the two players don't agree on a song's winner, the match escalates immediately — no retries, no timers. The organizer
-          alert channel (and the Organizer Console's alert queue) is the work queue: anyone at Referee tier or above can pick it up
-          and rule from the alert's own buttons, or from the match thread with <Cmd>/rule song</Cmd> / <Cmd>/rule set</Cmd>.{' '}
+          If the two players don't agree on a song's winner, the match escalates immediately, with no retries and no timers. The
+          organizer alert channel (and the Organizer Console's alert queue) is the work queue: anyone at Referee tier or above
+          can pick it up and rule from the alert's own buttons, or from the match thread with <Cmd>/rule song</Cmd> / <Cmd>/rule set</Cmd>.{' '}
           <Cmd>/dq</Cmd> disqualifies a player from just the current match, or from the whole tournament (which cascades a walkover
           through the rest of their bracket).
         </Text>
@@ -232,8 +230,8 @@ export default function Help(): JSX.Element {
           Finishing the tournament
         </Title>
         <Text mt="xs">
-          Once the grand final is decided, the bot posts full final standings to the results channel (forwarded to general) and the
-          tournament moves to <Badge color="green">Complete</Badge>, freeing the server's slot for a new one. Nothing is deleted —
+          Once the grand final ends, the bot posts full final standings to the results channel (forwarded to general) and moves
+          the tournament to <Badge color="green">Complete</Badge>, freeing the server's slot for a new one. Nothing is deleted —
           the tournament's page is a permanent archive at the same URL forever, every player gets a page showing their record in
           that server, and the dashboard keeps a signed-in user's past events in one place.
         </Text>
@@ -243,7 +241,7 @@ export default function Help(): JSX.Element {
         <Title order={2} id="commands">
           Command reference
         </Title>
-        <Text mt="xs">Every command is also listed in Discord with <Cmd>/commands</Cmd>, grouped the same way.</Text>
+        <Text mt="xs"><Cmd>/commands</Cmd> also lists every command in Discord, grouped the same way.</Text>
 
         <Title order={3} size="h5" mt="md" mb={4}>
           Anyone
@@ -436,9 +434,9 @@ export default function Help(): JSX.Element {
           <Accordion.Item value="signin">
             <Accordion.Control>Do I have to sign in?</Accordion.Control>
             <Accordion.Panel>
-              No. Every bracket, match, and pack page is public, and every action — registering, checking in, refereeing, even
-              running the whole tournament lifecycle — works from Discord alone. Signing in only adds the homepage's "servers you
-              manage" list and a personal dashboard.
+              No. Every bracket, match, and pack page is public, and every action works from Discord alone — registering,
+              checking in, refereeing, even running the whole tournament lifecycle. Signing in only adds the homepage's "servers
+              you manage" list and a personal dashboard.
             </Accordion.Panel>
           </Accordion.Item>
           <Accordion.Item value="perms">
@@ -461,24 +459,23 @@ export default function Help(): JSX.Element {
           <Accordion.Item value="stall">
             <Accordion.Control>What happens if a match stalls?</Accordion.Control>
             <Accordion.Panel>
-              The bot never decides on its own — a disagreement, a missing photo, or a player who's gone quiet just waits until
-              someone at Referee tier or above steps in from the organizer alert channel, the Organizer Console, or{' '}
-              <Cmd>/rule</Cmd>/<Cmd>/dq</Cmd>.
+              The bot never decides on its own. If the players disagree, a photo is missing, or someone's gone quiet, the match
+              just waits until someone at Referee tier or above steps in from the organizer alert channel, the Organizer
+              Console, or <Cmd>/rule</Cmd>/<Cmd>/dq</Cmd>.
             </Accordion.Panel>
           </Accordion.Item>
           <Accordion.Item value="cancel">
             <Accordion.Control>Can I cancel a tournament?</Accordion.Control>
             <Accordion.Panel>
-              Yes, at any point before it's complete — even mid-event. <Cmd>/tournament cancel</Cmd> ends every match still in
-              progress, announces the cancellation, and frees the server's tournament slot. Any match already finished keeps its
-              real result.
+              Yes, even mid-event. <Cmd>/tournament cancel</Cmd> ends every match still in progress, announces the cancellation,
+              and frees the server's tournament slot. Any match already finished keeps its real result.
             </Accordion.Panel>
           </Accordion.Item>
           <Accordion.Item value="delete">
             <Accordion.Control>Are past tournaments deleted?</Accordion.Control>
             <Accordion.Panel>
-              No. A finished tournament's page stays at the same URL forever, exactly as it looked when it ended — nothing is
-              removed, and a Discord message linking to it from a year ago still resolves.
+              No. A finished tournament's page stays at the same URL forever, unchanged from how it looked when it ended. Old
+              links to it, from Discord or anywhere else, keep working.
             </Accordion.Panel>
           </Accordion.Item>
         </Accordion>

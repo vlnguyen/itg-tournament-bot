@@ -1,7 +1,10 @@
 import { EmbedBuilder, type ChatInputCommandInteraction, type User } from 'discord.js';
+import { plural } from '@itg/shared';
 import { rosterAdd, rosterCheckin, rosterRemove, rosterUncheckin } from '../../services/roster-service.js';
 import { findActiveTournament } from '../../services/tournament-service.js';
 import { fetchDisplayNameById, fetchMemberDisplayName } from '../member-display-name.js';
+import { tournamentUrl } from '../../web-url.js';
+import { LOG_COLOR } from '../render/draw.js';
 import { requireOrganizerTier } from './authz.js';
 import { logToOrganizers } from './organizer-log.js';
 import { PHASE_LABEL } from './registration.js';
@@ -94,7 +97,7 @@ async function handleList(interaction: ChatInputCommandInteraction, ctx: Command
   const embed = new EmbedBuilder()
     .setTitle(`${tournament.name} — roster`)
     .setDescription(lines.join('\n'))
-    .setFooter({ text: `${entrants.length} entrant(s) · ✅ checked in` });
+    .setFooter({ text: `${plural(entrants.length, 'entrant', 'entrants')} · ✅ checked in` });
   await interaction.editReply({ embeds: [embed] });
 }
 
@@ -103,10 +106,15 @@ async function handleAdd(interaction: ChatInputCommandInteraction, ctx: CommandC
   switch (result.kind) {
     case 'JOINED': {
       await interaction.reply({ ephemeral: true, content: `Added **${playerName}** to the roster.` });
-      await logToOrganizers(ctx.alert, interaction.guildId!, `📋 **${interaction.user.username}** added **${player.username}** to the roster.`);
+      const tournament = await ctx.prisma.tournament.findUniqueOrThrow({ where: { id: result.entrant.tournamentId } });
+      await logToOrganizers(
+        ctx.alert,
+        interaction.guildId!,
+        `📋 **${interaction.user.username}** added **${player.username}** to [**${tournament.name}**](${tournamentUrl(tournament.id)}).`,
+        { color: LOG_COLOR.RULING },
+      );
       // "Anything a player can do for themselves, a Tournament Organizer can
       // do for them" — same public general-channel hype line `/join` posts.
-      const tournament = await ctx.prisma.tournament.findUniqueOrThrow({ where: { id: result.entrant.tournamentId } });
       await ctx.playerNotification.entrantJoined(interaction.guildId!, playerName, tournament.id, tournament.name);
       ctx.realtime.publishRosterChanged(result.entrant.tournamentId);
       return;
@@ -128,7 +136,13 @@ async function handleCheckin(interaction: ChatInputCommandInteraction, ctx: Comm
   switch (result.kind) {
     case 'CHECKED_IN': {
       await interaction.reply({ ephemeral: true, content: `Checked in **${playerName}**.` });
-      await logToOrganizers(ctx.alert, interaction.guildId!, `📋 **${interaction.user.username}** checked in **${player.username}**.`);
+      const tournament = await ctx.prisma.tournament.findUniqueOrThrow({ where: { id: result.entrant.tournamentId } });
+      await logToOrganizers(
+        ctx.alert,
+        interaction.guildId!,
+        `📋 **${interaction.user.username}** checked in **${player.username}** for [**${tournament.name}**](${tournamentUrl(tournament.id)}).`,
+        { color: LOG_COLOR.RULING },
+      );
       // Same public general-channel hype line `/checkin` posts.
       await ctx.playerNotification.entrantCheckedIn(interaction.guildId!, playerName);
       ctx.realtime.publishRosterChanged(result.entrant.tournamentId);
@@ -154,7 +168,13 @@ async function handleUncheckin(interaction: ChatInputCommandInteraction, ctx: Co
   switch (result.kind) {
     case 'UNCHECKED_IN': {
       await interaction.reply({ ephemeral: true, content: `Un-checked-in **${playerName}**.` });
-      await logToOrganizers(ctx.alert, interaction.guildId!, `📋 **${interaction.user.username}** un-checked-in **${player.username}**.`);
+      const tournament = await ctx.prisma.tournament.findUniqueOrThrow({ where: { id: result.entrant.tournamentId } });
+      await logToOrganizers(
+        ctx.alert,
+        interaction.guildId!,
+        `📋 **${interaction.user.username}** un-checked-in **${player.username}** for [**${tournament.name}**](${tournamentUrl(tournament.id)}).`,
+        { color: LOG_COLOR.RULING },
+      );
       ctx.realtime.publishRosterChanged(result.entrant.tournamentId);
       return;
     }
@@ -178,7 +198,13 @@ async function handleRemove(interaction: ChatInputCommandInteraction, ctx: Comma
   switch (result.kind) {
     case 'REMOVED': {
       await interaction.reply({ ephemeral: true, content: `Removed **${playerName}** from the tournament.` });
-      await logToOrganizers(ctx.alert, interaction.guildId!, `📋 **${interaction.user.username}** removed **${player.username}** from the tournament.`);
+      const tournament = await ctx.prisma.tournament.findUniqueOrThrow({ where: { id: result.entrant.tournamentId } });
+      await logToOrganizers(
+        ctx.alert,
+        interaction.guildId!,
+        `📋 **${interaction.user.username}** removed **${player.username}** from [**${tournament.name}**](${tournamentUrl(tournament.id)}).`,
+        { color: LOG_COLOR.RULING },
+      );
       ctx.realtime.publishRosterChanged(result.entrant.tournamentId);
       return;
     }

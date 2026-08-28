@@ -22,7 +22,7 @@ export async function logToOrganizers(
   alert: AlertPort,
   guildId: string,
   message: string,
-  opts: { title?: string; color?: number } = {},
+  opts: { title?: string | undefined; color?: number | undefined } = {},
 ): Promise<void> {
   const embed = new EmbedBuilder().setDescription(message);
   if (opts.title) embed.setTitle(opts.title);

@@ -6,6 +6,7 @@ export * from './bracket.js';
 export * from './guild.js';
 export * from './lifecycle.js';
 export * from './match.js';
+export * from './plural.js';
 export * from './roster.js';
 export * from './rulings.js';
 export * from './run-view.js';

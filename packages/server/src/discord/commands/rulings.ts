@@ -5,6 +5,7 @@ import { requireFormat } from '../../services/engine.js';
 import { disqualifyFromTournament } from '../../services/advancement-service.js';
 import { appendMatchEvent, IllegalActionError } from '../../services/match-service.js';
 import { findActiveTournament } from '../../services/tournament-service.js';
+import { tournamentUrl } from '../../web-url.js';
 import { renderDqLog, renderRulingLog, renderSetRulingLog } from '../log-messages.js';
 import { applyAppendResult, CANCELLED_MATCH_MESSAGE, describeStale } from '../match-event-effects.js';
 import { buildPlayerDirectory, loadMatch, loadMatchByThreadId, type MatchWithParticipants } from '../match-lookup.js';
@@ -212,7 +213,7 @@ async function handleTournamentScopeDq(interaction: ChatInputCommandInteraction,
   await logToOrganizers(
     ctx.alert,
     interaction.guildId!,
-    `**${interaction.user.username}** disqualified **${playerName}** from the tournament.${linksBlock}`,
+    `**${interaction.user.username}** disqualified **${playerName}** from [**${tournament.name}**](${tournamentUrl(tournament.id)}).${linksBlock}`,
     { title: '⛔ Disqualification', color: LOG_COLOR.RULING },
   );
 }

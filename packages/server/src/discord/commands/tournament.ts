@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { EmbedBuilder, type ChatInputCommandInteraction } from 'discord.js';
 import type { Guild as GuildRow, Tournament } from '@prisma/client';
 import type { ChartInput } from '@itg/shared';
+import { plural } from '@itg/shared';
 import { startTournamentWithDiscordEffects } from '../start-tournament-effects.js';
 import {
   cancelTournament,
@@ -66,6 +67,7 @@ export async function handleTournament(interaction: ChatInputCommandInteraction,
         () => openRegistration(ctx.prisma, tournament.id, interaction.user.id),
         (t) => `Registration is open for **${t.name}** — \`/join\` now works.`,
         (t) => ctx.playerNotification.registrationOpened(interaction.guildId!, t.id, t.name),
+        LOG_COLOR.REGISTRATION_OPEN,
       );
     case 'close-registration':
       return runTransition(
@@ -83,6 +85,7 @@ export async function handleTournament(interaction: ChatInputCommandInteraction,
         () => closeCheckin(ctx.prisma, tournament.id, interaction.user.id),
         (t) => `Check-in is closed for **${t.name}**.`,
         (t) => ctx.playerNotification.checkinClosed(interaction.guildId!, t.id, t.name),
+        LOG_COLOR.CHECKIN_CLOSED,
       );
     case 'start':
       return handleStart(interaction, ctx, tournament, guildRow!);
@@ -171,7 +174,7 @@ async function handleCreate(interaction: ChatInputCommandInteraction, ctx: Comma
     try {
       const charts = loadDebugPack();
       await ctx.prisma.chart.createMany({ data: charts.map((c) => ({ tournamentId: t.id, ...c })) });
-      console.log(`[DEBUG] seeded ${charts.length} chart(s) from debug-storm-2026-pack.json into "${t.name}"`);
+      console.log(`[DEBUG] seeded ${plural(charts.length, 'chart', 'charts')} from debug-storm-2026-pack.json into "${t.name}"`);
     } catch (err) {
       console.warn(`[DEBUG] failed to auto-seed test pack: ${(err as Error).message}`);
     }
@@ -199,13 +202,20 @@ async function runTransition(
   run: () => Promise<Tournament>,
   describe: (t: Tournament) => string,
   afterSuccess?: (t: Tournament) => Promise<void>,
+  /** Matches this transition's own public-facing announcement color, where one exists — e.g. registration-open's alert matches the general channel's green. `undefined` (close-registration, rename) leaves the alert uncolored, same as it always was. */
+  color?: number,
 ): Promise<void> {
   await interaction.deferReply({ ephemeral: true });
   try {
     const t = await run();
     const description = describe(t);
     await interaction.editReply(description);
-    await logToOrganizers(ctx.alert, interaction.guildId!, `📋 **${interaction.user.username}**: ${linkifyTournamentName(description, t.name, t.id)}`);
+    await logToOrganizers(
+      ctx.alert,
+      interaction.guildId!,
+      `📋 **${interaction.user.username}**: ${linkifyTournamentName(description, t.name, t.id)}`,
+      { color },
+    );
     ctx.realtime.publishLifecycleChanged(t.id);
     if (afterSuccess) await afterSuccess(t);
   } catch (err) {
@@ -245,7 +255,9 @@ async function handleOpenCheckin(interaction: ChatInputCommandInteraction, ctx: 
 
   const logLines = [`📋 **${interaction.user.username}**: check-in is open for [**${opened.name}**](${tournamentUrl(opened.id)}).`];
   if (unreachable.length > 0) logLines.push(`⚠️ Could not DM: ${unreachable.map((id) => `<@${id}>`).join(', ')}.`);
-  await logToOrganizers(ctx.alert, interaction.guildId!, logLines.join('\n'));
+  // Matches the "Tournament starting" DM's color — the general-channel post
+  // for this event carries no color of its own to match instead.
+  await logToOrganizers(ctx.alert, interaction.guildId!, logLines.join('\n'), { color: LOG_COLOR.TOURNAMENT_STARTING });
 }
 
 /**
@@ -298,13 +310,17 @@ async function handleCancel(interaction: ChatInputCommandInteraction, ctx: Comma
 
   const lines = [`**${result.tournament.name}** is cancelled.`];
   if (result.cancelledMatchIds.length > 0) {
-    lines.push(`⚠️ ${result.cancelledMatchIds.length} in-progress match(es) were cancelled — ${cancelledWithThreads.length} with a thread closed.`);
+    lines.push(
+      `⚠️ ${plural(result.cancelledMatchIds.length, 'in-progress match', 'in-progress matches')} were cancelled — ${cancelledWithThreads.length} with a thread closed.`,
+    );
   }
   await interaction.editReply(lines.join('\n'));
   ctx.realtime.publishLifecycleChanged(result.tournament.id);
 
   const orgLines = [linkifyTournamentName(lines[0]!, result.tournament.name, result.tournament.id), ...lines.slice(1)];
-  await logToOrganizers(ctx.alert, interaction.guildId!, [`📋 **${interaction.user.username}**:`, ...orgLines].join('\n'));
+  await logToOrganizers(ctx.alert, interaction.guildId!, [`📋 **${interaction.user.username}**:`, ...orgLines].join('\n'), {
+    color: LOG_COLOR.GENERAL_TOURNAMENT_CANCELLED,
+  });
   await ctx.playerNotification.tournamentCancelled(interaction.guildId!, result.tournament.id, result.tournament.name);
 }
 
@@ -335,9 +351,9 @@ async function handleStart(
     return;
   }
 
-  const lines = [`🏁 **${outcome.tournament.name}** has started — ${outcome.threads.length} match thread(s) created.`];
+  const lines = [`🏁 **${outcome.tournament.name}** has started — ${plural(outcome.threads.length, 'match thread', 'match threads')} created.`];
   if (outcome.packSizeWarning) {
-    lines.push(`⚠️ The chart pack has only ${outcome.packSizeWarning.actual} chart(s); ${outcome.packSizeWarning.recommended}+ is recommended.`);
+    lines.push(`⚠️ The chart pack has only ${plural(outcome.packSizeWarning.actual, 'chart', 'charts')}; ${outcome.packSizeWarning.recommended}+ is recommended.`);
   }
   if (outcome.refereePoolEmpty) {
     lines.push('⚠️ Nobody holds a role at Referee tier or above yet — a dispute has nobody to rule on it.');
@@ -348,7 +364,9 @@ async function handleStart(
   await interaction.editReply(lines.join('\n'));
 
   const orgLines = [linkifyTournamentName(lines[0]!, outcome.tournament.name, outcome.tournament.id), ...lines.slice(1)];
-  await logToOrganizers(ctx.alert, interaction.guildId!, [`📋 **${interaction.user.username}**:`, ...orgLines].join('\n'));
+  await logToOrganizers(ctx.alert, interaction.guildId!, [`📋 **${interaction.user.username}**:`, ...orgLines].join('\n'), {
+    color: LOG_COLOR.TOURNAMENT_STARTED,
+  });
   await ctx.playerNotification.tournamentStarted(interaction.guildId!, outcome.tournament.id, outcome.tournament.name);
   ctx.realtime.publishLifecycleChanged(outcome.tournament.id);
   // Starting drops no-shows and collapses seeds — a real roster change a

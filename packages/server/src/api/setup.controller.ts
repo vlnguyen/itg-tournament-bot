@@ -1,5 +1,6 @@
 import type { ChannelSlot, GuildOption, SetupChannelsRequest, SetupRolesRequest, SetupStatus as SetupStatusWire, TierRoleSlot } from '@itg/shared';
 import {
+  plural,
   SetupChannelsRequest as SetupChannelsRequestSchema,
   SetupRolesRequest as SetupRolesRequestSchema,
   SetupStatus as SetupStatusSchema,
@@ -164,8 +165,8 @@ export class SetupController {
 
     const notes = [
       results.failed.length === 0
-        ? `Repaired ${results.succeeded} overwrite(s).`
-        : `Repaired ${results.succeeded} overwrite(s); couldn't repair: ${results.failed.join('; ')}.`,
+        ? `Repaired ${plural(results.succeeded, 'overwrite', 'overwrites')}.`
+        : `Repaired ${plural(results.succeeded, 'overwrite', 'overwrites')}; couldn't repair: ${results.failed.join('; ')}.`,
     ];
     return this.buildStatus(guild, guildRow, notes);
   }

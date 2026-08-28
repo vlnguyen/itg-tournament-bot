@@ -13,6 +13,7 @@ import {
 } from 'discord.js';
 import type { Guild as GuildRow } from '@prisma/client';
 import type { ChannelSlot, TierRoleSlot } from '@itg/shared';
+import { plural } from '@itg/shared';
 import { logAction } from '../../services/audit-log.js';
 import { isRepairable, type ChannelGap } from '../setup-diagnostic.js';
 import { describeGap } from '../permission-diagnostic.js';
@@ -373,7 +374,7 @@ async function awaitDiagnosticAction(
   });
   const preface =
     results.failed.length === 0
-      ? `Repaired ${results.succeeded} overwrite(s).`
-      : `Repaired ${results.succeeded} overwrite(s); couldn't repair: ${results.failed.join('; ')}.`;
+      ? `Repaired ${plural(results.succeeded, 'overwrite', 'overwrites')}.`
+      : `Repaired ${plural(results.succeeded, 'overwrite', 'overwrites')}; couldn't repair: ${results.failed.join('; ')}.`;
   await postDiagnostic(interaction, ctx, guildRow, { preface });
 }

@@ -1,5 +1,5 @@
 import type { LifecycleStatus as LifecycleStatusWire } from '@itg/shared';
-import { LifecycleRequest, LifecycleStatus as LifecycleStatusSchema } from '@itg/shared';
+import { LifecycleRequest, LifecycleStatus as LifecycleStatusSchema, plural } from '@itg/shared';
 import { EmbedBuilder, type Client } from 'discord.js';
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post } from '@nestjs/common';
 import { ZodError } from 'zod';
@@ -104,7 +104,7 @@ export class LifecycleController {
     switch (request.action) {
       case 'OPEN_REGISTRATION': {
         const t = await openRegistration(this.prisma, tournamentId, actorId);
-        await this.log(guildId, actorName, linkifyTournamentName(`Registration is open for **${t.name}** — \`/join\` now works.`, t.name, t.id));
+        await this.log(guildId, actorName, linkifyTournamentName(`Registration is open for **${t.name}** — \`/join\` now works.`, t.name, t.id), LOG_COLOR.REGISTRATION_OPEN);
         await this.playerNotification.registrationOpened(guildId, t.id, t.name);
         return;
       }
@@ -129,12 +129,13 @@ export class LifecycleController {
           guildId,
           actorName,
           linkifyTournamentName(`Check-in is open for **${t.name}** — registered players have been notified.${suffix}`, t.name, t.id),
+          LOG_COLOR.TOURNAMENT_STARTING,
         );
         return;
       }
       case 'CLOSE_CHECKIN': {
         const t = await closeCheckin(this.prisma, tournamentId, actorId);
-        await this.log(guildId, actorName, linkifyTournamentName(`Check-in is closed for **${t.name}**.`, t.name, t.id));
+        await this.log(guildId, actorName, linkifyTournamentName(`Check-in is closed for **${t.name}**.`, t.name, t.id), LOG_COLOR.CHECKIN_CLOSED);
         await this.playerNotification.checkinClosed(guildId, t.id, t.name);
         return;
       }
@@ -163,9 +164,9 @@ export class LifecycleController {
         if (outcome.kind === 'BLOCKED') throw new BadRequestException(outcome.message);
         if (outcome.kind === 'TRANSITION_ERROR') throw new TournamentTransitionError(tournamentId, outcome.reason);
 
-        const lines = [`🏁 **${outcome.tournament.name}** has started — ${outcome.threads.length} match thread(s) created.`];
+        const lines = [`🏁 **${outcome.tournament.name}** has started — ${plural(outcome.threads.length, 'match thread', 'match threads')} created.`];
         if (outcome.packSizeWarning) {
-          lines.push(`⚠️ The chart pack has only ${outcome.packSizeWarning.actual} chart(s); ${outcome.packSizeWarning.recommended}+ is recommended.`);
+          lines.push(`⚠️ The chart pack has only ${plural(outcome.packSizeWarning.actual, 'chart', 'charts')}; ${outcome.packSizeWarning.recommended}+ is recommended.`);
         }
         if (outcome.refereePoolEmpty) {
           lines.push('⚠️ Nobody holds a role at Referee tier or above yet — a dispute has nobody to rule on it.');
@@ -173,7 +174,7 @@ export class LifecycleController {
         if (outcome.holdsTierRole.length > 0) {
           lines.push(`⚠️ These entrants also hold a tier role: ${outcome.holdsTierRole.join(', ')}.`);
         }
-        await this.log(guildId, actorName, linkifyTournamentName(lines.join(' '), outcome.tournament.name, outcome.tournament.id));
+        await this.log(guildId, actorName, linkifyTournamentName(lines.join(' '), outcome.tournament.name, outcome.tournament.id), LOG_COLOR.TOURNAMENT_STARTED);
         await this.playerNotification.tournamentStarted(guildId, outcome.tournament.id, outcome.tournament.name);
         // Starting drops no-shows and collapses seeds — a real roster
         // change a seeding page held open elsewhere needs to hear about.
@@ -183,8 +184,16 @@ export class LifecycleController {
       case 'CANCEL': {
         const result = await cancelTournament(this.prisma, tournamentId, actorId);
         await this.closeCancelledThreads(result.cancelledMatchIds);
-        const suffix = result.cancelledMatchIds.length > 0 ? ` ⚠️ ${result.cancelledMatchIds.length} in-progress match(es) were cancelled.` : '';
-        await this.log(guildId, actorName, linkifyTournamentName(`**${result.tournament.name}** is cancelled.${suffix}`, result.tournament.name, result.tournament.id));
+        const suffix =
+          result.cancelledMatchIds.length > 0
+            ? ` ⚠️ ${plural(result.cancelledMatchIds.length, 'in-progress match', 'in-progress matches')} were cancelled.`
+            : '';
+        await this.log(
+          guildId,
+          actorName,
+          linkifyTournamentName(`**${result.tournament.name}** is cancelled.${suffix}`, result.tournament.name, result.tournament.id),
+          LOG_COLOR.GENERAL_TOURNAMENT_CANCELLED,
+        );
         await this.playerNotification.tournamentCancelled(guildId, result.tournament.id, result.tournament.name);
         return;
       }
@@ -215,7 +224,8 @@ export class LifecycleController {
     }
   }
 
-  private async log(guildId: string, actorName: string, description: string): Promise<void> {
-    await logToOrganizers(this.alert, guildId, `📋 **${actorName}** (web): ${description}`);
+  /** `color` matches this transition's own public-facing announcement, where one exists — same reasoning as `runTransition`'s Discord-side counterpart (`commands/tournament.ts`). */
+  private async log(guildId: string, actorName: string, description: string, color?: number): Promise<void> {
+    await logToOrganizers(this.alert, guildId, `📋 **${actorName}** (web): ${description}`, { color });
   }
 }

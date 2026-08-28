@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { Client, Events } from 'discord.js';
+import { plural } from '@itg/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { REALTIME_PORT } from '../realtime/realtime.tokens.js';
 import { cryptoRandomPort } from '../services/ports.js';
@@ -69,7 +70,7 @@ export class DiscordBootstrapService implements OnApplicationBootstrap, OnModule
     });
 
     await loginDiscordClient(this.client, token);
-    console.log(`Logged in as ${this.client.user?.tag}, serving ${this.client.guilds.cache.size} guild(s)`);
+    console.log(`Logged in as ${this.client.user?.tag}, serving ${plural(this.client.guilds.cache.size, 'guild', 'guilds')}`);
 
     await registerCommandsForAllGuilds(this.client);
     console.log('Commands registered. Listening.');

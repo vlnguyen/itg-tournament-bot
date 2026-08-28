@@ -106,7 +106,7 @@ function TiebreakRoundSection({ t, pub }: { t: PublicMatch['tiebreaks'][number];
       <Table>
         <Table.Thead>
           <Table.Tr>
-            <Table.Th style={{ width: '1%', minWidth: '3em', whiteSpace: 'nowrap' }}>#</Table.Th>
+            <Table.Th style={{ width: '1%', minWidth: '4.5em', whiteSpace: 'nowrap' }}>#</Table.Th>
             <Table.Th>Chart</Table.Th>
             <Table.Th>Level</Table.Th>
             <Table.Th>{resolved ? 'Voted for by' : 'Status'}</Table.Th>

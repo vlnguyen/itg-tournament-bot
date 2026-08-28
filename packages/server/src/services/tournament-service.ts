@@ -192,7 +192,7 @@ export async function openRegistration(prisma: PrismaClient, tournamentId: strin
     const guild = await tx.guild.findUnique({ where: { id: t.guildId } });
     const missing = missingGuildConfig(guild);
     if (missing.length > 0) {
-      throw new TournamentTransitionError(tournamentId, `this server isn't fully configured yet — missing: ${missing.join(', ')}. Run /setup.`);
+      throw new TournamentTransitionError(tournamentId, `this server isn't fully configured yet, missing: ${missing.join(', ')}. Run /setup.`);
     }
 
     const updated = await tx.tournament.update({ where: { id: tournamentId }, data: { state: 'REGISTRATION_OPEN' } });
@@ -210,7 +210,7 @@ export async function renameTournament(prisma: PrismaClient, tournamentId: strin
   return prisma.$transaction(async (tx) => {
     const t = await tx.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
     if (t.state === 'COMPLETE' || t.state === 'CANCELLED') {
-      throw new TournamentTransitionError(tournamentId, `cannot rename — it is already ${t.state}`);
+      throw new TournamentTransitionError(tournamentId, `cannot rename, already ${t.state}`);
     }
     const updated = await tx.tournament.update({ where: { id: tournamentId }, data: { name } });
     await logAction(tx, actorId, 'TOURNAMENT_RENAMED', 'Tournament', tournamentId, { from: t.name, to: name });
@@ -346,7 +346,7 @@ export async function cancelTournament(prisma: PrismaClient, tournamentId: strin
   return prisma.$transaction(async (tx) => {
     const t = await tx.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
     if (!CANCELLABLE_STATES.includes(t.state)) {
-      throw new TournamentTransitionError(tournamentId, `cannot cancel — it is already ${t.state}`);
+      throw new TournamentTransitionError(tournamentId, `cannot cancel, already ${t.state}`);
     }
 
     let cancelledMatchIds: string[] = [];
@@ -431,11 +431,11 @@ export async function startTournament(
     // stuck in RUNNING with no bracket and no way back through this state
     // machine, since every other transition requires a specific prior state.
     if (survivingCount < 2) {
-      throw new TournamentTransitionError(tournamentId, `needs at least 2 checked-in entrants to start — has ${survivingCount}`);
+      throw new TournamentTransitionError(tournamentId, `needs at least 2 checked-in entrants to start, only has ${survivingCount}`);
     }
     const chartCount = await tx.chart.count({ where: { tournamentId } });
     if (chartCount === 0) {
-      throw new TournamentTransitionError(tournamentId, 'the chart pack is empty — import a pack before starting');
+      throw new TournamentTransitionError(tournamentId, 'the chart pack is empty, import one before starting');
     }
 
     const active = await tx.entrant.findMany({ where: { tournamentId, status: 'ACTIVE', checkedIn: true } });

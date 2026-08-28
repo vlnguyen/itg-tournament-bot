@@ -86,7 +86,7 @@ export class RulingsController {
         participants: pub.participants.map((p) => ({ ...p, displayName: names.get(p.entrantId) ?? p.entrantId })),
       });
     } catch (err) {
-      if (err instanceof IllegalActionError) throw new BadRequestException(`Can't rule on that — ${describeStale(err)}.`);
+      if (err instanceof IllegalActionError) throw new BadRequestException(`Can't rule on that: ${describeStale(err)}.`);
       throw err;
     }
   }
@@ -135,7 +135,7 @@ export class RulingsController {
       await logToOrganizers(
         this.alert,
         match.tournament.guildId,
-        `Song ${ruling.songIndex + 1} (${compactChartLabel(chart)}) ${alertOutcome} — ruling by **${refName}**\n\n${matchLinksBlock(match.tournament.guildId, ref, match.tournamentId)}`,
+        `Song ${ruling.songIndex + 1} (${compactChartLabel(chart)}) ${alertOutcome}, ruling by **${refName}**\n\n${matchLinksBlock(match.tournament.guildId, ref, match.tournamentId)}`,
         { title: '⚖️ Song resolution', color: LOG_COLOR.RULING },
       );
     } else if (ruling.type === 'PROTECT_VETO_RESET') {
@@ -146,7 +146,7 @@ export class RulingsController {
       await logToOrganizers(
         this.alert,
         match.tournament.guildId,
-        `Set result awarded to **${displayName(players, ruling.result)}** — ruling by **${refName}**\n\n${matchLinksBlock(match.tournament.guildId, ref, match.tournamentId)}`,
+        `Set result awarded to **${displayName(players, ruling.result)}**, ruling by **${refName}**\n\n${matchLinksBlock(match.tournament.guildId, ref, match.tournamentId)}`,
         { title: '⚖️ Set resolution', color: LOG_COLOR.RULING },
       );
     } else {

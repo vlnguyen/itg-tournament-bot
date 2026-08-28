@@ -82,9 +82,9 @@ export class RosterController {
       case 'NO_TOURNAMENT':
         throw new NotFoundException(`no active tournament for guild ${guildId}`);
       case 'TOO_LATE':
-        throw new BadRequestException(`Can't reorder seeding — the tournament is already ${result.phase}.`);
+        throw new BadRequestException(`Can't reorder seeding: the tournament is already ${result.phase}.`);
       case 'INVALID_ORDER':
-        throw new BadRequestException("That order doesn't match the active roster — someone likely joined, checked in, or withdrew. Reload and try again.");
+        throw new BadRequestException("That order doesn't match the active roster. Someone likely joined, checked in, or withdrew. Reload and try again.");
       case 'REORDERED':
         break;
     }

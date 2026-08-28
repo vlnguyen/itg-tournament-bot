@@ -49,7 +49,7 @@ export class ChartsController {
     }
 
     if (!canImportPack(tournament.state)) {
-      throw new BadRequestException(`Can't import a pack — the tournament is already ${tournament.state}.`);
+      throw new BadRequestException(`Can't import a pack: the tournament is already ${tournament.state}.`);
     }
 
     // Re-validated here regardless of whatever the browser's own parser/

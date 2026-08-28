@@ -153,7 +153,7 @@ export class SetupController {
   async postRepair(@Param('guildId') guildId: string, @CurrentUser() discordUserId: string | null): Promise<SetupStatusWire> {
     const guild = await this.requireManageGuild(guildId, discordUserId);
     const guildRow = await this.prisma.guild.findUnique({ where: { id: guildId } });
-    if (!guildRow) throw new BadRequestException("Nothing to repair yet — this server hasn't been configured.");
+    if (!guildRow) throw new BadRequestException("Nothing to repair yet: this server hasn't been configured.");
 
     const diag = await runFullDiagnostic(guild, guildRow);
     const repairable = diag.gaps.filter(isRepairable);

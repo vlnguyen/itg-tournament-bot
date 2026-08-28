@@ -83,7 +83,7 @@ export class LifecycleController {
     try {
       await this.applyAction(guildId, id, request, discordUserId!, actorName);
     } catch (err) {
-      if (err instanceof TournamentTransitionError) throw new BadRequestException(`Can't do that — ${err.reason}.`);
+      if (err instanceof TournamentTransitionError) throw new BadRequestException(`Can't do that: ${err.reason}.`);
       throw err;
     }
     // One call covers every action below — a lifecycle change made here
@@ -104,7 +104,7 @@ export class LifecycleController {
     switch (request.action) {
       case 'OPEN_REGISTRATION': {
         const t = await openRegistration(this.prisma, tournamentId, actorId);
-        await this.log(guildId, actorName, linkifyTournamentName(`Registration is open for **${t.name}** — \`/join\` now works.`, t.name, t.id), LOG_COLOR.REGISTRATION_OPEN);
+        await this.log(guildId, actorName, linkifyTournamentName(`Registration is open for **${t.name}**. \`/join\` now works.`, t.name, t.id), LOG_COLOR.REGISTRATION_OPEN);
         await this.playerNotification.registrationOpened(guildId, t.id, t.name);
         return;
       }
@@ -128,7 +128,7 @@ export class LifecycleController {
         await this.log(
           guildId,
           actorName,
-          linkifyTournamentName(`Check-in is open for **${t.name}** — registered players have been notified.${suffix}`, t.name, t.id),
+          linkifyTournamentName(`Check-in is open for **${t.name}**. Registered players have been notified.${suffix}`, t.name, t.id),
           LOG_COLOR.TOURNAMENT_STARTING,
         );
         return;
@@ -141,7 +141,7 @@ export class LifecycleController {
       }
       case 'START': {
         const guildRow = await this.prisma.guild.findUnique({ where: { id: guildId } });
-        if (!guildRow) throw new BadRequestException("This server isn't configured yet — run /setup.");
+        if (!guildRow) throw new BadRequestException("This server isn't configured yet. Run /setup.");
 
         const guild = this.client.guilds.cache.get(guildId) ?? (await this.client.guilds.fetch(guildId).catch(() => null));
         if (!guild) throw new BadRequestException("The bot isn't in this server anymore.");
@@ -164,12 +164,12 @@ export class LifecycleController {
         if (outcome.kind === 'BLOCKED') throw new BadRequestException(outcome.message);
         if (outcome.kind === 'TRANSITION_ERROR') throw new TournamentTransitionError(tournamentId, outcome.reason);
 
-        const lines = [`🏁 **${outcome.tournament.name}** has started — ${plural(outcome.threads.length, 'match thread', 'match threads')} created.`];
+        const lines = [`🏁 **${outcome.tournament.name}** has started. Created ${plural(outcome.threads.length, 'match thread', 'match threads')}.`];
         if (outcome.packSizeWarning) {
           lines.push(`⚠️ The chart pack has only ${plural(outcome.packSizeWarning.actual, 'chart', 'charts')}; ${outcome.packSizeWarning.recommended}+ is recommended.`);
         }
         if (outcome.refereePoolEmpty) {
-          lines.push('⚠️ Nobody holds a role at Referee tier or above yet — a dispute has nobody to rule on it.');
+          lines.push('⚠️ Nobody holds a role at Referee tier or above yet, so a dispute has nobody to rule on it.');
         }
         if (outcome.holdsTierRole.length > 0) {
           lines.push(`⚠️ These entrants also hold a tier role: ${outcome.holdsTierRole.join(', ')}.`);
@@ -218,7 +218,7 @@ export class LifecycleController {
         embeds: [new EmbedBuilder().setColor(LOG_COLOR.TOURNAMENT_CANCELLED).setDescription('⚠️ This tournament has been cancelled. This match will not be completed.')],
       });
       await this.matchChannel.postMatchState(ref, {
-        embeds: [new EmbedBuilder().setColor(LOG_COLOR.TOURNAMENT_CANCELLED).setDescription('⚠️ This match has been cancelled — no further action is possible.')],
+        embeds: [new EmbedBuilder().setColor(LOG_COLOR.TOURNAMENT_CANCELLED).setDescription('⚠️ This match has been cancelled. No further action is possible.')],
       });
       await this.matchChannel.archiveThread(ref);
     }

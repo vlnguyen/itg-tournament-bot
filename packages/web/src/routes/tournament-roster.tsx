@@ -154,7 +154,7 @@ function RosterRow({
             <SeedInput seed={entry.seed} max={max} label={`seed for ${label}`} onMove={(v) => onMove(entry.entrantId, v)} />
           ) : (
             <Text size="xs" c="dimmed">
-              —
+              -
             </Text>
           )}
         </Group>

@@ -56,7 +56,7 @@ export function RefereeOverrides({ matchId, pub }: { matchId: string; pub: Publi
       {activeSong && (
         <div>
           <Text size="sm" fw={600}>
-            Song {activeSong.index + 1} — {activeSong.chart.title}
+            Song {activeSong.index + 1}: {activeSong.chart.title}
           </Text>
           <Group gap="xs" mt={4}>
             <Button size="xs" onClick={() => rule({ type: 'SONG_RULED', songIndex: activeSong.index, result: p0.entrantId })}>

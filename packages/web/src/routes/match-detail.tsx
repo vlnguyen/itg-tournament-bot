@@ -9,12 +9,12 @@ import { useMatch } from '../hooks/use-match.js';
 import { useRealtimeTournament } from '../hooks/use-realtime-tournament.js';
 
 function nameOf(pub: PublicMatch, entrantId: string | undefined): string {
-  return pub.participants.find((p) => p.entrantId === entrantId)?.displayName ?? '—';
+  return pub.participants.find((p) => p.entrantId === entrantId)?.displayName ?? '-';
 }
 
 function SongRow({ pub, song }: { pub: PublicMatch; song: PublicMatch['songs'][number] }): JSX.Element {
   const winnerText = !song.result
-    ? '—'
+    ? '-'
     : song.result.winner === 'TIE'
       ? 'Tie'
       : song.result.winner === 'VOID'
@@ -30,7 +30,7 @@ function SongRow({ pub, song }: { pub: PublicMatch; song: PublicMatch['songs'][n
       <Table.Td>
         {pub.participants.map((p) => (
           <Text key={p.entrantId} size="sm">
-            {p.displayName}: {song.ex[p.entrantId] ?? '—'}
+            {p.displayName}: {song.ex[p.entrantId] ?? '-'}
           </Text>
         ))}
       </Table.Td>
@@ -78,7 +78,7 @@ function DrawSection({ pub }: { pub: PublicMatch }): JSX.Element {
                   {chart.meter}
                 </Table.Td>
                 <Table.Td>{displayStepartistLine(chart)}</Table.Td>
-                <Table.Td>{status ?? <Text c="dimmed">—</Text>}</Table.Td>
+                <Table.Td>{status ?? <Text c="dimmed">-</Text>}</Table.Td>
               </Table.Tr>
             );
           })}
@@ -129,9 +129,9 @@ function TiebreakRoundSection({ t, pub }: { t: PublicMatch['tiebreaks'][number];
                   pub.participants
                     .filter((p) => t.choices[p.entrantId] === i)
                     .map((p) => p.displayName)
-                    .join(', ') || <Text c="dimmed">—</Text>
+                    .join(', ') || <Text c="dimmed">-</Text>
                 ) : (
-                  <Text c="dimmed">—</Text>
+                  <Text c="dimmed">-</Text>
                 )}
               </Table.Td>
             </Table.Tr>
@@ -290,7 +290,7 @@ export default function MatchDetail(): JSX.Element {
               .sort((a, b) => a.place - b.place)
               .map((pl) => `${nameOf(pub, pl.entrantId)} (${pl.place === 1 ? 'winner' : 'runner-up'})`)
               .join(', ')}
-            {pub.outcome.by !== 'AGREEMENT' && ` — ${pub.outcome.by.toLowerCase()}`}
+            {pub.outcome.by !== 'AGREEMENT' && ` (${pub.outcome.by.toLowerCase()})`}
           </Alert>
         )}
 

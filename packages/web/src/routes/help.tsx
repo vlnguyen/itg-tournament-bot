@@ -37,7 +37,7 @@ export default function Help(): JSX.Element {
       <div>
         <Title order={1}>Help &amp; FAQ</Title>
         <Text c="dimmed" mt="xs">
-          A start-to-finish walkthrough of running a tournament with ITG Tournament Bot — from signing in, through adding the bot
+          A start-to-finish walkthrough of running a tournament with ITG Tournament Bot: from signing in, through adding the bot
           to your server, to posting final standings.
         </Text>
       </div>
@@ -59,7 +59,7 @@ export default function Help(): JSX.Element {
           Signing in
         </Title>
         <Text mt="xs">
-          Sign in with the <Anchor href="/api/auth/login">Sign in</Anchor> link in the header — it's Discord's own login, and it
+          Sign in with the <Anchor href="/api/auth/login">Sign in</Anchor> link in the header. It's Discord's own login, and it
           never gates anything the bot can do. A referee can rule on every match from Discord alone, buttons and slash commands,
           and never needs to open the web app.
         </Text>
@@ -77,7 +77,7 @@ export default function Help(): JSX.Element {
         <Text mt="xs">
           Sign in, then look at the <Anchor component={Link} to="/">home page</Anchor>. Every server where you have Discord's{' '}
           <strong>Manage Server</strong> permission shows up as a card. One the bot already shares with you links straight to
-          that server's page; one it hasn't joined yet shows an <Badge variant="light">Add to server</Badge> badge — click it,
+          that server's page; one it hasn't joined yet shows an <Badge variant="light">Add to server</Badge> badge. Click it,
           confirm, and Discord takes you to its own authorization screen, where you pick the channels and grant the permissions
           the invite asks for.
         </Text>
@@ -88,19 +88,19 @@ export default function Help(): JSX.Element {
           Configuring the server
         </Title>
         <Text mt="xs">
-          Whoever has Manage Server runs setup — either <Cmd>/setup channels</Cmd> and <Cmd>/setup roles</Cmd> in Discord, or the{' '}
+          Whoever has Manage Server runs setup: either <Cmd>/setup channels</Cmd> and <Cmd>/setup roles</Cmd> in Discord, or the{' '}
           <strong>Server Settings</strong> page linked from your server's overview. Both do the same thing and are safe to mix.
         </Text>
         <Text mt="xs">Setup points the bot at:</Text>
         <List size="sm" mt={4}>
           <List.Item>
-            <strong>Four channels</strong> — <em>Matches</em> (holds private match threads), <em>Organizer alerts</em> (the
+            <strong>Four channels</strong>: <em>Matches</em> (holds private match threads), <em>Organizer alerts</em> (the
             referee/organizer work queue), <em>Results</em> (a clean, chronological log of every finished match), and optionally{' '}
             <em>General</em> (forwards results and announcements for competitors to see).
           </List.Item>
           <List.Item>
-            <strong>Two roles</strong> — <em>Referee</em> (can rule on disputed matches) and <em>Tournament Organizer</em> (can
-            run the tournament lifecycle — everything a referee can do, plus creating, starting, and cancelling tournaments). A
+            <strong>Two roles</strong>: <em>Referee</em> (can rule on disputed matches) and <em>Tournament Organizer</em> (can
+            run the tournament lifecycle: everything a referee can do, plus creating, starting, and cancelling tournaments). A
             server that wants one tier can point both slots at the same role.
           </List.Item>
         </List>
@@ -119,7 +119,7 @@ export default function Help(): JSX.Element {
         <Text mt="xs">
           A Tournament Organizer runs <Cmd>/tournament create &lt;name&gt;</Cmd>, or clicks <strong>Create</strong> next to
           "Active Tournament" on the server's page. Either way the tournament starts in <Badge color="gray">Draft</Badge> and
-          claims the server's one tournament slot — a server can only hold one tournament at a time, draft included, so you have
+          claims the server's one tournament slot. A server can only hold one tournament at a time, draft included, so you have
           to rename it, cancel it, or carry it through before creating another.
         </Text>
       </div>
@@ -130,7 +130,7 @@ export default function Help(): JSX.Element {
         </Title>
         <Text mt="xs">
           Open the tournament's <strong>Song Pack</strong> tab and use <strong>Import pack</strong> to load a StepMania folder or
-          a <Code>.zip</Code> — your browser parses everything, so the simfiles themselves never reach the server. From
+          a <Code>.zip</Code>. Your browser parses everything, so the simfiles themselves never reach the server. From
           there, edit any chart's metadata, toggle flags, remove charts, and search across title, subtitle, and stepartist
           (original and transliterated). Editing is safe at any time, even mid-tournament, and copying a pack from a past
           tournament is the fastest way to start a recurring event.
@@ -143,7 +143,7 @@ export default function Help(): JSX.Element {
         </Title>
         <Text mt="xs">
           Run <Cmd>/tournament open-registration</Cmd> (or the equivalent button on the tournament's <strong>Configuration</strong>{' '}
-          page). This posts an announcement to the general channel and lets competitors run <Cmd>/join</Cmd> to register — a
+          page). This posts an announcement to the general channel and lets competitors run <Cmd>/join</Cmd> to register. A
           player can join more than once with no error, and can <Cmd>/leave</Cmd> at any point before the tournament starts.
         </Text>
       </div>
@@ -167,7 +167,7 @@ export default function Help(): JSX.Element {
         <Text mt="xs">
           The bot seeds a player automatically the moment they join, at the back of the order. On the tournament's{' '}
           <strong>Seeding</strong> page, drag an entry to reorder it, or type a seed number directly for a big jump. Nothing
-          locks in until the tournament starts — a late check-in or a withdrawal can still change the field right up to that
+          locks in until the tournament starts. A late check-in or a withdrawal can still change the field right up to that
           moment. An organizer can also act on a player's behalf with <Cmd>/roster add</Cmd>, <Cmd>/roster checkin</Cmd>,{' '}
           <Cmd>/roster uncheckin</Cmd>, and <Cmd>/roster remove</Cmd>; <Cmd>/roster list</Cmd> is public and needs no permission.
         </Text>
@@ -218,7 +218,7 @@ export default function Help(): JSX.Element {
           Tracking a live event
         </Title>
         <Text mt="xs">
-          The <strong>Organizer Console</strong> is the screen to keep open while an event runs: an alert queue (oldest first —
+          The <strong>Organizer Console</strong> is the screen to keep open while an event runs: an alert queue (oldest first:
           whatever's waited longest is holding up a round) and a live match list showing every in-progress match, its current
           chart, and how long it's been going. Anyone can follow along on the public{' '}
           <strong>Standings/Bracket</strong> page, which updates live with no refresh needed.
@@ -231,8 +231,8 @@ export default function Help(): JSX.Element {
         </Title>
         <Text mt="xs">
           Once the grand final ends, the bot posts full final standings to the results channel (forwarded to general) and moves
-          the tournament to <Badge color="green">Complete</Badge>, freeing the server's slot for a new one. Nothing is deleted —
-          the tournament's page is a permanent archive at the same URL forever, every player gets a page showing their record in
+          the tournament to <Badge color="green">Complete</Badge>, freeing the server's slot for a new one. Nothing is deleted.
+          The tournament's page is a permanent archive at the same URL forever, every player gets a page showing their record in
           that server, and the dashboard keeps a signed-in user's past events in one place.
         </Text>
       </div>
@@ -282,7 +282,7 @@ export default function Help(): JSX.Element {
               <Table.Td>
                 <Cmd>/pack</Cmd>
               </Table.Td>
-              <Table.Td>Show a summary of the tournament's chart pack</Table.Td>
+              <Table.Td>Summarize the tournament's chart pack</Table.Td>
             </Table.Tr>
             <Table.Tr>
               <Table.Td>
@@ -308,13 +308,13 @@ export default function Help(): JSX.Element {
               <Table.Td>
                 <Cmd>/rule song</Cmd>
               </Table.Td>
-              <Table.Td>Rule on the song currently in play</Table.Td>
+              <Table.Td>Rule on the song in play</Table.Td>
             </Table.Tr>
             <Table.Tr>
               <Table.Td>
                 <Cmd>/rule set</Cmd>
               </Table.Td>
-              <Table.Td>Rule on the set's overall outcome, pre-empting any songs left unplayed</Table.Td>
+              <Table.Td>Rule on the set's overall outcome, even if songs are left unplayed</Table.Td>
             </Table.Tr>
           </Table.Tbody>
         </Table>
@@ -334,13 +334,13 @@ export default function Help(): JSX.Element {
               <Table.Td>
                 <Cmd>/tournament open-registration</Cmd>
               </Table.Td>
-              <Table.Td>Open registration — /join starts working</Table.Td>
+              <Table.Td>Open registration so /join starts working</Table.Td>
             </Table.Tr>
             <Table.Tr>
               <Table.Td>
                 <Cmd>/tournament close-registration</Cmd>
               </Table.Td>
-              <Table.Td>Close registration — /join stops working</Table.Td>
+              <Table.Td>Close registration so /join stops working</Table.Td>
             </Table.Tr>
             <Table.Tr>
               <Table.Td>
@@ -358,7 +358,7 @@ export default function Help(): JSX.Element {
               <Table.Td>
                 <Cmd>/tournament start</Cmd>
               </Table.Td>
-              <Table.Td>Start the tournament — generates the bracket and provisions threads</Table.Td>
+              <Table.Td>Start the tournament: build the bracket and set up threads</Table.Td>
             </Table.Tr>
             <Table.Tr>
               <Table.Td>
@@ -434,7 +434,7 @@ export default function Help(): JSX.Element {
           <Accordion.Item value="signin">
             <Accordion.Control>Do I have to sign in?</Accordion.Control>
             <Accordion.Panel>
-              No. Every bracket, match, and pack page is public, and every action works from Discord alone — registering,
+              No. Every bracket, match, and pack page is public, and every action works from Discord alone: registering,
               checking in, refereeing, even running the whole tournament lifecycle. Signing in only adds the homepage's "servers
               you manage" list and a personal dashboard.
             </Accordion.Panel>
@@ -444,7 +444,7 @@ export default function Help(): JSX.Element {
             <Accordion.Panel>
               View Channel, Send Messages, Send Messages in Threads, Create Private Threads, Manage Threads, Embed Links, and
               Read Message History in the matches, alerts, and results channels. <Code>Manage Channels</Code> and{' '}
-              <Code>Manage Roles</Code> are optional — they let setup create channels/roles for you and repair permission gaps;
+              <Code>Manage Roles</Code> are optional. They let setup create channels/roles for you and repair permission gaps;
               without them, setup falls back to pointing at things you create yourself, plus a diagnostic telling you what's
               missing.
             </Accordion.Panel>
@@ -452,7 +452,7 @@ export default function Help(): JSX.Element {
           <Accordion.Item value="one-role">
             <Accordion.Control>Can one role do everything?</Accordion.Control>
             <Accordion.Panel>
-              Yes — point both the Referee and Tournament Organizer slots at the same Discord role in setup, and that role gets
+              Yes. Point both the Referee and Tournament Organizer slots at the same Discord role in setup, and that role gets
               full authority over both refereeing and running the tournament lifecycle.
             </Accordion.Panel>
           </Accordion.Item>

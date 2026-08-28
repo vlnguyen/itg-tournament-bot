@@ -87,7 +87,7 @@ export default function TournamentLifecycle(): JSX.Element {
   } else {
     const runAction = (action: LifecycleAction): void => {
       if (action === 'CANCEL' && !confirm(`Cancel "${status.name}"? This can't be undone from here.`)) return;
-      if (action === 'START' && !confirm(`Start "${status.name}"? This creates match threads and notifies players — it can't be undone from here.`)) {
+      if (action === 'START' && !confirm(`Start "${status.name}"? This creates match threads and notifies players. It can't be undone from here.`)) {
         return;
       }
       if (action === 'RENAME') {
@@ -129,7 +129,7 @@ export default function TournamentLifecycle(): JSX.Element {
             Actions
           </Title>
           {status.legalActions.length === 0 ? (
-            <Text c="dimmed">Nothing to do — this tournament is {STATE_LABEL[status.state].toLowerCase()}.</Text>
+            <Text c="dimmed">Nothing to do: this tournament is {STATE_LABEL[status.state].toLowerCase()}.</Text>
           ) : (
             <Group gap="xs">
               {status.legalActions.map((action) => (
@@ -153,9 +153,9 @@ export default function TournamentLifecycle(): JSX.Element {
             Starting the tournament
           </Title>
           <Text size="sm" c="dimmed" mb="xs">
-            Once every check below passes, click Start above — or run <code>/tournament start</code> in Discord, either does
+            Once every check below passes, click Start above, or run <code>/tournament start</code> in Discord: either does
             the same thing. Starting also re-verifies live channel/role permissions, which this checklist can't predict in
-            advance; a failure there is reported back exactly like it would be in Discord.
+            advance; a failure there comes back exactly the way it would in Discord.
           </Text>
           <List spacing={4} size="sm">
             {status.startGuards.map((g) => (

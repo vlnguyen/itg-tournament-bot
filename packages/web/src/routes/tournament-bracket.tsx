@@ -129,7 +129,7 @@ export default function TournamentBracket(): JSX.Element {
     content = (
       <Center h="60vh">
         <Alert color="blue" title="Bracket not generated yet">
-          {snapshot.name} hasn't started — the bracket appears once it does.
+          {snapshot.name} hasn't started. The bracket appears once it does.
         </Alert>
       </Center>
     );

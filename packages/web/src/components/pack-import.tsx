@@ -167,8 +167,8 @@ export function PackImport({ tournamentId, existingCharts }: { tournamentId: str
         <>
           <Group justify="space-between" align="center" wrap="wrap">
             <Text size="sm">
-              Found {preview.length} chart{preview.length === 1 ? '' : 's'} — {preview.filter((r) => r.isDuplicate).length} already in the
-              pack — {selected.size} selected.
+              Found {preview.length} chart{preview.length === 1 ? '' : 's'}: {preview.filter((r) => r.isDuplicate).length} already in the
+              pack, {selected.size} selected.
             </Text>
             <Group gap="xs">
               <Button size="xs" variant="default" onClick={selectAll}>
@@ -206,9 +206,9 @@ export function PackImport({ tournamentId, existingCharts }: { tournamentId: str
                     <Checkbox checked={selected.has(i)} onChange={() => toggleRow(i)} aria-label={`Include ${row.chart.title}`} />
                   </Table.Td>
                   <Table.Td>{row.chart.title}</Table.Td>
-                  <Table.Td>{row.chart.titleTranslit ?? '—'}</Table.Td>
-                  <Table.Td>{row.chart.artist ?? '—'}</Table.Td>
-                  <Table.Td>{row.chart.artistTranslit ?? '—'}</Table.Td>
+                  <Table.Td>{row.chart.titleTranslit ?? '-'}</Table.Td>
+                  <Table.Td>{row.chart.artist ?? '-'}</Table.Td>
+                  <Table.Td>{row.chart.artistTranslit ?? '-'}</Table.Td>
                   <Table.Td>{PLAYSTYLE_LABEL[row.chart.playStyle]}</Table.Td>
                   <Table.Td>{DIFFICULTY_LABEL[row.chart.difficulty]}</Table.Td>
                   <Table.Td>{row.chart.meter}</Table.Td>
@@ -221,8 +221,8 @@ export function PackImport({ tournamentId, existingCharts }: { tournamentId: str
                       />
                     </Group>
                   </Table.Td>
-                  <Table.Td>{row.chart.stepartist ?? '—'}</Table.Td>
-                  <Table.Td>{row.chart.description ?? '—'}</Table.Td>
+                  <Table.Td>{row.chart.stepartist ?? '-'}</Table.Td>
+                  <Table.Td>{row.chart.description ?? '-'}</Table.Td>
                   <Table.Td>{row.isDuplicate && <Badge color="yellow">Already in pack</Badge>}</Table.Td>
                 </Table.Tr>
               ))}

@@ -121,7 +121,7 @@ function FirstRunWizard({ guildId }: { guildId: string }): JSX.Element {
       <Center h="60vh">
         <Stack align="center" gap="xs">
           <Title order={2}>Continue setting up</Title>
-          <Text c="dimmed">There's a tournament in draft — pick up where you left off.</Text>
+          <Text c="dimmed">There's a tournament in draft. Pick up where you left off.</Text>
           <Anchor component={Link} to={`/t/${data.draftTournamentId}/config`}>
             Go to tournament configuration
           </Anchor>
@@ -157,7 +157,7 @@ function FirstRunWizard({ guildId }: { guildId: string }): JSX.Element {
       <Stack align="center" gap="xs">
         <Title order={2}>Ready for a tournament</Title>
         <Text c="dimmed">
-          The server is configured — run <Code>/tournament create</Code> in Discord to start one.
+          The server is configured. Run <Code>/tournament create</Code> in Discord to start one.
         </Text>
       </Stack>
     </Center>
@@ -261,7 +261,7 @@ export default function GuildOverview(): JSX.Element {
             </Table.Tbody>
           </Table>
         ) : (
-          <Text c="dimmed">Nothing running right now.</Text>
+          <Text c="dimmed">Nothing running.</Text>
         )}
       </div>
 

@@ -22,7 +22,7 @@ function useNow(): number {
 
 function AlertRow({ tournamentId, alert, now }: { tournamentId: string; alert: RunViewAlert; now: number }): JSX.Element {
   const label = alert.kind === 'ESCALATION' ? escalationReasonLabel(alert.reason) : alert.alertKind;
-  const matchLabel = alert.matchLabel ?? '—';
+  const matchLabel = alert.matchLabel ?? '-';
   const matchId = alert.kind === 'ESCALATION' ? alert.matchId : alert.matchId;
 
   return (
@@ -37,7 +37,7 @@ function AlertRow({ tournamentId, alert, now }: { tournamentId: string; alert: R
           </Anchor>
         ) : (
           <Text size="sm" c="dimmed">
-            —
+            -
           </Text>
         )}
       </Table.Td>
@@ -150,7 +150,7 @@ export default function TournamentConsole(): JSX.Element {
                         </Text>
                       ))}
                     </Table.Td>
-                    <Table.Td>{m.currentChartTitle ?? '—'}</Table.Td>
+                    <Table.Td>{m.currentChartTitle ?? '-'}</Table.Td>
                     <Table.Td>{elapsedLabel(m.since, now)}</Table.Td>
                   </Table.Tr>
                 ))}

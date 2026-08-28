@@ -13,7 +13,7 @@ const CHANNEL_SLOTS: { slot: ChannelSlot; label: string; hint: string; creatable
   { slot: 'matches', label: 'Matches', hint: 'Where match threads are created.', creatable: true },
   { slot: 'alerts', label: 'Organizer alerts', hint: 'Where escalations and organizer log lines post.', creatable: true },
   { slot: 'results', label: 'Results', hint: 'Where match results and standings post.', creatable: true },
-  { slot: 'general', label: 'General', hint: 'Where tournament-wide announcements post — point at an existing channel.', creatable: false },
+  { slot: 'general', label: 'General', hint: 'Where tournament-wide announcements post (point at an existing channel).', creatable: false },
 ];
 
 const ROLE_SLOTS: { slot: TierRoleSlot; label: string; hint: string; creatable: boolean }[] = [
@@ -162,17 +162,17 @@ export default function GuildSetup(): JSX.Element {
             ))}
             {diagnostic.deletedTierRoles.map((slot) => (
               <Text key={`deleted-${slot}`} c="yellow" size="sm">
-                ⚠️ The configured {ROLE_SLOTS.find((r) => r.slot === slot)!.label} role no longer exists — point at a replacement below.
+                ⚠️ The configured {ROLE_SLOTS.find((r) => r.slot === slot)!.label} role no longer exists. Point at a replacement below.
               </Text>
             ))}
             {diagnostic.missingChannels.map((slot) => (
               <Text key={`missing-ch-${slot}`} c="yellow" size="sm">
-                ⚠️ The configured {slot} channel no longer exists — point at a replacement below.
+                ⚠️ The configured {slot} channel no longer exists. Point at a replacement below.
               </Text>
             ))}
             {clean && (
               <Text c="green" size="sm">
-                ✅ Everything required is in place.
+                ✅ Everything's ready.
               </Text>
             )}
             {diagnostic.gapDescriptions.map((desc, i) => (
@@ -182,7 +182,7 @@ export default function GuildSetup(): JSX.Element {
             ))}
             {diagnostic.refereePoolEmpty && (
               <Text c="yellow" size="sm">
-                ⚠️ Nobody holds a role at Referee tier or above — a dispute has nobody to rule on it yet.
+                ⚠️ Nobody holds a role at Referee tier or above yet, so a dispute has nobody to rule on it.
               </Text>
             )}
           </Stack>

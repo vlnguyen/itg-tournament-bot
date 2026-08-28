@@ -39,7 +39,7 @@ export default function ConsoleHome(): JSX.Element {
     return (
       <Center h="60vh">
         <Alert color="blue" title="Sign in required">
-          This page is for bot administrators — sign in with an administrator account to see it.
+          This page is for bot administrators. Sign in with an administrator account to see it.
         </Alert>
       </Center>
     );
@@ -49,7 +49,7 @@ export default function ConsoleHome(): JSX.Element {
     return (
       <Center h="60vh">
         <Alert color="yellow" title="Bot administrator only">
-          There's nothing here for you — a Tournament Organizer's console lives on their own tournament's pages.
+          There's nothing here for you. A Tournament Organizer's console lives on their own tournament's pages.
         </Alert>
       </Center>
     );

@@ -3,7 +3,7 @@ services:
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: itg
-      POSTGRES_PASSWORD: itg
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-itg}
       POSTGRES_DB: itg
     ports:
       - "5433:5432"
@@ -14,6 +14,27 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # NestJS: Discord gateway + API + websockets + the static Vite build,
+  # all in one process — see DESIGN.md, "Deployment".
+  app:
+    build:
+      context: .
+      dockerfile: packages/server/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # Overrides whatever DATABASE_URL a local .env has (dev points at
+      # localhost:5433, which isn't reachable from inside this container).
+      # `postgres:5432` is the in-network service name/port, unaffected
+      # by the host-side 5433 mapping above.
+      DATABASE_URL: postgresql://itg:${POSTGRES_PASSWORD:-itg}@postgres:5432/itg?schema=public
+    ports:
+      - "${PORT:-3000}:3000"
+    restart: unless-stopped
 
 volumes:
   pgdata:

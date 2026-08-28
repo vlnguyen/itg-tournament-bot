@@ -36,4 +36,4 @@ RUN npm run build --workspace packages/web
 ENV NODE_ENV=production
 EXPOSE 3000
 
-CMD ["npm", "run", "bot", "--workspace", "packages/server"]
+CMD ["sh", "-c", "npm run db:migrate && npm run bot --workspace packages/server"]

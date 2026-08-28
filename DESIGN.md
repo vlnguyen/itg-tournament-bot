@@ -1716,7 +1716,9 @@ Requirements: an always-on process (the gateway connection is persistent), publi
 
 Config is validated at boot against a schema and the process refuses to start on a missing or malformed value — a bot that starts without `ADMIN_DISCORD_IDS` and silently has no administrators is worse than one that does not start.
 
-Prisma migrations run on deploy. Backups are `pg_dump` on a schedule — self-hosted Postgres means this is yours to own. **Test the restore before the first real event**, not after.
+Prisma migrations run on deploy: the container's `CMD` (`packages/server/Dockerfile`) runs `prisma migrate deploy` before starting the bot, so a schema change ships the same way any other code change does. This only applies migrations already committed to the repo — **every schema change needs a generated migration file** (`npm run db:migrate:dev`), checked in alongside the `schema.prisma` edit. Editing the schema alone does nothing in production.
+
+Backups are `pg_dump` on a schedule — self-hosted Postgres means this is yours to own. **Test the restore before the first real event**, not after.
 
 ## Failure Handling
 

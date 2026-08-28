@@ -1,7 +1,5 @@
-import { readFileSync } from 'node:fs';
 import { EmbedBuilder, type ChatInputCommandInteraction } from 'discord.js';
 import type { Guild as GuildRow, Tournament } from '@prisma/client';
-import type { ChartInput } from '@itg/shared';
 import { plural } from '@itg/shared';
 import { startTournamentWithDiscordEffects } from '../start-tournament-effects.js';
 import {
@@ -105,21 +103,6 @@ export async function handleTournament(interaction: ChatInputCommandInteraction,
   }
 }
 
-// DEBUG — not meant to ship. Every tournament created during manual testing
-// gets auto-seeded with a real chart pack (Storm 2026), so there's always
-// something to draw from without a separate import step (`/pack import`
-// doesn't exist yet). `debug-storm-2026-pack.json` is a one-time dump of
-// `readPackDirectory("/Users/vincent/Downloads/Storm 2026")` — parsed once
-// and committed as data, not re-parsed from the real pack on every create.
-// Delete this block, the import above it, and the JSON file together once
-// `/pack import` exists for real.
-const DEBUG_PACK_PATH = new URL('../../../scripts/debug-storm-2026-pack.json', import.meta.url);
-let debugPackCache: ChartInput[] | null = null;
-function loadDebugPack(): ChartInput[] {
-  debugPackCache ??= JSON.parse(readFileSync(DEBUG_PACK_PATH, 'utf8')) as ChartInput[];
-  return debugPackCache;
-}
-
 /**
  * `/tournament status` — the one lifecycle-adjacent command with no tier
  * gate. Names the phase in the same words `PHASE_LABEL` already gives a
@@ -169,15 +152,6 @@ async function handleCreate(interaction: ChatInputCommandInteraction, ctx: Comma
     // that channel is organizer-private, unlike the general channel, which
     // uses the server display name. See `player-notification-adapter.ts`.
     await logToOrganizers(ctx.alert, interaction.guildId!, `🆕 **${interaction.user.username}** created tournament [**${t.name}**](${url})`);
-
-    // DEBUG — see the block above.
-    try {
-      const charts = loadDebugPack();
-      await ctx.prisma.chart.createMany({ data: charts.map((c) => ({ tournamentId: t.id, ...c })) });
-      console.log(`[DEBUG] seeded ${plural(charts.length, 'chart', 'charts')} from debug-storm-2026-pack.json into "${t.name}"`);
-    } catch (err) {
-      console.warn(`[DEBUG] failed to auto-seed test pack: ${(err as Error).message}`);
-    }
   } catch (err) {
     if (err instanceof TournamentSlotOccupiedError) {
       await interaction.reply({

@@ -55,7 +55,7 @@ export async function handleTournament(interaction: ChatInputCommandInteraction,
   // one to pick between.
   const tournament = await findActiveTournament(ctx.prisma, interaction.guildId!);
   if (!tournament) {
-    await interaction.reply({ ephemeral: true, content: 'No tournament to act on — run `/tournament create` first.' });
+    await interaction.reply({ ephemeral: true, content: 'No tournament to act on. Run `/tournament create` first.' });
     return;
   }
 
@@ -65,7 +65,7 @@ export async function handleTournament(interaction: ChatInputCommandInteraction,
         interaction,
         ctx,
         () => openRegistration(ctx.prisma, tournament.id, interaction.user.id),
-        (t) => `Registration is open for **${t.name}** — \`/join\` now works.`,
+        (t) => `Registration is open for **${t.name}**. \`/join\` now works.`,
         (t) => ctx.playerNotification.registrationOpened(interaction.guildId!, t.id, t.name),
         LOG_COLOR.REGISTRATION_OPEN,
       );
@@ -136,17 +136,17 @@ function loadDebugPack(): ChartInput[] {
 async function handleStatus(interaction: ChatInputCommandInteraction, ctx: CommandContext): Promise<void> {
   const tournament = await findActiveTournament(ctx.prisma, interaction.guildId!);
   if (!tournament || tournament.state === 'DRAFT') {
-    await interaction.reply({ ephemeral: true, content: 'No tournament right now in this server.' });
+    await interaction.reply({ ephemeral: true, content: 'No tournament in this server right now.' });
     return;
   }
 
-  const lines = [`**${tournament.name}** — ${PHASE_LABEL[tournament.state]}.`];
+  const lines = [`**${tournament.name}**: ${PHASE_LABEL[tournament.state]}.`];
   switch (tournament.state) {
     case 'REGISTRATION_OPEN':
-      lines.push('`/join` to register — or `/leave` if you change your mind.');
+      lines.push('`/join` to register, or `/leave` if you change your mind.');
       break;
     case 'CHECKIN_OPEN':
-      lines.push("`/checkin` to confirm you're playing — or `/leave` if you can't make it.");
+      lines.push("`/checkin` to confirm you're playing, or `/leave` if you can't make it.");
       break;
     case 'CHECKIN_CLOSED':
       lines.push('The tournament is about to start.');
@@ -163,7 +163,7 @@ async function handleCreate(interaction: ChatInputCommandInteraction, ctx: Comma
     const url = tournamentUrl(t.id);
     await interaction.reply({
       ephemeral: true,
-      content: `Created **${t.name}** (draft) — ${url}\nRun \`/tournament open-registration\` when you're ready for \`/join\` to start working.`,
+      content: `Created **${t.name}** (draft): ${url}\nRun \`/tournament open-registration\` when you're ready for \`/join\` to start working.`,
     });
     // Alert-channel messages name the actor by their raw Discord username —
     // that channel is organizer-private, unlike the general channel, which
@@ -249,7 +249,7 @@ async function handleOpenCheckin(interaction: ChatInputCommandInteraction, ctx: 
   const { unreachable } = await ctx.playerNotification.checkinOpened(interaction.guildId!, opened.name, registered.map((e) => e.discordUserId));
   ctx.realtime.publishLifecycleChanged(opened.id);
 
-  const lines = [`Check-in is open for **${opened.name}** — registered players have been notified.`];
+  const lines = [`Check-in is open for **${opened.name}**. We notified registered players.`];
   if (unreachable.length > 0) lines.push(`⚠️ Could not DM: ${unreachable.map((id) => `<@${id}>`).join(', ')}.`);
   await interaction.editReply(lines.join('\n'));
 
@@ -293,7 +293,7 @@ async function handleCancel(interaction: ChatInputCommandInteraction, ctx: Comma
   for (const m of cancelledWithThreads) {
     const ref = { matchId: m.id, threadId: m.threadId! };
     await ctx.matchChannel.postLogMessage(ref, {
-      embeds: [new EmbedBuilder().setColor(LOG_COLOR.TOURNAMENT_CANCELLED).setDescription('⚠️ This tournament has been cancelled. This match will not be completed.')],
+      embeds: [new EmbedBuilder().setColor(LOG_COLOR.TOURNAMENT_CANCELLED).setDescription('⚠️ This tournament is cancelled. This match won\'t continue.')],
     });
     // Replaces whatever was last — Protect/Veto, a score-submit button, a
     // tiebreak select, anything — with a plain, component-free message, so
@@ -303,7 +303,7 @@ async function handleCancel(interaction: ChatInputCommandInteraction, ctx: Comma
     // Same color/shape as the log line just above — this is the same
     // event, restated as the closing state rather than a permanent entry.
     await ctx.matchChannel.postMatchState(ref, {
-      embeds: [new EmbedBuilder().setColor(LOG_COLOR.TOURNAMENT_CANCELLED).setDescription('⚠️ This match has been cancelled — no further action is possible.')],
+      embeds: [new EmbedBuilder().setColor(LOG_COLOR.TOURNAMENT_CANCELLED).setDescription('⚠️ This match is cancelled. Nothing else to do here.')],
     });
     await ctx.matchChannel.archiveThread(ref);
   }
@@ -311,7 +311,7 @@ async function handleCancel(interaction: ChatInputCommandInteraction, ctx: Comma
   const lines = [`**${result.tournament.name}** is cancelled.`];
   if (result.cancelledMatchIds.length > 0) {
     lines.push(
-      `⚠️ ${plural(result.cancelledMatchIds.length, 'in-progress match', 'in-progress matches')} were cancelled — ${cancelledWithThreads.length} with a thread closed.`,
+      `⚠️ Cancelled ${plural(result.cancelledMatchIds.length, 'in-progress match', 'in-progress matches')}; closed ${cancelledWithThreads.length} threads.`,
     );
   }
   await interaction.editReply(lines.join('\n'));
@@ -351,12 +351,12 @@ async function handleStart(
     return;
   }
 
-  const lines = [`🏁 **${outcome.tournament.name}** has started — ${plural(outcome.threads.length, 'match thread', 'match threads')} created.`];
+  const lines = [`🏁 **${outcome.tournament.name}** has started. Created ${plural(outcome.threads.length, 'match thread', 'match threads')}.`];
   if (outcome.packSizeWarning) {
-    lines.push(`⚠️ The chart pack has only ${plural(outcome.packSizeWarning.actual, 'chart', 'charts')}; ${outcome.packSizeWarning.recommended}+ is recommended.`);
+    lines.push(`⚠️ The chart pack has only ${plural(outcome.packSizeWarning.actual, 'chart', 'charts')}; we recommend ${outcome.packSizeWarning.recommended}+.`);
   }
   if (outcome.refereePoolEmpty) {
-    lines.push('⚠️ Nobody holds a role at Referee tier or above yet — a dispute has nobody to rule on it.');
+    lines.push('⚠️ Nobody holds a role at Referee tier or above yet, so a dispute has nobody to rule on it.');
   }
   if (outcome.holdsTierRole.length > 0) {
     lines.push(`⚠️ These entrants also hold a tier role: ${outcome.holdsTierRole.join(', ')}.`);

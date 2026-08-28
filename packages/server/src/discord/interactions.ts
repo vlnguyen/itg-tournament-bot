@@ -159,7 +159,7 @@ async function handle(
     if (err instanceof IllegalActionError) {
       await interaction.followUp({
         ephemeral: true,
-        content: `That's not available anymore — ${describeStale(err)}.`,
+        content: `That's not available anymore: ${describeStale(err)}.`,
       });
       return;
     }
@@ -238,7 +238,7 @@ async function handleScoreModalSubmit(
     if (err instanceof IllegalActionError) {
       await interaction.followUp({
         ephemeral: true,
-        content: `That's not available anymore — ${describeStale(err)}.`,
+        content: `That's not available anymore: ${describeStale(err)}.`,
       });
       return;
     }
@@ -300,7 +300,7 @@ async function handleRulingButton(
   const cachedPending = format.pendingAction(cachedState);
   const arg = decoded.arg;
   if (cachedPending.kind !== 'AWAITING_TO' || !arg) {
-    await interaction.followUp({ ephemeral: true, content: 'This escalation was already resolved.' });
+    await interaction.followUp({ ephemeral: true, content: 'A referee already resolved this.' });
     return;
   }
 
@@ -339,14 +339,14 @@ async function handleRulingButton(
       await logToOrganizers(
         alert,
         interaction.guildId!,
-        `Set result awarded to **${displayName(players, winnerId)}** — ruling by **${refDisplayName}**\n\n${matchLinksBlock(interaction.guildId!, ref, match.tournamentId)}`,
+        `Set result awarded to **${displayName(players, winnerId)}**, ruling by **${refDisplayName}**\n\n${matchLinksBlock(interaction.guildId!, ref, match.tournamentId)}`,
         { title: '⚖️ Set resolution', color: LOG_COLOR.RULING },
       );
     } catch (err) {
       if (err instanceof IllegalActionError) {
         await interaction.followUp({
           ephemeral: true,
-          content: `That's not available anymore — ${describeStale(err)}.`,
+          content: `That's not available anymore: ${describeStale(err)}.`,
         });
         return;
       }
@@ -392,14 +392,14 @@ async function handleRulingButton(
     await logToOrganizers(
       alert,
       interaction.guildId!,
-      `Song ${songIndex + 1} (${compactChartLabel(chart)}) ${alertOutcome} — ruling by **${refDisplayName}**\n\n${matchLinksBlock(interaction.guildId!, ref, match.tournamentId)}`,
+      `Song ${songIndex + 1} (${compactChartLabel(chart)}) ${alertOutcome}, ruling by **${refDisplayName}**\n\n${matchLinksBlock(interaction.guildId!, ref, match.tournamentId)}`,
       { title: '⚖️ Song resolution', color: LOG_COLOR.RULING },
     );
   } catch (err) {
     if (err instanceof IllegalActionError) {
       await interaction.followUp({
         ephemeral: true,
-        content: `That's not available anymore — ${describeStale(err)}.`,
+        content: `That's not available anymore: ${describeStale(err)}.`,
       });
       return;
     }
@@ -454,7 +454,7 @@ async function handleResetButton(
     if (err instanceof IllegalActionError) {
       await interaction.followUp({
         ephemeral: true,
-        content: `That's not available anymore — ${describeStale(err)}.`,
+        content: `That's not available anymore: ${describeStale(err)}.`,
       });
       return;
     }
@@ -501,7 +501,7 @@ async function handleTiebreakPick(
     const round = cachedState.tiebreaks.at(-1);
     const priorIndex = round?.choices[me.entrantId];
     if (round && priorIndex !== undefined) {
-      await interaction.editReply(`Your pick is final — you already chose ${compactChartLabel(round.charts[priorIndex]!)}.`);
+      await interaction.editReply(`Your pick is final. You already chose ${compactChartLabel(round.charts[priorIndex]!)}.`);
     } else {
       await interaction.editReply("That's not available anymore.");
     }
@@ -524,7 +524,7 @@ async function handleTiebreakPick(
     const result = await appendMatchEvent(prisma, random, match.id, event, interaction.id);
     const chosenChart = result.state.tiebreaks.find((t) => t.round === cachedPending.round)!.charts[index]!;
     await interaction.editReply(
-      `You picked ${compactChartLabel(chosenChart)}. It'll be revealed once your opponent has chosen too.`,
+      `You picked ${compactChartLabel(chosenChart)}. We'll reveal it once your opponent chooses too.`,
     );
     await applyAppendResult(prisma, matchChannel, alert, playerNotification, realtime, match, format, event, result);
   } catch (err) {

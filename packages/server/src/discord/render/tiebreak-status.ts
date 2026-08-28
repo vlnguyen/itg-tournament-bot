@@ -16,6 +16,6 @@ export function buildTiebreakStatusLines(
   nameOf: NameLookup,
 ): string {
   return participantIds
-    .map((id) => `**${nameOf(id)}** — ${choices[id] !== undefined ? '✅ picked' : '⬜ not yet'}`)
+    .map((id) => `**${nameOf(id)}**: ${choices[id] !== undefined ? '✅ picked' : '⬜ not yet'}`)
     .join('\n');
 }

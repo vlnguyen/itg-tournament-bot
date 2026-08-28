@@ -45,7 +45,7 @@ export function renderSongResultLog(
 ): RenderedMessage {
   const label = `Song ${songIndex + 1} (${compactChartLabel(chart)})`;
   const description =
-    winner === 'TIE' ? `🤝 ${label} tied — no points awarded.` : winner === 'VOID' ? `🚫 ${label} voided.` : `🏆 **${displayName(players, winner)}** wins ${label}`;
+    winner === 'TIE' ? `🤝 ${label} tied. No points awarded.` : winner === 'VOID' ? `🚫 ${label} voided.` : `🏆 **${displayName(players, winner)}** wins ${label}`;
   return { embeds: [new EmbedBuilder().setColor(LOG_COLOR.SONG_RESULT).setDescription(description)] };
 }
 
@@ -65,7 +65,7 @@ export function renderRulingLog(
 ): RenderedMessage {
   const outcome =
     result === 'VOID' ? 'voided' : result === 'TIE' ? 'ruled a tie' : `awarded to **${displayName(players, result)}**`;
-  const description = `⚖️ Song ${songIndex + 1} (${compactChartLabel(chart)}) ${outcome} — ruling by **${refereeDisplayName}**`;
+  const description = `⚖️ Song ${songIndex + 1} (${compactChartLabel(chart)}) ${outcome}, ruling by **${refereeDisplayName}**`;
   return { embeds: [new EmbedBuilder().setColor(LOG_COLOR.RULING).setDescription(description)] };
 }
 
@@ -75,7 +75,7 @@ export function renderSetRulingLog(
   refereeDisplayName: string,
   players: PlayerDirectory,
 ): RenderedMessage {
-  const description = `⚖️ Set result awarded to **${displayName(players, winnerId)}** — ruling by **${refereeDisplayName}**`;
+  const description = `⚖️ Set result awarded to **${displayName(players, winnerId)}**, ruling by **${refereeDisplayName}**`;
   return { embeds: [new EmbedBuilder().setColor(LOG_COLOR.RULING).setDescription(description)] };
 }
 
@@ -96,12 +96,12 @@ export function renderTiebreakRevealLog(
   const resultChart = round.charts[round.resolvedIndex!]!;
   const rule =
     round.choices[a] === round.choices[b]
-      ? `Both picked the same chart — it plays: ${compactChartLabel(resultChart)}`
-      : `Different picks — the unselected chart plays: ${compactChartLabel(resultChart)}`;
+      ? `Both picked the same chart. It plays: ${compactChartLabel(resultChart)}`
+      : `Different picks. The unselected chart plays: ${compactChartLabel(resultChart)}`;
 
   const embed = new EmbedBuilder()
     .setColor(LOG_COLOR.TIEBREAK)
-    .setTitle(`Tiebreak round ${round.round} — picks revealed`)
+    .setTitle(`Tiebreak round ${round.round}: picks revealed`)
     .setDescription([`**${displayName(players, a)}** chose ${compactChartLabel(pickA)}`, `**${displayName(players, b)}** chose ${compactChartLabel(pickB)}`, rule].join('\n'));
 
   return { embeds: [embed] };
@@ -137,6 +137,6 @@ export function renderDqLog(
   players: PlayerDirectory,
 ): RenderedMessage {
   const scopeLabel = scope === 'TOURNAMENT' ? 'from the tournament' : 'from this match';
-  const description = `⛔ **${displayName(players, playerId)}** disqualified ${scopeLabel} — ruling by **${refereeDisplayName}**`;
+  const description = `⛔ **${displayName(players, playerId)}** disqualified ${scopeLabel}, ruling by **${refereeDisplayName}**`;
   return { embeds: [new EmbedBuilder().setColor(LOG_COLOR.RULING).setDescription(description)] };
 }

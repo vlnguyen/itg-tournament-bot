@@ -19,7 +19,7 @@ export async function handlePack(interaction: ChatInputCommandInteraction, ctx: 
 
   const tournament = await findPublicCurrentTournament(ctx.prisma, interaction.guildId!);
   if (!tournament) {
-    await interaction.reply({ ephemeral: true, content: "There's no tournament running right now." });
+    await interaction.reply({ ephemeral: true, content: "There's no tournament running." });
     return;
   }
 

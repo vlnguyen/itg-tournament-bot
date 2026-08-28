@@ -20,7 +20,7 @@ describe('buildTournamentCompleteAnnouncement', () => {
     process.env['PUBLIC_BASE_URL'] = 'https://itg.example.com';
     const message = buildTournamentCompleteAnnouncement('t1', 'Fort Rapids VII', [row('a', 1, 1), row('b', 2, 2)]);
     const embed = message.embeds![0]!;
-    expect(embed.data.title).toBe('🏆 Fort Rapids VII — Final Standings');
+    expect(embed.data.title).toBe('🏆 Fort Rapids VII: Final Standings');
     expect(embed.data.url).toBe('https://itg.example.com/t/t1');
   });
 

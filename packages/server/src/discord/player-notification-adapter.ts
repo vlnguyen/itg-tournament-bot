@@ -112,7 +112,7 @@ export function createPlayerNotificationAdapter(client: Client, prisma: PrismaCl
       const dm = new EmbedBuilder()
         .setTitle('Tournament starting')
         .setColor(LOG_COLOR.TOURNAMENT_STARTING)
-        .setDescription(`Check-in is now open for **${tournamentName}** — use \`/checkin\` to confirm you're playing.${landingLink}`);
+        .setDescription(`Check-in is now open for **${tournamentName}**. Use \`/checkin\` to confirm you're playing.${landingLink}`);
 
       const unreachable: string[] = [];
       for (const userId of playerIds) {
@@ -131,7 +131,7 @@ export function createPlayerNotificationAdapter(client: Client, prisma: PrismaCl
         client,
         prisma,
         guildId,
-        `Registration is open for [**${tournamentName}**](${tournamentUrl(tournamentId)}) — Type \`/join\` to enter.`,
+        `Registration is open for [**${tournamentName}**](${tournamentUrl(tournamentId)}). Type \`/join\` to enter.`,
         { title: '📝 Registration open', color: LOG_COLOR.REGISTRATION_OPEN },
       );
     },

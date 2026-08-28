@@ -56,7 +56,7 @@ const outcome: MatchOutcome = {
 describe('buildResultSummaryEmbed', () => {
   it('titles the embed with the winner and final score', () => {
     const embed = buildResultSummaryEmbed([song(0, 'alice')], { alice: 3, bob: 1 }, outcome, participantIds, nameOf);
-    expect(embed.data.title).toBe('Match complete — Alice wins 3–1');
+    expect(embed.data.title).toBe('Match complete: Alice wins 3–1');
   });
 
   it('lists each song with both EX% values and the winner', () => {
@@ -86,7 +86,7 @@ describe('buildResultSummaryEmbed', () => {
     const dqBeforeAnySong: MatchOutcome = { ...outcome, by: 'DQ' };
     expect(() => buildResultSummaryEmbed([], { alice: 0, bob: 0 }, dqBeforeAnySong, participantIds, nameOf)).not.toThrow();
     const embed = buildResultSummaryEmbed([], { alice: 0, bob: 0 }, dqBeforeAnySong, participantIds, nameOf);
-    expect(embed.data.description).toBe('No songs were played.');
+    expect(embed.data.description).toBe('No songs played.');
   });
 });
 
@@ -95,7 +95,7 @@ describe('buildResultAnnouncement', () => {
     process.env['PUBLIC_BASE_URL'] = 'https://itg.example.com';
     const message = buildResultAnnouncement('WINNERS', 2, outcome, { alice: 3, bob: 1 }, participantIds, nameOf, 't1', 'm1', 'Fort Rapids VII', []);
     const embed = message.embeds![0]!;
-    expect(embed.data.title).toBe('WR2 — Alice vs Bob');
+    expect(embed.data.title).toBe('WR2: Alice vs Bob');
     expect(embed.data.url).toBe('https://itg.example.com/t/t1/matches/m1');
   });
 
@@ -132,7 +132,7 @@ describe('buildResultAnnouncement', () => {
     };
     const message = buildResultAnnouncement('LOSERS', 3, bobWins, { alice: 1, bob: 3 }, participantIds, nameOf, 't1', 'm1', 'T', []);
     const embed = message.embeds![0]!;
-    expect(embed.data.title).toBe('LR3 — Alice vs Bob');
+    expect(embed.data.title).toBe('LR3: Alice vs Bob');
     expect(embed.data.description).toContain('Bob advances (3-1)');
   });
 
@@ -169,7 +169,7 @@ describe('buildResultAnnouncement', () => {
       'T',
       [song(5, 'TIE', 1)],
     );
-    expect(message.embeds![0]!.data.description).toContain('6. **Tiebreak 1 — Song 6 SX 12**: 🤝 Tie');
+    expect(message.embeds![0]!.data.description).toContain('6. **Tiebreak 1 (Song 6 SX 12)**: 🤝 Tie');
   });
 
   it('omits the song list entirely when no songs were played', () => {

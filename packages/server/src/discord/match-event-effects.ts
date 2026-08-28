@@ -39,11 +39,11 @@ import { displayName, renderStateMessage, type PlayerDirectory } from './state-m
  * transaction as the tournament's own cancellation, so it's authoritative
  * regardless of what the thread visibly still shows.
  */
-export const CANCELLED_MATCH_MESSAGE = "This action isn't allowed — the tournament has been cancelled.";
+export const CANCELLED_MATCH_MESSAGE = "You can't do that. The tournament is cancelled.";
 
 export function describeStale(err: IllegalActionError): string {
   if (err.pending.kind === 'DONE') return 'the match is already decided';
-  return `it's currently waiting on ${err.pending.kind.toLowerCase().replaceAll('_', ' ')}`;
+  return `it's waiting on ${err.pending.kind.toLowerCase().replaceAll('_', ' ')}`;
 }
 
 function renderActionLog(

@@ -24,7 +24,7 @@ function escalationDescription(
   const header =
     songIndex === undefined
       ? `**${players[0].name}** vs **${players[1].name}**`
-      : `Song ${songIndex + 1} — **${players[0].name}** vs **${players[1].name}**`;
+      : `Song ${songIndex + 1}: **${players[0].name}** vs **${players[1].name}**`;
   return `${header}\n${threadLink}\n**[Match Link](${matchUrl(tournamentId, matchId)})**`;
 }
 

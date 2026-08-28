@@ -9,15 +9,15 @@ import { hasTier, Tier } from './tier.js';
 import { startTournament, TournamentTransitionError } from '../services/tournament-service.js';
 
 function describePreflightFailure(diag: Awaited<ReturnType<typeof runFullDiagnostic>>): string {
-  const lines = ["Can't start — Discord isn't fully set up yet:"];
+  const lines = ["Can't start. Discord isn't fully set up yet:"];
   for (const role of diag.missingTierRoles) {
-    lines.push(`- The ${TIER_ROLE_LABELS[role]} role is not configured — run \`/setup roles\`.`);
+    lines.push(`- The ${TIER_ROLE_LABELS[role]} role is not configured. Run \`/setup roles\`.`);
   }
   for (const role of diag.deletedTierRoles) {
-    lines.push(`- The configured ${TIER_ROLE_LABELS[role]} role no longer exists — run \`/setup roles\`.`);
+    lines.push(`- The configured ${TIER_ROLE_LABELS[role]} role no longer exists. Run \`/setup roles\`.`);
   }
   for (const slot of diag.missingChannels) {
-    lines.push(`- The configured ${slot} channel no longer exists — run \`/setup channels\`.`);
+    lines.push(`- The configured ${slot} channel no longer exists. Run \`/setup channels\`.`);
   }
   for (const gap of diag.gaps) {
     lines.push(`- ${describeGap({ permission: gap.permission, layer: gap.layer }, gap.targetLabel, `<#${gap.channelId}>`)}`);

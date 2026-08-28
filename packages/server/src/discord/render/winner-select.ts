@@ -26,7 +26,7 @@ export function buildWinnerSelectMessage(
     .join('   ·   ');
 
   const embed = new EmbedBuilder()
-    .setTitle(`Song ${songIndex + 1} — who won?`)
+    .setTitle(`Song ${songIndex + 1}: who won?`)
     .setDescription(`${compactChartLabel(song.chart)}\n\n${comparison}`);
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(

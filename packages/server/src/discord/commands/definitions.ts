@@ -21,13 +21,13 @@ const setup = new SlashCommandBuilder()
       .setName('channels')
       .setDescription('Point the bot at (or create) the matches/alerts/results/general channels')
       .addChannelOption((o) =>
-        o.setName('matches').setDescription('Existing matches channel — omit to create one').addChannelTypes(ChannelType.GuildText),
+        o.setName('matches').setDescription('Existing matches channel (omit to create one)').addChannelTypes(ChannelType.GuildText),
       )
       .addChannelOption((o) =>
-        o.setName('alerts').setDescription('Existing organizer alert channel — omit to create one').addChannelTypes(ChannelType.GuildText),
+        o.setName('alerts').setDescription('Existing organizer alert channel (omit to create one)').addChannelTypes(ChannelType.GuildText),
       )
       .addChannelOption((o) =>
-        o.setName('results').setDescription('Existing results channel — omit to create one').addChannelTypes(ChannelType.GuildText),
+        o.setName('results').setDescription('Existing results channel (omit to create one)').addChannelTypes(ChannelType.GuildText),
       )
       .addChannelOption((o) =>
         o.setName('general').setDescription('Existing general channel to forward results to').addChannelTypes(ChannelType.GuildText),
@@ -37,8 +37,8 @@ const setup = new SlashCommandBuilder()
     sub
       .setName('roles')
       .setDescription('Point the bot at (or create) the referee/organizer tier roles')
-      .addRoleOption((o) => o.setName('referee').setDescription('Referee tier — may rule on matches'))
-      .addRoleOption((o) => o.setName('organizer').setDescription('Tournament Organizer tier — may run tournaments')),
+      .addRoleOption((o) => o.setName('referee').setDescription('Referee tier: may rule on matches'))
+      .addRoleOption((o) => o.setName('organizer').setDescription('Tournament Organizer tier: may run tournaments')),
   )
   .addSubcommand((sub) => sub.setName('status').setDescription('Re-run the setup diagnostic'));
 
@@ -52,11 +52,11 @@ const tournament = new SlashCommandBuilder()
       .addStringOption((o) => o.setName('name').setDescription('Tournament name').setRequired(true)),
   )
   .addSubcommand((sub) => sub.setName('status').setDescription('See the current tournament and what you can do right now'))
-  .addSubcommand((sub) => sub.setName('open-registration').setDescription('Open registration — /join starts working'))
-  .addSubcommand((sub) => sub.setName('close-registration').setDescription('Close registration — /join stops working'))
+  .addSubcommand((sub) => sub.setName('open-registration').setDescription('Open registration so /join starts working'))
+  .addSubcommand((sub) => sub.setName('close-registration').setDescription('Close registration so /join stops working'))
   .addSubcommand((sub) => sub.setName('open-checkin').setDescription('Open check-in and notify registered players'))
   .addSubcommand((sub) => sub.setName('close-checkin').setDescription('Close check-in and normalize seeds'))
-  .addSubcommand((sub) => sub.setName('start').setDescription('Start the tournament — generates the bracket and provisions threads'))
+  .addSubcommand((sub) => sub.setName('start').setDescription('Start the tournament: build the bracket and set up threads'))
   .addSubcommand((sub) => sub.setName('cancel').setDescription('Cancel the tournament'))
   .addSubcommand((sub) =>
     sub
@@ -118,21 +118,21 @@ const dq = new SlashCommandBuilder()
 
 const rule = new SlashCommandBuilder()
   .setName('rule')
-  .setDescription('Rule on this match’s current song or its overall outcome (referee) — no conflict required first')
+  .setDescription('Rule on this match’s current song or its overall outcome (referee); no conflict needed first')
   .addSubcommand((sub) =>
     sub
       .setName('song')
-      .setDescription('Rule on the song currently in play')
-      .addStringOption((o) => o.setName('result').setDescription('Who won — or Tie / Void').setRequired(true).setAutocomplete(true)),
+      .setDescription('Rule on the song in play')
+      .addStringOption((o) => o.setName('result').setDescription('Who won, or Tie/Void').setRequired(true).setAutocomplete(true)),
   )
   .addSubcommand((sub) =>
     sub
       .setName('set')
-      .setDescription('Rule on the set’s overall outcome, pre-empting any songs left unplayed')
+      .setDescription('Rule on the set’s overall outcome, even if songs are left unplayed')
       .addStringOption((o) => o.setName('result').setDescription('Who won the set').setRequired(true).setAutocomplete(true)),
   );
 
-const pack = new SlashCommandBuilder().setName('pack').setDescription('Show a summary of the tournament’s chart pack');
+const pack = new SlashCommandBuilder().setName('pack').setDescription('Summarize the tournament’s chart pack');
 
 const commands = new SlashCommandBuilder().setName('commands').setDescription('List every command, grouped by who can run it');
 

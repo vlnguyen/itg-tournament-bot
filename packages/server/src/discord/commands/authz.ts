@@ -38,7 +38,7 @@ export async function requireOrganizerTier(interaction: ChatInputCommandInteract
     ephemeral: true,
     content: guildRow?.toRoleId
       ? 'You need **Tournament Organizer** tier to run this command.'
-      : 'This server has no Tournament Organizer role configured yet — ask someone with **Manage Server** to run `/setup roles`.',
+      : 'This server has no Tournament Organizer role configured yet. Ask someone with **Manage Server** to run `/setup roles`.',
   });
   return false;
 }
@@ -55,7 +55,7 @@ export async function requireRefereeTier(interaction: ChatInputCommandInteractio
     ephemeral: true,
     content: guildRow?.refereeRoleId
       ? 'You need **Referee** tier to run this command.'
-      : 'This server has no Referee role configured yet — ask someone with **Manage Server** to run `/setup roles`.',
+      : 'This server has no Referee role configured yet. Ask someone with **Manage Server** to run `/setup roles`.',
   });
   return false;
 }

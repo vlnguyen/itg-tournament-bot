@@ -55,10 +55,10 @@ export async function handleJoin(interaction: ChatInputCommandInteraction, ctx: 
       await interaction.reply({ ephemeral: true, content: "You're already registered." });
       return;
     case 'NO_TOURNAMENT':
-      await interaction.reply({ ephemeral: true, content: 'No tournament is currently accepting entrants.' });
+      await interaction.reply({ ephemeral: true, content: 'No tournament is accepting entrants.' });
       return;
     case 'WINDOW_CLOSED':
-      await interaction.reply({ ephemeral: true, content: `Registration isn't open right now — ${PHASE_LABEL[result.phase]}.` });
+      await interaction.reply({ ephemeral: true, content: `Registration isn't open: ${PHASE_LABEL[result.phase]}.` });
       return;
   }
 }
@@ -72,7 +72,7 @@ export async function handleCheckin(interaction: ChatInputCommandInteraction, ct
   const result = await checkin(ctx.prisma, interaction.guildId!, interaction.user.id);
   switch (result.kind) {
     case 'CHECKED_IN': {
-      await interaction.reply({ ephemeral: true, content: "You're checked in — good luck!" });
+      await interaction.reply({ ephemeral: true, content: "You're checked in. Good luck!" });
       const tournament = await ctx.prisma.tournament.findUniqueOrThrow({ where: { id: result.entrant.tournamentId } });
       await logToOrganizers(
         ctx.alert,
@@ -89,10 +89,10 @@ export async function handleCheckin(interaction: ChatInputCommandInteraction, ct
       await interaction.reply({ ephemeral: true, content: "You're already checked in." });
       return;
     case 'NO_TOURNAMENT':
-      await interaction.reply({ ephemeral: true, content: 'No tournament is currently taking check-ins.' });
+      await interaction.reply({ ephemeral: true, content: 'No tournament is taking check-ins.' });
       return;
     case 'WINDOW_CLOSED':
-      await interaction.reply({ ephemeral: true, content: `Check-in isn't open right now — ${PHASE_LABEL[result.phase]}.` });
+      await interaction.reply({ ephemeral: true, content: `Check-in isn't open: ${PHASE_LABEL[result.phase]}.` });
       return;
     case 'NOT_REGISTERED':
       await interaction.reply({ ephemeral: true, content: "You're not registered for this tournament." });
@@ -130,7 +130,7 @@ export async function handleLeave(interaction: ChatInputCommandInteraction, ctx:
       await interaction.reply({ ephemeral: true, content: 'No tournament to withdraw from.' });
       return;
     case 'TOURNAMENT_RUNNING':
-      await interaction.reply({ ephemeral: true, content: 'The tournament has already started — see a referee to withdraw.' });
+      await interaction.reply({ ephemeral: true, content: 'The tournament has already started. See a referee to withdraw.' });
       return;
     case 'NOT_REGISTERED':
       await interaction.reply({ ephemeral: true, content: "You're not registered for this tournament." });

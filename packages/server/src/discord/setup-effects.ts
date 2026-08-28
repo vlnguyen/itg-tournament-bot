@@ -179,7 +179,7 @@ export async function resolveChannelSetup(
     if (pick !== 'CREATE') continue; // no explicit instruction — leave it exactly as resolved above
     if (categoryError) {
       notes.push(
-        `Couldn't create a ${slot} channel (no "${TOURNAMENT_CATEGORY_NAME}" category: ${categoryError}) — create one yourself and point at it.`,
+        `Couldn't create a ${slot} channel (no "${TOURNAMENT_CATEGORY_NAME}" category: ${categoryError}). Create one yourself and point at it.`,
       );
       continue;
     }
@@ -188,7 +188,7 @@ export async function resolveChannelSetup(
       resolved[slot] = created.id;
       notes.push(`Created #${created.name} for the ${slot} channel.`);
     } catch (err) {
-      notes.push(`Couldn't create a ${slot} channel (${(err as Error).message}) — create one yourself and point at it.`);
+      notes.push(`Couldn't create a ${slot} channel (${(err as Error).message}). Create one yourself and point at it.`);
     }
   }
   if (given.general && given.general !== 'CREATE') {
@@ -258,7 +258,7 @@ export async function resolveRoleSetup(
       resolved[slot] = created.id;
       notes.push(`Created role **${created.name}** for ${TIER_ROLE_LABELS[slot]} tier.`);
     } catch (err) {
-      notes.push(`Couldn't create a ${TIER_ROLE_LABELS[slot]} role (${(err as Error).message}) — create one yourself and point at it.`);
+      notes.push(`Couldn't create a ${TIER_ROLE_LABELS[slot]} role (${(err as Error).message}). Create one yourself and point at it.`);
     }
   }
 

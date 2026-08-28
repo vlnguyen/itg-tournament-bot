@@ -90,12 +90,12 @@ async function handleList(interaction: ChatInputCommandInteraction, ctx: Command
   const lines: string[] = [];
   for (const e of entrants) {
     const name = e.displayName ?? (await fetchDisplayNameById(guild, e.discordUserId));
-    const seedLabel = e.seed !== null ? `**${e.seed}.**` : '**—**';
+    const seedLabel = e.seed !== null ? `**${e.seed}.**` : '**-**';
     lines.push(`${seedLabel} ${name}${e.checkedIn ? ' ✅' : ''}`);
   }
 
   const embed = new EmbedBuilder()
-    .setTitle(`${tournament.name} — roster`)
+    .setTitle(`${tournament.name}: roster`)
     .setDescription(lines.join('\n'))
     .setFooter({ text: `${plural(entrants.length, 'entrant', 'entrants')} · ✅ checked in` });
   await interaction.editReply({ embeds: [embed] });
@@ -126,7 +126,7 @@ async function handleAdd(interaction: ChatInputCommandInteraction, ctx: CommandC
       await interaction.reply({ ephemeral: true, content: 'No tournament to add them to.' });
       return;
     case 'TOO_LATE':
-      await interaction.reply({ ephemeral: true, content: `Can't add anyone — ${PHASE_LABEL[result.phase]}.` });
+      await interaction.reply({ ephemeral: true, content: `Can't add anyone: ${PHASE_LABEL[result.phase]}.` });
       return;
   }
 }
@@ -155,10 +155,10 @@ async function handleCheckin(interaction: ChatInputCommandInteraction, ctx: Comm
       await interaction.reply({ ephemeral: true, content: 'No tournament to check them into.' });
       return;
     case 'WINDOW_CLOSED':
-      await interaction.reply({ ephemeral: true, content: `Can't check them in — ${PHASE_LABEL[result.phase]}.` });
+      await interaction.reply({ ephemeral: true, content: `Can't check them in: ${PHASE_LABEL[result.phase]}.` });
       return;
     case 'NOT_REGISTERED':
-      await interaction.reply({ ephemeral: true, content: `**${playerName}** isn't registered — use \`/roster add\` first.` });
+      await interaction.reply({ ephemeral: true, content: `**${playerName}** isn't registered. Use \`/roster add\` first.` });
       return;
   }
 }
@@ -167,12 +167,12 @@ async function handleUncheckin(interaction: ChatInputCommandInteraction, ctx: Co
   const result = await rosterUncheckin(ctx.prisma, interaction.guildId!, player.id, interaction.user.id);
   switch (result.kind) {
     case 'UNCHECKED_IN': {
-      await interaction.reply({ ephemeral: true, content: `Un-checked-in **${playerName}**.` });
+      await interaction.reply({ ephemeral: true, content: `Reverted check-in for **${playerName}**.` });
       const tournament = await ctx.prisma.tournament.findUniqueOrThrow({ where: { id: result.entrant.tournamentId } });
       await logToOrganizers(
         ctx.alert,
         interaction.guildId!,
-        `📋 **${interaction.user.username}** un-checked-in **${player.username}** for [**${tournament.name}**](${tournamentUrl(tournament.id)}).`,
+        `📋 **${interaction.user.username}** reverted check-in for **${player.username}** in [**${tournament.name}**](${tournamentUrl(tournament.id)}).`,
         { color: LOG_COLOR.RULING },
       );
       ctx.realtime.publishRosterChanged(result.entrant.tournamentId);
@@ -185,7 +185,7 @@ async function handleUncheckin(interaction: ChatInputCommandInteraction, ctx: Co
       await interaction.reply({ ephemeral: true, content: 'No tournament to act on.' });
       return;
     case 'TOO_LATE':
-      await interaction.reply({ ephemeral: true, content: `Can't do that — ${PHASE_LABEL[result.phase]}.` });
+      await interaction.reply({ ephemeral: true, content: `Can't do that: ${PHASE_LABEL[result.phase]}.` });
       return;
     case 'NOT_REGISTERED':
       await interaction.reply({ ephemeral: true, content: `**${playerName}** isn't registered.` });
@@ -212,7 +212,7 @@ async function handleRemove(interaction: ChatInputCommandInteraction, ctx: Comma
       await interaction.reply({ ephemeral: true, content: 'No tournament to remove them from.' });
       return;
     case 'TOO_LATE':
-      await interaction.reply({ ephemeral: true, content: `Can't do that — ${PHASE_LABEL[result.phase]}. See a referee to remove a player mid-tournament.` });
+      await interaction.reply({ ephemeral: true, content: `Can't do that: ${PHASE_LABEL[result.phase]}. See a referee to remove a player mid-tournament.` });
       return;
     case 'NOT_REGISTERED':
       await interaction.reply({ ephemeral: true, content: `**${playerName}** isn't registered.` });

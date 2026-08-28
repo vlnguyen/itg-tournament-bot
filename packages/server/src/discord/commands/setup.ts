@@ -240,18 +240,18 @@ function renderDiagnosticEmbed(
   if (preface) lines.push(preface, '');
 
   const configured = guildRow?.matchesChannelId || guildRow?.alertChannelId || guildRow?.resultsChannelId;
-  if (!configured) lines.push('No channels configured yet — run `/setup channels`.');
+  if (!configured) lines.push('No channels configured yet. Run `/setup channels`.');
 
   for (const role of missingTierRoles) {
-    lines.push(`- ❌ The ${TIER_ROLE_LABELS[role]} role is not configured — run \`/setup roles ${role}:<role>\`.`);
+    lines.push(`- ❌ The ${TIER_ROLE_LABELS[role]} role is not configured. Run \`/setup roles ${role}:<role>\`.`);
   }
 
   for (const role of deletedTierRoles) {
-    lines.push(`- ⚠️ The configured ${TIER_ROLE_LABELS[role]} role no longer exists — re-run \`/setup roles\` to point at a replacement.`);
+    lines.push(`- ⚠️ The configured ${TIER_ROLE_LABELS[role]} role no longer exists. Re-run \`/setup roles\` to point at a replacement.`);
   }
 
   for (const slot of missingChannels) {
-    lines.push(`- ⚠️ The configured ${slot} channel no longer exists — re-run \`/setup channels\` to point at a replacement.`);
+    lines.push(`- ⚠️ The configured ${slot} channel no longer exists. Re-run \`/setup channels\` to point at a replacement.`);
   }
 
   const clean =
@@ -261,7 +261,7 @@ function renderDiagnosticEmbed(
     deletedTierRoles.length === 0 &&
     configured;
   if (clean) {
-    lines.push('✅ Everything required is in place.');
+    lines.push("✅ Everything's ready.");
   } else {
     for (const gap of gaps) {
       const channelLabel = channelLabelFor(slotOfChannelId(gap.channelId, guildRow), guildRow);
@@ -270,7 +270,7 @@ function renderDiagnosticEmbed(
   }
 
   if (refereePoolEmpty) {
-    lines.push('', '⚠️ Nobody holds a role at Referee tier or above — a dispute has nobody to rule on it yet.');
+    lines.push('', '⚠️ Nobody holds a role at Referee tier or above yet, so a dispute has nobody to rule on it.');
   }
 
   embed.setDescription(lines.join('\n') || 'Nothing to report.');

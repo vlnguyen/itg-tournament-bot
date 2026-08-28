@@ -19,7 +19,7 @@ export function buildScoreTicksLines(
     .map((id) => {
       const ex = song.ex[id] !== undefined ? '✅' : '⬜';
       const photo = song.photoSeen[id] ? '✅' : '⬜';
-      return `**${nameOf(id)}** — EX% ${ex}  Photo ${photo}`;
+      return `**${nameOf(id)}**: EX% ${ex}  Photo ${photo}`;
     })
     .join('\n');
 }

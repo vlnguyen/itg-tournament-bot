@@ -106,9 +106,9 @@ export function diagnosePermissions(
 export function describeGap(gap: PermissionGap, roleLabel: string, channelLabel: string): string {
   switch (gap.layer) {
     case 'ROLE_BASE':
-      return `${roleLabel} lacks **${gap.permission}** at the server level — grant it on the role itself.`;
+      return `${roleLabel} lacks **${gap.permission}** at the server level. Grant it on the role itself.`;
     case 'EVERYONE_OVERWRITE':
-      return `@everyone is denied **${gap.permission}** in ${channelLabel} and ${roleLabel} has no overwrite granting it — add an allow overwrite for ${roleLabel} there.`;
+      return `@everyone is denied **${gap.permission}** in ${channelLabel}, and ${roleLabel} has no overwrite granting it. Add an allow overwrite for ${roleLabel} there.`;
     case 'ROLE_OVERWRITE':
       return `${roleLabel} has **${gap.permission}**, but the ${channelLabel} overwrite denies it for that role.`;
     case 'MEMBER_OVERWRITE':

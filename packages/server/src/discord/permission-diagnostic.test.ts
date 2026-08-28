@@ -141,13 +141,13 @@ describe('diagnosePermissions', () => {
 describe('describeGap', () => {
   it('names the role and the fix for each layer', () => {
     expect(describeGap({ permission: 'ManageThreads', layer: 'ROLE_BASE' }, 'Referee', '#matches')).toContain(
-      'grant it on the role',
+      'Grant it on the role',
     );
     expect(describeGap({ permission: 'ManageThreads', layer: 'ROLE_OVERWRITE' }, 'Referee', '#matches')).toContain(
       '#matches overwrite denies it',
     );
     expect(describeGap({ permission: 'ViewChannel', layer: 'EVERYONE_OVERWRITE' }, 'Referee', '#matches')).toContain(
-      'add an allow overwrite for Referee',
+      'Add an allow overwrite for Referee',
     );
     expect(describeGap({ permission: 'SendMessages', layer: 'MEMBER_OVERWRITE' }, 'Referee', '#matches')).toContain(
       'member-specific overwrite',

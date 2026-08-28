@@ -163,7 +163,7 @@ async function handleMatchScopeDq(interaction: ChatInputCommandInteraction, ctx:
     );
   } catch (err) {
     if (err instanceof IllegalActionError) {
-      await interaction.editReply(`Can't rule on that — ${describeStale(err)}.`);
+      await interaction.editReply(`Can't rule on that: ${describeStale(err)}.`);
       return;
     }
     throw err;
@@ -208,7 +208,7 @@ async function handleTournamentScopeDq(interaction: ChatInputCommandInteraction,
   }
 
   await interaction.editReply(
-    `Disqualified **${playerName}** from **${tournament.name}** — every remaining opponent receives a walkover automatically.`,
+    `Disqualified **${playerName}** from **${tournament.name}**. Every remaining opponent gets an automatic walkover.`,
   );
   await logToOrganizers(
     ctx.alert,
@@ -294,7 +294,7 @@ export async function handleRule(interaction: ChatInputCommandInteraction, ctx: 
 
   if (sub === 'set') {
     if (rulingResult === 'TIE' || rulingResult === 'VOID') {
-      await interaction.editReply('A set can only be awarded to a player, not tied or voided.');
+      await interaction.editReply("You can only award a set to a player, not tie or void it.");
       return;
     }
     const event: Omit<MatchEvent, 'seq'> = {
@@ -324,13 +324,13 @@ export async function handleRule(interaction: ChatInputCommandInteraction, ctx: 
       await logToOrganizers(
         ctx.alert,
         interaction.guildId!,
-        `Set result awarded to **${displayName(players, rulingResult)}** — ruling by **${refName}**\n\n${matchLinksBlock(interaction.guildId!, ref, match.tournamentId)}`,
+        `Set result awarded to **${displayName(players, rulingResult)}**, ruling by **${refName}**\n\n${matchLinksBlock(interaction.guildId!, ref, match.tournamentId)}`,
         { title: '⚖️ Set resolution', color: LOG_COLOR.RULING },
       );
       await interaction.editReply(`Awarded the set to **${displayName(players, rulingResult)}**.`);
     } catch (err) {
       if (err instanceof IllegalActionError) {
-        await interaction.editReply(`Can't rule on that — ${describeStale(err)}.`);
+        await interaction.editReply(`Can't rule on that: ${describeStale(err)}.`);
         return;
       }
       throw err;
@@ -349,7 +349,7 @@ export async function handleRule(interaction: ChatInputCommandInteraction, ctx: 
         ? pending.songIndex
         : undefined;
   if (songIndex === undefined) {
-    await interaction.editReply("There's no song currently in play to rule on.");
+    await interaction.editReply("There's no song in play to rule on.");
     return;
   }
 
@@ -386,15 +386,20 @@ export async function handleRule(interaction: ChatInputCommandInteraction, ctx: 
     await logToOrganizers(
       ctx.alert,
       interaction.guildId!,
-      `Song ${songIndex + 1} (${compactChartLabel(chart)}) ${alertOutcome} — ruling by **${refName}**\n\n${matchLinksBlock(interaction.guildId!, ref, match.tournamentId)}`,
+      `Song ${songIndex + 1} (${compactChartLabel(chart)}) ${alertOutcome}, ruling by **${refName}**\n\n${matchLinksBlock(interaction.guildId!, ref, match.tournamentId)}`,
       { title: '⚖️ Song resolution', color: LOG_COLOR.RULING },
     );
 
-    const outcomeText = rulingResult === 'VOID' ? 'Voided' : rulingResult === 'TIE' ? 'Ruled a tie for' : `Awarded to **${displayName(players, rulingResult)}** —`;
-    await interaction.editReply(`${outcomeText} song ${songIndex + 1}.`);
+    if (rulingResult === 'VOID') {
+      await interaction.editReply(`Voided song ${songIndex + 1}.`);
+    } else if (rulingResult === 'TIE') {
+      await interaction.editReply(`Ruled song ${songIndex + 1} a tie.`);
+    } else {
+      await interaction.editReply(`Awarded song ${songIndex + 1} to **${displayName(players, rulingResult)}**.`);
+    }
   } catch (err) {
     if (err instanceof IllegalActionError) {
-      await interaction.editReply(`Can't rule on that — ${describeStale(err)}.`);
+      await interaction.editReply(`Can't rule on that: ${describeStale(err)}.`);
       return;
     }
     throw err;

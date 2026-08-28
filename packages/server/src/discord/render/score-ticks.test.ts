@@ -6,7 +6,7 @@ const nameOf = (id: string) => (id === 'alice' ? 'Alice' : 'Bob');
 describe('buildScoreTicksLines', () => {
   it('shows empty boxes when nothing has landed', () => {
     const lines = buildScoreTicksLines({ ex: {}, photoSeen: {} }, ['alice', 'bob'], nameOf);
-    expect(lines).toBe('**Alice** — EX% ⬜  Photo ⬜\n**Bob** — EX% ⬜  Photo ⬜');
+    expect(lines).toBe('**Alice**: EX% ⬜  Photo ⬜\n**Bob**: EX% ⬜  Photo ⬜');
   });
 
   it('ticks EX% independently of photo, per player', () => {
@@ -15,7 +15,7 @@ describe('buildScoreTicksLines', () => {
       ['alice', 'bob'],
       nameOf,
     );
-    expect(lines).toBe('**Alice** — EX% ✅  Photo ⬜\n**Bob** — EX% ⬜  Photo ✅');
+    expect(lines).toBe('**Alice**: EX% ✅  Photo ⬜\n**Bob**: EX% ⬜  Photo ✅');
   });
 
   it('never renders the EX% value itself, only the tick', () => {
@@ -29,6 +29,6 @@ describe('buildScoreTicksLines', () => {
       ['alice', 'bob'],
       nameOf,
     );
-    expect(lines).toBe('**Alice** — EX% ✅  Photo ✅\n**Bob** — EX% ✅  Photo ✅');
+    expect(lines).toBe('**Alice**: EX% ✅  Photo ✅\n**Bob**: EX% ✅  Photo ✅');
   });
 });

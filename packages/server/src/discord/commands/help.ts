@@ -95,11 +95,11 @@ export async function handleCommands(interaction: ChatInputCommandInteraction, _
 
   const embed = new EmbedBuilder().setTitle('Commands');
   for (const group of GROUP_ORDER) {
-    const lines = entries.filter((e) => e.group === group).map((e) => `\`${e.usage}\` — ${e.description}`);
+    const lines = entries.filter((e) => e.group === group).map((e) => `\`${e.usage}\`: ${e.description}`);
     if (lines.length === 0) continue;
     embed.addFields({ name: GROUP_LABEL[group], value: lines.join('\n') });
   }
-  embed.setFooter({ text: 'Tiers are cumulative — a Tournament Organizer can do everything a Referee can.' });
+  embed.setFooter({ text: 'Tiers are cumulative: a Tournament Organizer can do everything a Referee can.' });
 
   await interaction.reply({ ephemeral: true, embeds: [embed] });
 }

@@ -83,7 +83,7 @@ function renderNotYetImplemented(pending: PendingAction): RenderedMessage {
   return {
     embeds: [
       new EmbedBuilder().setDescription(
-        `_Match state is waiting on **${pending.kind}**. Rendering for this step isn't built yet — the underlying state is correct in the database._`,
+        `_Match state is waiting on **${pending.kind}**. Rendering for this step isn't built yet. The underlying state is correct in the database._`,
       ),
     ],
   };
@@ -243,7 +243,7 @@ function renderTiebreakPick(
   const embed = new EmbedBuilder()
     .setTitle(`Tiebreak round ${round}`)
     .setDescription(
-      'Choose privately. Your pick is not shown to your opponent — or to anyone else — until both of you have chosen, and then it is revealed for both.',
+      "Choose privately. We hide your pick from your opponent, and everyone else, until you've both chosen. Then we reveal both.",
     )
     .addFields({
       name: 'Status',

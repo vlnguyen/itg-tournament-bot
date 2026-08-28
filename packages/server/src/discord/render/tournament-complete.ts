@@ -42,7 +42,7 @@ export function buildTournamentCompleteAnnouncement(
 
   const link = tournamentUrl(tournamentId);
   const embed = new EmbedBuilder()
-    .setTitle(`🏆 ${tournamentName} — Final Standings`)
+    .setTitle(`🏆 ${tournamentName}: Final Standings`)
     .setColor(LOG_COLOR.TOURNAMENT_COMPLETE)
     .setDescription(lines.length > 0 ? lines.join('\n') : 'No standings available.');
   if (isAbsoluteWebUrl(link)) embed.setURL(link);

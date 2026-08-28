@@ -37,10 +37,10 @@ function songLine(song: PublicMatch['songs'][number], participantIds: readonly E
   const scoreText = participantIds
     .filter((id) => song.ex[id] !== undefined)
     .map((id) => `${nameOf(id)} ${song.ex[id]!.toFixed(2)}%`)
-    .join(' — ');
+    .join(', ');
   const outcomeText = songOutcomeText(song, nameOf);
-  const parts = [scoreText, outcomeText].filter((v) => v.length > 0).join(' — ');
-  return `**${songLabel(song)}** — ${compactChartLabel(song.chart)}${parts ? `: ${parts}` : ''}`;
+  const parts = [scoreText, outcomeText].filter((v) => v.length > 0).join('; ');
+  return `**${songLabel(song)}** (${compactChartLabel(song.chart)})${parts ? `: ${parts}` : ''}`;
 }
 
 /** 🏆 winner / 🤝 tie reads faster across a whole event's worth of announcement lines than a "wins"/"tied" verb would. */
@@ -65,7 +65,7 @@ function announcementOutcomeText(song: PublicMatch['songs'][number], nameOf: Nam
 function announcementSongLine(song: PublicMatch['songs'][number], nameOf: NameLookup): string {
   const outcomeText = announcementOutcomeText(song, nameOf);
   const chart = compactChartLabel(song.chart);
-  const label = song.tiebreakRound !== undefined ? `Tiebreak ${song.tiebreakRound} — ${chart}` : chart;
+  const label = song.tiebreakRound !== undefined ? `Tiebreak ${song.tiebreakRound} (${chart})` : chart;
   return `${song.index + 1}. **${label}**${outcomeText ? `: ${outcomeText}` : ''}`;
 }
 
@@ -92,10 +92,10 @@ export function buildResultSummaryEmbed(
   // in progress, or not even that far. `songs` is then empty, and
   // `EmbedBuilder.setDescription` rejects an empty string outright, so a
   // description is only ever built from a non-empty list.
-  const description = songs.length > 0 ? songs.map((s) => songLine(s, participantIds, nameOf)).join('\n') : 'No songs were played.';
+  const description = songs.length > 0 ? songs.map((s) => songLine(s, participantIds, nameOf)).join('\n') : 'No songs played.';
 
   return new EmbedBuilder()
-    .setTitle(`Match complete — ${nameOf(winner.entrantId)} wins ${points[a] ?? 0}–${points[b] ?? 0}${decidedBy ? ` (${decidedBy})` : ''}`)
+    .setTitle(`Match complete: ${nameOf(winner.entrantId)} wins ${points[a] ?? 0}–${points[b] ?? 0}${decidedBy ? ` (${decidedBy})` : ''}`)
     .setColor(LOG_COLOR.RESULT_SUMMARY)
     .setDescription(description);
 }
@@ -139,7 +139,7 @@ export function buildResultAnnouncement(
 
   const link = matchUrl(tournamentId, matchId);
   const embed = new EmbedBuilder()
-    .setTitle(`${label} — ${nameOf(a)} vs ${nameOf(b)}`)
+    .setTitle(`${label}: ${nameOf(a)} vs ${nameOf(b)}`)
     .setColor(LOG_COLOR.RESULT_ANNOUNCEMENT)
     .setDescription(
       [

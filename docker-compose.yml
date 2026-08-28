@@ -36,5 +36,27 @@ services:
       - "${PORT:-3000}:3000"
     restart: unless-stopped
 
+  # Reverse proxy + automatic Let's Encrypt HTTPS for production, where a
+  # real domain (PUBLIC_DOMAIN) points at this host. Behind a profile so
+  # local `docker compose up` (no --profile flag) never starts it — dev
+  # just hits the app directly on port 3000, same as always.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["production"]
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    env_file:
+      - .env
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  caddy_data:
+  caddy_config:

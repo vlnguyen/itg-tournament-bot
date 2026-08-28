@@ -1,0 +1,30 @@
+name: Deploy
+
+# Manual trigger only — merging to main is "code is ready," running this
+# workflow is "ship it now." Two deliberate steps, not one implicit one.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or tag to deploy
+        required: false
+        default: main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+            cd ${{ secrets.DEPLOY_PATH }}
+            git fetch origin
+            git checkout "${{ inputs.ref }}"
+            git pull origin "${{ inputs.ref }}"
+            docker compose --profile production up -d --build
+            docker image prune -f

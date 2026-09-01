@@ -1,3 +1,4 @@
+import type { ProjectedSlot } from './bracket-layout.js';
 import type { BracketMatch } from '@itg/shared';
 
 /**
@@ -20,7 +21,7 @@ export function matchStateLabel(m: Pick<BracketMatch, 'status' | 'awaitingTo' | 
  * reader gets from the cell's layout, read linearly. Pure so the actual
  * wording is testable without rendering anything.
  */
-export function describeMatch(m: BracketMatch): string {
+export function describeMatch(m: BracketMatch, projected?: [ProjectedSlot | undefined, ProjectedSlot | undefined] | undefined): string {
   const state = matchStateLabel(m);
   const [p0, p1] = m.participants;
 
@@ -33,7 +34,17 @@ export function describeMatch(m: BracketMatch): string {
     return `seed ${p.seed} ${p.displayName} receives a bye. ${state}.`;
   }
 
-  if (!p0 || !p1) return `${state}, not yet determined.`;
+  if (!p0 || !p1) {
+    // Mirrors `match-cell.tsx`'s dimmed/italic slots: the same seed-order
+    // preview a sighted organizer sees, read out the same way — "projected"
+    // is the one word doing the work of that visual styling.
+    if (m.status === 'PENDING' && projected && (projected[0] || projected[1])) {
+      const label = (slot: ProjectedSlot | undefined): string =>
+        slot?.kind === 'entrant' ? `seed ${slot.seed} ${slot.displayName} projected` : slot?.kind === 'bye' ? 'a bye' : 'not yet determined';
+      return `${label(projected[0])}, versus ${label(projected[1])}. ${state}.`;
+    }
+    return `${state}, not yet determined.`;
+  }
 
   // Mirrors `match-cell.tsx`'s own `dqd`: a DQ or a mid-tournament walkover
   // (both seats real, one already withdrawn — see `engine.ts`'s

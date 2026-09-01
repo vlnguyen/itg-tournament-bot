@@ -83,6 +83,7 @@ export class RulingsController {
         ...pub,
         bracket: match.bracket,
         round: match.round,
+        slot: match.slot,
         participants: pub.participants.map((p) => ({ ...p, displayName: names.get(p.entrantId) ?? p.entrantId })),
       });
     } catch (err) {

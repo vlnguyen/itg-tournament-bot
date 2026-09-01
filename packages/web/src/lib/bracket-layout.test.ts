@@ -1,7 +1,7 @@
 import { generateBracket, matchKey } from '@itg/shared';
-import type { TournamentSnapshot } from '@itg/shared';
+import type { Roster, RosterEntrant, TournamentSnapshot } from '@itg/shared';
 import { describe, expect, it } from 'vitest';
-import { buildBracketLayout } from './bracket-layout.js';
+import { buildBracketLayout, projectRoundOne } from './bracket-layout.js';
 
 /** Every generated match, given a placeholder PENDING projection — enough to exercise the layout, not the live-state narrowing. */
 function fullSnapshot(entrantCount: number): TournamentSnapshot {
@@ -20,6 +20,7 @@ function fullSnapshot(entrantCount: number): TournamentSnapshot {
       slot: gm.ref.slot,
       match: {
         seq: 0,
+        formatKey: 'bo5-protect-veto',
         participants: [],
         status: 'PENDING',
         awaitingTo: false,
@@ -94,5 +95,80 @@ describe.each([2, 3, 4, 5, 8, 9])('buildBracketLayout, %i entrants', (entrantCou
     expect(entry.winnerGoesTo).toHaveLength(2);
     expect(entry.winnerGoesTo).toContainEqual({ bracket: 'GRAND_FINAL', round: 1, slot: 0 });
     expect(entry.winnerGoesTo).toContainEqual({ bracket: 'GRAND_FINAL', round: 2, slot: 0 });
+  });
+});
+
+function rosterEntrant(seed: number): RosterEntrant {
+  return { entrantId: `e${seed}`, discordUserId: `d${seed}`, displayName: `Player ${seed}`, checkedIn: true, seed, joinedAt: '2026-01-01T00:00:00.000Z' };
+}
+
+describe('projectRoundOne', () => {
+  it('projects a full round of real seeds when entrantCount is already a power of two — no byes at all', () => {
+    const generated = generateBracket(4);
+    const roster: Roster = [1, 2, 3, 4].map(rosterEntrant);
+    const projections = projectRoundOne(generated, roster);
+
+    expect(projections.get(matchKey({ bracket: 'WINNERS', round: 1, slot: 0 }))).toEqual([
+      { kind: 'entrant', seed: 1, displayName: 'Player 1' },
+      { kind: 'entrant', seed: 4, displayName: 'Player 4' },
+    ]);
+    expect(projections.get(matchKey({ bracket: 'WINNERS', round: 1, slot: 1 }))).toEqual([
+      { kind: 'entrant', seed: 2, displayName: 'Player 2' },
+      { kind: 'entrant', seed: 3, displayName: 'Player 3' },
+    ]);
+  });
+
+  it('projects a bye slot as { kind: "bye" } rather than a missing entrant', () => {
+    // 5 entrants pads to size 8; seedOrder(8) puts seed 8 opposite seed 1 —
+    // the top seed's round-1 opponent is always the deepest bye.
+    const generated = generateBracket(5);
+    const roster: Roster = [1, 2, 3, 4, 5].map(rosterEntrant);
+    const projections = projectRoundOne(generated, roster);
+
+    const topSeedMatch = generated.matches.find((m) => m.ref.bracket === 'WINNERS' && m.ref.round === 1 && m.sources.some((s) => s.kind === 'SEED' && s.seed === 1))!;
+    expect(projections.get(matchKey(topSeedMatch.ref))).toEqual([{ kind: 'entrant', seed: 1, displayName: 'Player 1' }, { kind: 'bye' }]);
+  });
+
+  it('falls back to undefined for a seed the current roster no longer has — a stale bracket', () => {
+    const generated = generateBracket(4);
+    const roster: Roster = [1, 2, 3].map(rosterEntrant); // seed 4 is gone
+    const projections = projectRoundOne(generated, roster);
+    expect(projections.get(matchKey({ bracket: 'WINNERS', round: 1, slot: 0 }))).toEqual([{ kind: 'entrant', seed: 1, displayName: 'Player 1' }, undefined]);
+  });
+
+  it('only covers round 1 — no entries for round 2 or the grand final', () => {
+    const generated = generateBracket(4);
+    const roster: Roster = [1, 2, 3, 4].map(rosterEntrant);
+    const projections = projectRoundOne(generated, roster);
+    expect(projections.has(matchKey({ bracket: 'WINNERS', round: 2, slot: 0 }))).toBe(false);
+    expect(projections.has(matchKey({ bracket: 'GRAND_FINAL', round: 1, slot: 0 }))).toBe(false);
+  });
+
+  it('skips a not-checked-in entrant and renumbers around the gap, matching what renormalizeSeeds will do at start', () => {
+    // Roster arrives sorted by (seed asc, joinedAt asc), same as `getRoster`
+    // server-side. Seed 2 never checked in, so a 3-checked-in bracket's
+    // dense seeds are 1 -> roster seed 1, 2 -> roster seed 3, 3 -> roster seed 4.
+    const generated = generateBracket(3);
+    const roster: Roster = [rosterEntrant(1), { ...rosterEntrant(2), checkedIn: false }, rosterEntrant(3), rosterEntrant(4)];
+    const projections = projectRoundOne(generated, roster);
+
+    const bySlot = (slot: number) => projections.get(matchKey({ bracket: 'WINNERS', round: 1, slot }))!;
+    // seedOrder(4) = [1, 4, 2, 3] pairing dense seeds (1,4) and (2,3); dense
+    // seed 4 is a bye since only 3 are checked in.
+    expect(bySlot(0)).toEqual([{ kind: 'entrant', seed: 1, displayName: 'Player 1' }, { kind: 'bye' }]);
+    expect(bySlot(1)).toEqual([{ kind: 'entrant', seed: 2, displayName: 'Player 3' }, { kind: 'entrant', seed: 3, displayName: 'Player 4' }]);
+  });
+
+  it('re-pairs round 1 purely from the roster passed in — the live "update as seeds move" contract', () => {
+    const generated = generateBracket(4);
+    const before = projectRoundOne(generated, [1, 2, 3, 4].map(rosterEntrant));
+    // Swap seeds 1 and 2 — as if a TO dragged seed 2 to the top. `roster`
+    // always arrives pre-sorted by seed (see `getRoster`), so the swapped
+    // entrant leads the array too.
+    const swapped: Roster = [{ ...rosterEntrant(2), seed: 1 }, { ...rosterEntrant(1), seed: 2 }, rosterEntrant(3), rosterEntrant(4)];
+    const after = projectRoundOne(generated, swapped);
+
+    expect(before.get(matchKey({ bracket: 'WINNERS', round: 1, slot: 0 }))![0]).toEqual({ kind: 'entrant', seed: 1, displayName: 'Player 1' });
+    expect(after.get(matchKey({ bracket: 'WINNERS', round: 1, slot: 0 }))![0]).toEqual({ kind: 'entrant', seed: 1, displayName: 'Player 2' });
   });
 });

@@ -68,13 +68,19 @@ const tournament = new SlashCommandBuilder()
   .addSubcommand((sub) =>
     sub
       .setName('format')
-      .setDescription('Set the match ruleset this tournament generates its bracket with')
+      .setDescription('Set the match ruleset for the whole tournament, one round, or one match')
       .addStringOption((o) =>
         o
           .setName('format')
-          .setDescription('Ruleset for every match this tournament generates')
+          .setDescription('Ruleset to set')
           .setRequired(true)
           .addChoices(...FormatKey.options.map((key) => ({ name: FORMAT_LABEL[key], value: key }))),
+      )
+      .addStringOption((o) =>
+        o
+          .setName('target')
+          .setDescription('A round or match to set instead of the tournament default (needs a generated bracket)')
+          .setAutocomplete(true),
       ),
   );
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeCustomId, encodeCustomId } from './custom-id.js';
+import { decodeCustomId, decodeTournamentCustomId, encodeCustomId, encodeTournamentCustomId } from './custom-id.js';
 
 describe('encodeCustomId / decodeCustomId', () => {
   it('round-trips a button id with an arg', () => {
@@ -41,5 +41,39 @@ describe('encodeCustomId / decodeCustomId', () => {
     const raw = 'v1:m1:PROTECT:3';
     const decoded = decodeCustomId(raw)!;
     expect(encodeCustomId(decoded)).toBe(raw);
+  });
+});
+
+describe('encodeTournamentCustomId / decodeTournamentCustomId', () => {
+  it('round-trips a button id with an arg', () => {
+    const id = { tournamentId: 'cuid123456789012345678901', action: 'TFMTALL', arg: 'bo3-protect-veto' };
+    expect(decodeTournamentCustomId(encodeTournamentCustomId(id))).toEqual(id);
+  });
+
+  it('round-trips an id with no arg', () => {
+    const id = { tournamentId: 'cuid123456789012345678901', action: 'TFMTNO' };
+    expect(decodeTournamentCustomId(encodeTournamentCustomId(id))).toEqual(id);
+  });
+
+  it('produces the literal t1:<tournamentId>:<action>:<arg> shape', () => {
+    expect(encodeTournamentCustomId({ tournamentId: 't1', action: 'TFMTDEF', arg: 'bo5-protect-veto' })).toBe('t1:t1:TFMTDEF:bo5-protect-veto');
+    expect(encodeTournamentCustomId({ tournamentId: 't1', action: 'TFMTNO' })).toBe('t1:t1:TFMTNO');
+  });
+
+  it('never collides with a v1: match-scoped id — each codec ignores the other\'s prefix', () => {
+    expect(decodeTournamentCustomId('v1:m1:PROTECT:3')).toBeNull();
+    expect(decodeCustomId('t1:tourn1:TFMTALL:bo3-protect-veto')).toBeNull();
+  });
+
+  it.each([
+    ['empty string', ''],
+    ['wrong version', 'v1:t1:TFMTALL'],
+    ['too few parts', 't1:t1'],
+    ['too many parts', 't1:t1:TFMTALL:bo3-protect-veto:extra'],
+    ['missing tournamentId', 't1::TFMTALL'],
+    ['missing action', 't1:t1:'],
+    ['garbage', 'not-a-custom-id-at-all'],
+  ])('rejects %s', (_label, raw) => {
+    expect(decodeTournamentCustomId(raw)).toBeNull();
   });
 });

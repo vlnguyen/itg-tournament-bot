@@ -24,6 +24,7 @@ function emptyPublicMatch(seq: number): PublicMatch {
     formatKey: 'bo5-protect-veto',
     bracket: 'WINNERS',
     round: 1,
+    slot: 0,
     participants: [],
     draw: [],
     protects: [],
@@ -53,6 +54,7 @@ function snapshotWith(matchId: string, seq = 2): TournamentSnapshot {
         slot: 0,
         match: {
           seq,
+          formatKey: 'bo5-protect-veto',
           participants: [
             { entrantId: 'a', seed: 1, displayName: 'Alice' },
             { entrantId: 'b', seed: 2, displayName: 'Bob' },
@@ -89,6 +91,7 @@ describe('applyFrameToSnapshot', () => {
     const patched = applyFrameToSnapshot(snapshot, frame);
     expect(patched.matches[0]!.match).toEqual({
       seq: 5,
+      formatKey: 'bo5-protect-veto',
       participants: [
         { entrantId: 'a', seed: 1, displayName: 'Alice' },
         { entrantId: 'b', seed: 2, displayName: 'Bob' },

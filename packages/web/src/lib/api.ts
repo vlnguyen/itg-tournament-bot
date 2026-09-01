@@ -19,6 +19,8 @@ import {
   SetupStatus,
   Standings,
   TournamentSnapshot,
+  type FormatKey,
+  type MatchRef,
 } from '@itg/shared';
 import { z } from 'zod';
 
@@ -33,6 +35,8 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** Populated only for `MixedFormatConflictError`'s 409 — `{ formatKey: matchCount }` — so the format picker can render the three-way choice without a second fetch. */
+    readonly breakdown?: Record<string, number>,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -182,14 +186,37 @@ export async function fetchLifecycleStatus(tournamentId: string): Promise<Lifecy
   return LifecycleStatus.parse(await res.json());
 }
 
+const ConflictBody = z.object({ message: z.string(), breakdown: z.record(z.string(), z.number()) });
+
 export async function submitLifecycleAction(tournamentId: string, request: LifecycleRequest): Promise<LifecycleStatus> {
   const res = await fetch(`/api/tournaments/${tournamentId}/lifecycle`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
   });
-  if (!res.ok) throw new ApiError(res.status, await describeError(res, `POST /api/tournaments/${tournamentId}/lifecycle -> ${res.status}`));
+  if (!res.ok) {
+    const fallback = `POST /api/tournaments/${tournamentId}/lifecycle -> ${res.status}`;
+    const body = await res.json().catch(() => null);
+    // A 409 here can only be `MixedFormatConflictError` (SET_FORMAT with no
+    // `mode`, matches on more than one format) — everything else this
+    // endpoint rejects is a plain `TournamentTransitionError`, a 400.
+    if (res.status === 409) {
+      const parsed = ConflictBody.safeParse(body);
+      if (parsed.success) throw new ApiError(res.status, parsed.data.message, parsed.data.breakdown);
+    }
+    throw new ApiError(res.status, typeof body?.message === 'string' ? body.message : fallback);
+  }
   return LifecycleStatus.parse(await res.json());
+}
+
+/** `setMatchFormats`'s wire endpoint — assigns one format to one or more matches at once (a single match, a whole round, or an arbitrary selection). */
+export async function submitMatchFormats(tournamentId: string, refs: MatchRef[], formatKey: FormatKey): Promise<void> {
+  const res = await fetch(`/api/tournaments/${tournamentId}/match-formats`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refs, formatKey }),
+  });
+  if (!res.ok) throw new ApiError(res.status, await describeError(res, `POST /api/tournaments/${tournamentId}/match-formats -> ${res.status}`));
 }
 
 export async function fetchStandings(tournamentId: string): Promise<Standings> {

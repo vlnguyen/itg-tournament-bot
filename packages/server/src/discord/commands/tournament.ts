@@ -1,6 +1,7 @@
-import { EmbedBuilder, type ChatInputCommandInteraction } from 'discord.js';
-import type { Guild as GuildRow, Tournament } from '@prisma/client';
-import { FORMAT_LABEL, plural, type FormatKey } from '@itg/shared';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, type AutocompleteInteraction, type ChatInputCommandInteraction } from 'discord.js';
+import type { PrismaClient, Guild as GuildRow, Tournament } from '@prisma/client';
+import { FORMAT_LABEL, plural, sectionLabel, type BracketShape, type BracketSide, type FormatKey, type MatchRef } from '@itg/shared';
+import { buildMatchLabel } from '../../services/run-view-service.js';
 import { startTournamentWithDiscordEffects } from '../start-tournament-effects.js';
 import {
   cancelTournament,
@@ -8,14 +9,18 @@ import {
   closeRegistration,
   createTournament,
   findActiveTournament,
+  MixedFormatConflictError,
   openCheckin,
   openRegistration,
   renameTournament,
+  setMatchFormats,
   setTournamentFormat,
   TournamentSlotOccupiedError,
   TournamentTransitionError,
 } from '../../services/tournament-service.js';
 import { linkifyTournamentName, tournamentUrl } from '../../web-url.js';
+import { Action } from '../actions.js';
+import { encodeTournamentCustomId } from '../custom-id.js';
 import { LOG_COLOR } from '../render/draw.js';
 import { requireOrganizerTier } from './authz.js';
 import type { CommandContext } from './context.js';
@@ -99,15 +104,8 @@ export async function handleTournament(interaction: ChatInputCommandInteraction,
         (t) => `Renamed to **${t.name}**.`,
       );
     }
-    case 'format': {
-      const formatKey = interaction.options.getString('format', true) as FormatKey;
-      return runTransition(
-        interaction,
-        ctx,
-        () => setTournamentFormat(ctx.prisma, tournament.id, formatKey, interaction.user.id),
-        () => `Format set to **${FORMAT_LABEL[formatKey]}**.`,
-      );
-    }
+    case 'format':
+      return handleFormat(interaction, ctx, tournament);
     default:
       await interaction.reply({ ephemeral: true, content: "This command isn't available yet." });
   }
@@ -146,6 +144,152 @@ async function handleStatus(interaction: ChatInputCommandInteraction, ctx: Comma
       break;
   }
   await interaction.reply({ ephemeral: true, content: lines.join('\n') });
+}
+
+/**
+ * `/tournament format` — sets the tournament's default ruleset, or (with
+ * `target`) a single round or match instead. Not `runTransition`: the
+ * no-`target` path can fail with `MixedFormatConflictError`, which needs a
+ * three-button reply rather than a plain "can't do that."
+ */
+async function handleFormat(interaction: ChatInputCommandInteraction, ctx: CommandContext, tournament: Tournament): Promise<void> {
+  const formatKey = interaction.options.getString('format', true) as FormatKey;
+  const target = interaction.options.getString('target');
+
+  await interaction.deferReply({ ephemeral: true });
+
+  if (!target) {
+    try {
+      const t = await setTournamentFormat(ctx.prisma, tournament.id, formatKey, interaction.user.id);
+      const description = `Format set to **${FORMAT_LABEL[formatKey]}**.`;
+      await interaction.editReply(description);
+      await logToOrganizers(ctx.alert, interaction.guildId!, `📋 **${interaction.user.username}**: ${linkifyTournamentName(description, t.name, t.id)}`);
+      ctx.realtime.publishLifecycleChanged(t.id);
+    } catch (err) {
+      if (err instanceof MixedFormatConflictError) {
+        await interaction.editReply({
+          content: formatConflictContent(err.breakdown, formatKey),
+          components: [buildFormatConflictRow(tournament.id, formatKey)],
+        });
+        return;
+      }
+      if (err instanceof TournamentTransitionError) {
+        await interaction.editReply(`Can't do that: ${err.reason}`);
+        return;
+      }
+      throw err;
+    }
+    return;
+  }
+
+  const refs = await resolveFormatTarget(ctx.prisma, tournament.id, target);
+  if (!refs) {
+    await interaction.editReply("Couldn't find that round or match — generate the bracket first, or pick again from the list.");
+    return;
+  }
+
+  try {
+    await setMatchFormats(ctx.prisma, tournament.id, refs, formatKey, interaction.user.id);
+    const description = `Set ${plural(refs.length, 'match', 'matches')} to **${FORMAT_LABEL[formatKey]}**.`;
+    await interaction.editReply(description);
+    await logToOrganizers(ctx.alert, interaction.guildId!, `📋 **${interaction.user.username}**: ${linkifyTournamentName(description, tournament.name, tournament.id)}`);
+    ctx.realtime.publishLifecycleChanged(tournament.id);
+  } catch (err) {
+    if (err instanceof TournamentTransitionError) {
+      await interaction.editReply(`Can't do that: ${err.reason}`);
+      return;
+    }
+    throw err;
+  }
+}
+
+/** `target` is `round:<BRACKET>:<round>` or `match:<matchId>`, whichever autocomplete choice the TO picked — see `handleFormatAutocomplete`. `null` means it no longer resolves (the bracket was regenerated since the choice was offered). */
+async function resolveFormatTarget(prisma: PrismaClient, tournamentId: string, target: string): Promise<MatchRef[] | null> {
+  if (target.startsWith('round:')) {
+    const [, bracket, roundStr] = target.split(':');
+    const round = Number(roundStr);
+    if (!bracket || !Number.isFinite(round)) return null;
+    const matches = await prisma.match.findMany({ where: { tournamentId, bracket: bracket as BracketSide, round } });
+    return matches.length > 0 ? matches.map((m) => ({ bracket: m.bracket, round: m.round, slot: m.slot })) : null;
+  }
+  if (target.startsWith('match:')) {
+    const match = await prisma.match.findUnique({ where: { id: target.slice('match:'.length) } });
+    return match && match.tournamentId === tournamentId ? [{ bracket: match.bracket, round: match.round, slot: match.slot }] : null;
+  }
+  return null;
+}
+
+/**
+ * `target`'s autocomplete: every round first (one choice per distinct
+ * `(bracket, round)`, named the same way the bracket page's headings are —
+ * "Winners Finals," not "Winners Round 4"), then every individual match,
+ * labeled `buildMatchLabel`'s "Round · Alice vs Bob" (degrading to "· ? vs
+ * ?" for anything not yet seated, which is the normal case past round 1).
+ * `[]` before a bracket has been generated — there is nothing to target yet.
+ */
+export async function handleFormatAutocomplete(interaction: AutocompleteInteraction, ctx: CommandContext): Promise<void> {
+  if (!interaction.inGuild()) {
+    await interaction.respond([]);
+    return;
+  }
+  const tournament = await findActiveTournament(ctx.prisma, interaction.guildId!);
+  if (!tournament) {
+    await interaction.respond([]);
+    return;
+  }
+
+  const matches = await ctx.prisma.match.findMany({
+    where: { tournamentId: tournament.id },
+    include: { participants: { include: { entrant: true } } },
+    orderBy: [{ bracket: 'asc' }, { round: 'asc' }, { slot: 'asc' }],
+  });
+  if (matches.length === 0) {
+    await interaction.respond([]);
+    return;
+  }
+
+  const shape: BracketShape = {
+    winnersRounds: Math.max(0, ...matches.filter((m) => m.bracket === 'WINNERS').map((m) => m.round)),
+    losersRounds: Math.max(0, ...matches.filter((m) => m.bracket === 'LOSERS').map((m) => m.round)),
+  };
+
+  const seenRounds = new Set<string>();
+  const roundChoices: { name: string; value: string }[] = [];
+  for (const m of matches) {
+    const key = `${m.bracket}:${m.round}`;
+    if (seenRounds.has(key)) continue;
+    seenRounds.add(key);
+    roundChoices.push({ name: sectionLabel(m.bracket, m.round, shape), value: `round:${m.bracket}:${m.round}` });
+  }
+
+  const matchChoices = matches.map((m) => ({ name: buildMatchLabel(m.bracket, m.round, m.participants), value: `match:${m.id}` }));
+
+  const focused = interaction.options.getFocused().toLowerCase();
+  const choices = [...roundChoices, ...matchChoices].filter((c) => c.name.toLowerCase().includes(focused)).slice(0, 25);
+  await interaction.respond(choices);
+}
+
+function formatConflictContent(breakdown: Record<string, number>, formatKey: FormatKey): string {
+  const lines = Object.entries(breakdown).map(([key, count]) => `• ${FORMAT_LABEL[key as FormatKey] ?? key}: ${count}`);
+  return [`This tournament's matches aren't all on one format:`, ...lines, `How should setting the default to **${FORMAT_LABEL[formatKey]}** be handled?`].join('\n');
+}
+
+/** Update all / default only / cancel, per `setTournamentFormat`'s own comment on the three-way choice. Routed in `interactions.ts` via the `t1:` codec — see that file's comment on why this needs a second codec at all. */
+function buildFormatConflictRow(tournamentId: string, formatKey: FormatKey): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(encodeTournamentCustomId({ tournamentId, action: Action.FORMAT_UPDATE_ALL, arg: formatKey }))
+      .setLabel('Update all matches')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(encodeTournamentCustomId({ tournamentId, action: Action.FORMAT_DEFAULT_ONLY, arg: formatKey }))
+      .setLabel('Change default only')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(encodeTournamentCustomId({ tournamentId, action: Action.FORMAT_CANCEL }))
+      .setLabel('Cancel')
+      .setStyle(ButtonStyle.Secondary),
+  );
 }
 
 /** "If a tournament is created then that is the tournament the bot is now holding" — released only by `/tournament cancel` or reaching `COMPLETE`. */

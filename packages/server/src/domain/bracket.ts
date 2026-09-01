@@ -12,7 +12,7 @@ import { matchKey } from '@itg/shared';
  * a rendering client never needs. See DESIGN.md, "Bracket Generation".
  */
 export type { GeneratedBracket, GeneratedMatch, MatchRef, ParticipantSource };
-export { generateBracket, matchKey, seedOrder } from '@itg/shared';
+export { generateBracket, matchKey, nextPowerOfTwo, seedOrder } from '@itg/shared';
 
 // ---------------------------------------------------------------------------
 // Simulation — resolving a generated bracket against a decider function.

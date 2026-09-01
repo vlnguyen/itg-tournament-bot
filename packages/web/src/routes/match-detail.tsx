@@ -1,12 +1,15 @@
 import type { PublicMatch } from '@itg/shared';
-import { displayStepartistLine, displayTitle, FORMAT_LABEL, playstylePrefix, sectionLabel } from '@itg/shared';
-import { Alert, Badge, Center, Divider, Group, Loader, Stack, Table, Text, Title } from '@mantine/core';
+import { displayStepartistLine, displayTitle, FORMAT_LABEL, FormatKey, playstylePrefix, sectionLabel } from '@itg/shared';
+import { Alert, Badge, Center, Divider, Group, Loader, Select, Stack, Table, Text, Title } from '@mantine/core';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { RefereeOverrides } from '../components/referee-overrides.js';
 import { TournamentHeader } from '../components/tournament-header.js';
 import { useCurrentUser } from '../hooks/use-current-user.js';
+import { useLifecycleStatus } from '../hooks/use-lifecycle-status.js';
 import { useMatch } from '../hooks/use-match.js';
 import { useRealtimeTournament } from '../hooks/use-realtime-tournament.js';
+import { ApiError, submitMatchFormats } from '../lib/api.js';
 
 function nameOf(pub: PublicMatch, entrantId: string | undefined): string {
   return pub.participants.find((p) => p.entrantId === entrantId)?.displayName ?? '-';
@@ -177,7 +180,20 @@ export default function MatchDetail(): JSX.Element {
   const { tournamentId, matchId } = useParams<{ tournamentId: string; matchId: string }>();
   const { data: pub, isPending, isError } = useMatch(matchId!);
   const { data: discordUserId } = useCurrentUser();
+  const { data: lifecycleStatus } = useLifecycleStatus(tournamentId!);
+  const isOrganizer = lifecycleStatus !== undefined;
+  const queryClient = useQueryClient();
   useRealtimeTournament(tournamentId!);
+
+  // `pub.seq === 0` is the same "nothing has happened yet" test
+  // `deriveMatchStatus` uses server-side for `PENDING` — `setMatchFormats`
+  // refuses anything past that point, so the Select doesn't offer what
+  // would just come back as an error.
+  const formatMutation = useMutation({
+    mutationFn: (formatKey: FormatKey) =>
+      submitMatchFormats(tournamentId!, [{ bracket: pub!.bracket, round: pub!.round, slot: pub!.slot }], formatKey),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['match', matchId] }),
+  });
 
   let content: JSX.Element;
 
@@ -209,9 +225,29 @@ export default function MatchDetail(): JSX.Element {
           <Title order={1}>
             {isBye ? `${p0?.displayName ?? p1?.displayName ?? 'TBD'} (BYE)` : `${p0?.displayName ?? 'TBD'} vs ${p1?.displayName ?? 'TBD'}`}
           </Title>
-          <Text c="dimmed">
-            {sectionLabel(pub.bracket, pub.round)} &middot; {FORMAT_LABEL[pub.formatKey]}
-          </Text>
+          <Group gap="xs" align="center">
+            <Text c="dimmed">{sectionLabel(pub.bracket, pub.round)}</Text>
+            <Text c="dimmed">&middot;</Text>
+            {isOrganizer && pub.seq === 0 ? (
+              <Select
+                size="xs"
+                w={210}
+                data={FormatKey.options.map((k) => ({ value: k, label: FORMAT_LABEL[k] }))}
+                value={pub.formatKey}
+                allowDeselect={false}
+                disabled={formatMutation.isPending}
+                onChange={(v) => v && formatMutation.mutate(v as FormatKey)}
+                aria-label="Match format"
+              />
+            ) : (
+              <Text c="dimmed">{FORMAT_LABEL[pub.formatKey]}</Text>
+            )}
+          </Group>
+          {formatMutation.isError && (
+            <Text size="xs" c="red">
+              {formatMutation.error instanceof ApiError ? formatMutation.error.message : "Couldn't change the format."}
+            </Text>
+          )}
           <Group gap="xs">
             {p0 && (
               <Badge variant={pub.outcome?.placements.find((pl) => pl.entrantId === p0.entrantId)?.place === 1 ? 'filled' : 'light'}>

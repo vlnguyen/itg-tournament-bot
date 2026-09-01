@@ -217,11 +217,15 @@ A TO may also **remove** a chart, and removing one that has already been played 
 
 ## Configurability
 
-A TO configures a tournament by **choosing its default match ruleset** and **setting timer durations**. Nothing inside a ruleset is adjustable — set length, Draw size, and action order are properties of the ruleset itself, not knobs.
+A TO configures a tournament by **choosing its default match ruleset**, optionally **overriding it per round or per match**, and **setting timer durations**. Nothing inside a ruleset is adjustable — set length, Draw size, and action order are properties of the ruleset itself, not knobs.
 
-**A ruleset belongs to a match, not to a tournament.** Every match records the ruleset it ran under, and for now every match in a tournament is stamped with the tournament's default. The distinction exists because it will not always be so: events short on machines commonly play Bo3 through the early rounds and Bo5 for Winners Finals, Losers Finals, the Grand Finals and its reset. When that ships, a TO defines per-round exceptions to the default — and nothing about how matches are stored, replayed or displayed has to change.
+**A ruleset belongs to a match, not to a tournament.** Every match records the ruleset it ran under: an explicit per-match assignment if the TO made one, otherwise the tournament's default. This is the config shape that lets an event short on machines play Bo3 through the early rounds and Bo5 for Winners Finals, Losers Finals, the Grand Finals and its reset — one example of an arbitrary need, not a special case the system only half-generalizes.
 
-The match ruleset is **pluggable** rather than hardcoded logic, so further rulesets — prisoner's-dilemma-only, fixed song list, and others — can be added without reworking the system. **Bo5 and Bo3 both ship**, selected with `/tournament format` or the web config page; a tournament defaults to Bo5 and keeps that default until the bracket is generated.
+Assigning a format needs a real match to assign it to, so a TO can generate the bracket once check-in has closed, ahead of starting the tournament — the same graph that would otherwise only appear at start, just available earlier for exactly this reason. From there, a format is assignable per round or per individual match, from the web bracket page or `/tournament format`'s `target` option (a round or a specific match, chosen from a live list — omitting it targets the tournament default instead). Regenerating the bracket after the field changes keeps every assignment that still applies to the same matches; if the field crosses to a different bracket size, assignments reset and the TO reassigns from the newly-shaped bracket rather than the system guessing where an assignment belongs now.
+
+Changing the tournament's default once matches actually disagree with each other puts a three-way choice to the TO, identically on the web and in Discord: update every match to the new default, change only the default going forward, or cancel and leave both untouched.
+
+The match ruleset is **pluggable** rather than hardcoded logic, so further rulesets — prisoner's-dilemma-only, fixed song list, and others — can be added without reworking the system. **Bo5 and Bo3 both ship**; a tournament defaults to Bo5.
 
 Bo3 plays the same way as Bo5 in every respect not called out below: the same photo-and-EX% scoring step, the same tiebreak process once the Draw is exhausted. It differs in scale and one structural rule:
 
@@ -339,7 +343,7 @@ Tiers are cumulative, so each action below lists the **minimum** tier required. 
 | Build, edit, import, or copy a song pack | Tournament Organizer |
 | Open and close the registration window | Tournament Organizer |
 | Open and close the check-in window | Tournament Organizer |
-| Add, check in, un-check-in or remove any entrant, on their behalf, before the bracket is generated | Tournament Organizer |
+| Add, check in, un-check-in or remove any entrant, on their behalf, at any point until the tournament starts | Tournament Organizer |
 | Seed entrants, at any point from the first `/join` onward | Tournament Organizer |
 | Review the final seed order and start the tournament | Tournament Organizer |
 | Start the tournament | Tournament Organizer |
@@ -431,7 +435,7 @@ This feature exists specifically to support **remote tournaments**, where every 
 - **Only players who complete check-in participate.** Everyone who did not check in is dropped **when the tournament starts**, not before — check-in closing is a separate event from that drop, so an organizer can keep adjusting the seed order (checked-in or not) for as long as the tournament is not yet running.
 - Dropping those players leaves gaps, so starting the tournament **clears their seeds** and **renumbers the survivors from 1 with their relative order preserved**. If seeds 1, 2, 3 and 4 were assigned and seed 3 never checked in, seed 3 is released and the remaining three become 1, 2 and 3 in the same order.
 - A dropped player keeps their roster entry, recorded as having not checked in. They simply hold no seed, since they never competed.
-- The TO reviews the final ordering **as part of starting the tournament** — the start action shows it for confirmation, and generating the bracket is what fixes it. There is no separate commit step, because until the bracket exists a withdrawal or a late check-in can still change the field.
+- The TO reviews the final ordering **as part of starting the tournament** — the start action shows it for confirmation, and generating the bracket is what fixes it. There is no separate commit step: seeding stays freely reorderable up to that instant regardless of whether a bracket already exists for an earlier field (see "Configurability" — a TO may generate the bracket ahead of start to assign per-round or per-match formats). A withdrawal or late check-in after that earlier generation does not silently take effect; starting checks that the field still matches what was generated and asks for a fresh generation first if it does not, rather than starting against a bracket sized for a field that no longer exists.
 
 ### Starting the tournament
 
@@ -444,10 +448,11 @@ Seeding is not a step in this sequence — it runs alongside from the moment the
 3. TO **closes check-in**. This is a pure state change — the roster and every seed are untouched, and remain freely reorderable.
 4. TO **starts the tournament**, confirming the final seed order shown to them as they do. At this moment the bot:
    - drops players who did not confirm check-in, and renumbers the surviving seeds from 1 in their existing relative order;
+   - checks a bracket generated ahead of time (see "Configurability") still matches the surviving field, **blocking the start** if it does not — the TO regenerates it, which also names what happened to any per-match format assignments;
    - snapshots each remaining entrant's display name as shown in the server;
    - re-checks that all required Discord permissions are still granted, **blocking the start** if any are missing;
-   - warns if the song pack is below the recommended minimum, **without** blocking;
-   - generates the bracket, creates the round 1 match threads, and notifies players.
+   - warns if the song pack is below the recommended minimum for every format the bracket carries, **without** blocking;
+   - generates the bracket if none exists yet, or reuses the one already generated for this exact field; either way creates the round 1 match threads and notifies players.
 
 ## Discord Surface
 

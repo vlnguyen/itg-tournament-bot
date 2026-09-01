@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { generateBracket } from '../src/domain/bracket.js';
-import { materializeBracket } from '../src/services/bracket-service.js';
+import { generateBracketGraph, materializeBracket } from '../src/services/bracket-service.js';
+import { TournamentTransitionError } from '../src/services/engine.js';
 import { sequentialRandomPort } from '../src/services/ports.js';
 import { cleanupTournament, isReachable, makeTournament, prisma, type TestTournament } from './support.js';
 
@@ -109,6 +110,56 @@ describe.skipIf(!(await isReachable()))('bracket materialization', () => {
         [seedEntrant(t, 2), seedEntrant(t, 3)].sort(),
       );
       expect(wr2s1.events.map((e) => e.type)).toEqual(['MATCH_CREATED', 'DRAW_MADE']);
+    });
+  });
+
+  describe('generateBracketGraph', () => {
+    it('refuses to regenerate once any existing match has moved past PENDING', async () => {
+      const t = await makeTournament(`bracket-graph-guard-${Date.now()}`, 4);
+      try {
+        await prisma.$transaction((tx) => generateBracketGraph(tx, t.tournamentId, 4));
+        const [firstMatch] = await prisma.match.findMany({ where: { tournamentId: t.tournamentId }, take: 1 });
+        // Simulates the invariant this guard exists to protect even though
+        // nothing in the ordinary CHECKIN_CLOSED-only call path can produce
+        // it — every match this early is PENDING by construction, so this
+        // exercises the assertion directly rather than through a real state.
+        await prisma.match.update({ where: { id: firstMatch!.id }, data: { status: 'IN_PROGRESS' } });
+
+        await expect(prisma.$transaction((tx) => generateBracketGraph(tx, t.tournamentId, 4))).rejects.toThrow(
+          TournamentTransitionError,
+        );
+      } finally {
+        await cleanupTournament(t);
+      }
+    });
+
+    it('resets formatOverrides on a boundary-crossing regenerate, and keeps them on an in-band one', async () => {
+      const t = await makeTournament(`bracket-graph-resize-${Date.now()}`, 4);
+      try {
+        const first = await prisma.$transaction((tx) => generateBracketGraph(tx, t.tournamentId, 4));
+        expect(first.overridesReset).toBe(false);
+
+        await prisma.tournament.update({
+          where: { id: t.tournamentId },
+          data: { formatOverrides: { 'WINNERS:1:0': 'bo3-protect-veto' } },
+        });
+
+        // 4 -> 3 stays in the same (size 4) band.
+        const inBand = await prisma.$transaction((tx) => generateBracketGraph(tx, t.tournamentId, 3));
+        expect(inBand.overridesReset).toBe(false);
+        expect(inBand.assignmentsKept).toBe(1);
+
+        // 3 -> 5 crosses from size 4 to size 8.
+        const crossing = await prisma.$transaction((tx) => generateBracketGraph(tx, t.tournamentId, 5));
+        expect(crossing.overridesReset).toBe(true);
+        expect(crossing.assignmentsKept).toBe(0);
+
+        const tournament = await prisma.tournament.findUniqueOrThrow({ where: { id: t.tournamentId } });
+        expect(tournament.formatOverrides).toEqual({});
+        expect(tournament.bracketEntrantCount).toBe(5);
+      } finally {
+        await cleanupTournament(t);
+      }
     });
   });
 });

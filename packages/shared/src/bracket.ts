@@ -59,7 +59,8 @@ function isPowerOfTwo(n: number): boolean {
   return n > 0 && (n & (n - 1)) === 0;
 }
 
-function nextPowerOfTwo(n: number): number {
+/** Exported for `bracket-service.ts`'s regeneration resize rule: the bracket's ref set is a pure function of this value alone (see `generateBracket`'s comment), so comparing it before and after a field change is how a rebuild decides whether per-match format assignments still apply. */
+export function nextPowerOfTwo(n: number): number {
   let p = 1;
   while (p < n) p *= 2;
   return p;
@@ -235,13 +236,44 @@ export function generateBracket(entrantCount: number): GeneratedBracket {
   };
 }
 
+/** The two counts `sectionLabel` needs to know which round is last on each side — exactly `GeneratedBracket`'s own fields, named separately so a caller doesn't have to carry the whole bracket just for this. */
+export interface BracketShape {
+  winnersRounds: number;
+  losersRounds: number;
+}
+
+/** Depth 0 is a side's last round, depth 1 its semifinal, depth 2 its quarterfinal — winners depth `d` always holds `2^d` matches, losers depth `d` holds `2^floor(d/2)`, so this table names exactly the 1-, 2- and 4-match rounds on either side, never an arbitrary cutoff. */
+const NAMED_ROUND_BY_DEPTH: Record<number, string> = { 0: 'Finals', 1: 'Semifinals', 2: 'Quarterfinals' };
+
 /**
  * How a round reads in prose — "Winners Round 1," not the grand final's
  * own rounds, which read as names instead of numbers. Shared so the
  * bracket UI's round headings and the run view's match labels (server
  * side) can't drift apart.
+ *
+ * `shape` is optional and, when given, names the last few rounds on each
+ * side by their distance from the end — "Winners Finals," "Winners
+ * Semifinals," "Winners Quarterfinals," matching the equivalent depths on
+ * the losers side, before falling back to `${side} Round ${round}` for
+ * anything deeper. Omitting `shape` (or calling with two entrants, where
+ * there is no losers bracket to distinguish "Winners" from) returns exactly
+ * today's plain numbered form, so every existing call site is unaffected —
+ * only a caller that has the bracket's shape in hand opts into the richer
+ * labels.
  */
-export function sectionLabel(bracket: BracketSide, round: number): string {
+export function sectionLabel(bracket: BracketSide, round: number, shape?: BracketShape): string {
   if (bracket === 'GRAND_FINAL') return round === 1 ? 'Grand Final' : 'Grand Final Reset';
-  return `${bracket === 'WINNERS' ? 'Winners' : 'Losers'} Round ${round}`;
+  const side = bracket === 'WINNERS' ? 'Winners' : 'Losers';
+  if (!shape) return `${side} Round ${round}`;
+
+  // Two entrants: no losers bracket exists at all, so the winners final is
+  // the whole tournament rather than one side of a rivalry — "Final," not
+  // "Winners Finals". `generateBracket` guarantees losersRounds is 0 only
+  // in exactly this case.
+  if (shape.winnersRounds === 1 && shape.losersRounds === 0) return 'Final';
+
+  const roundsForSide = bracket === 'WINNERS' ? shape.winnersRounds : shape.losersRounds;
+  const depth = roundsForSide - round;
+  const named = NAMED_ROUND_BY_DEPTH[depth];
+  return named ? `${side} ${named}` : `${side} Round ${round}`;
 }

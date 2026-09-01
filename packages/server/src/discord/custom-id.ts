@@ -43,3 +43,41 @@ export function decodeCustomId(raw: string): CustomId | null {
   if (version !== VERSION || !matchId || !action) return null;
   return arg !== undefined ? { matchId, action, arg } : { matchId, action };
 }
+
+/**
+ * A second, tournament-scoped codec — `t1:<tournamentId>:<action>:<arg>` —
+ * for the one interaction that has no match at all: the mixed-format
+ * conflict `setTournamentFormat` throws when a TO changes the default
+ * against a bracket that isn't all on one format (see
+ * `MixedFormatConflictError`). A separate prefix rather than widening `v1:`
+ * to make `matchId` optional there: `decodeCustomId` already returns `null`
+ * for anything not starting with `v1:`, so this can't collide with or
+ * change the meaning of an existing id.
+ */
+export interface TournamentCustomId {
+  tournamentId: string;
+  action: string;
+  arg?: string;
+}
+
+const TOURNAMENT_VERSION = 't1';
+
+export function encodeTournamentCustomId(id: TournamentCustomId): string {
+  const parts = [TOURNAMENT_VERSION, id.tournamentId, id.action, ...(id.arg !== undefined ? [id.arg] : [])];
+  const encoded = parts.join(SEPARATOR);
+  if (encoded.length > MAX_LENGTH) {
+    throw new RangeError(
+      `custom_id exceeds Discord's ${MAX_LENGTH}-character limit: "${encoded}" (${encoded.length})`,
+    );
+  }
+  return encoded;
+}
+
+/** `null` on anything that isn't a well-formed `t1` id — same contract as `decodeCustomId`. */
+export function decodeTournamentCustomId(raw: string): TournamentCustomId | null {
+  const parts = raw.split(SEPARATOR);
+  if (parts.length !== 3 && parts.length !== 4) return null;
+  const [version, tournamentId, action, arg] = parts;
+  if (version !== TOURNAMENT_VERSION || !tournamentId || !action) return null;
+  return arg !== undefined ? { tournamentId, action, arg } : { tournamentId, action };
+}

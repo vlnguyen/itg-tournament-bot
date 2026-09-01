@@ -23,7 +23,7 @@
   font-size: var(--mantine-font-size-sm);
   font-weight: 600;
   color: var(--mantine-color-dimmed);
-  margin: 0 0 var(--mantine-spacing-xs) 0;
+  margin: 0;
 }
 
 .matchList {
@@ -39,6 +39,17 @@
 
 .roundSelector {
   display: none;
+}
+
+/* The Grand Final and its reset are one pair, not two rounds on opposing
+   sides of the bracket — they sit close together rather than at `.side`'s
+   usual round-to-round distance, and don't stretch to fill the row. */
+.grandFinalSide {
+  gap: var(--mantine-spacing-md);
+}
+
+.grandFinalRound {
+  flex: 0 0 auto;
 }
 
 /* Narrow viewports: single column, one round visible at a time — a phone

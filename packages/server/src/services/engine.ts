@@ -18,6 +18,22 @@ import type { RandomPort } from './ports.js';
 
 export type Tx = Prisma.TransactionClient;
 
+/**
+ * Defined here rather than in `tournament-service.ts` (which re-exports it,
+ * so every existing import path is unaffected) so `bracket-service.ts` can
+ * throw it too, without a cycle: both already import from this module, and
+ * neither the reverse.
+ */
+export class TournamentTransitionError extends Error {
+  constructor(
+    readonly tournamentId: string,
+    readonly reason: string,
+  ) {
+    super(`tournament ${tournamentId}: ${reason}`);
+    this.name = 'TournamentTransitionError';
+  }
+}
+
 export function requireFormat(formatKey: string): MatchFormat {
   const format = formatRegistry[formatKey];
   if (!format) throw new Error(`unknown match format "${formatKey}"`);
@@ -40,8 +56,20 @@ function toDomainEvent(row: {
  * are assigned once, at start, and (per DESIGN.md, "Bracket immutability is
  * enforced by the state") never mutate afterwards, so "has a seed" is the
  * stable count; "is still ACTIVE" is not.
+ *
+ * Once a bracket has been generated ahead of start (`Tournament.bracketEntrantCount`
+ * is set), that recorded count is authoritative instead — the same
+ * "materialized" moment this function has always deferred to, just moved
+ * earlier. `generateBracketGraph` (`bracket-service.ts`) is the only writer
+ * of that column, always alongside the `Match` rows it stamps, so the two
+ * can't disagree.
  */
 export async function entrantCountAtStart(tx: Tx, tournamentId: string): Promise<number> {
+  const tournament = await tx.tournament.findUnique({
+    where: { id: tournamentId },
+    select: { bracketEntrantCount: true },
+  });
+  if (tournament?.bracketEntrantCount != null) return tournament.bracketEntrantCount;
   return tx.entrant.count({ where: { tournamentId, seed: { not: null } } });
 }
 

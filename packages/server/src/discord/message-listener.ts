@@ -80,6 +80,7 @@ async function handle(
       ...projection,
       bracket: match.bracket,
       round: match.round,
+      slot: match.slot,
       participants: projection.participants.map((p) => ({ ...p, displayName: displayName(players, p.entrantId) })),
     });
 

@@ -162,6 +162,8 @@ export const PublicMatch = z.object({
    */
   bracket: BracketSide,
   round: z.number().int().positive(),
+  /** Structural placement, joined in alongside `bracket`/`round` — together they're the `MatchRef` a per-match format assignment (`setMatchFormats`) targets. */
+  slot: z.number().int().nonnegative(),
   /** The ruleset this match ran under — stamped at generation, immutable per DESIGN.md, "The format belongs to the match". */
   formatKey: FormatKey,
   participants: z.array(Participant),
@@ -186,6 +188,8 @@ export type BracketMatchStatus = z.infer<typeof BracketMatchStatus>;
 
 export const BracketMatch = z.object({
   seq: z.number().int().nonnegative(),
+  /** The ruleset this match runs under — same field and meaning as `PublicMatch.formatKey`, needed here too so a bracket cell can show it without a second fetch. */
+  formatKey: FormatKey,
   participants: z.array(Participant),
   status: BracketMatchStatus,
   /** The fifth bracket-cell state DESIGN.md's "What a bracket cell shows" calls for — an open escalation, still `IN_PROGRESS` by `status` alone. */
@@ -257,6 +261,7 @@ export function deriveBracketMatch(pub: PublicMatch): BracketMatch {
   const active = pub.songs.find((s) => !s.result);
   return {
     seq: pub.seq,
+    formatKey: pub.formatKey,
     participants: pub.participants,
     status: pub.outcome ? 'COMPLETE' : 'IN_PROGRESS',
     awaitingTo: pub.pending.kind === 'AWAITING_TO',

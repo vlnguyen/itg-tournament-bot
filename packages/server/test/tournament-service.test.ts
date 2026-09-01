@@ -1,14 +1,18 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { Bo3ProtectVetoFormat } from '../src/domain/bo3.js';
 import { Bo5ProtectVetoFormat } from '../src/domain/bo5.js';
+import { matchKey, type MatchRef } from '../src/domain/bracket.js';
 import {
   cancelTournament,
   closeCheckin,
   closeRegistration,
   createTournament,
+  MixedFormatConflictError,
   openCheckin,
   openRegistration,
+  regenerateBracket,
   renameTournament,
+  setMatchFormats,
   setTournamentFormat,
   startTournament,
   TournamentSlotOccupiedError,
@@ -61,6 +65,26 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
       data: { tournamentId, discordUserId, seed: opts.seed ?? null, checkedIn: opts.checkedIn ?? false },
     });
     return e.id;
+  }
+
+  /** A configured guild with a fresh tournament checked in and closed, `entrantCount` seeded entrants, and a chart pack — ready for `regenerateBracket`/`startTournament`. */
+  async function bringToCheckinClosed(guildId: string, entrantCount: number): Promise<{ tournamentId: string; entrantIds: string[] }> {
+    await makeGuild(guildId, true);
+    const t = await createTournament(prisma, guildId, 'T', ACTOR);
+    await openRegistration(prisma, t.id, ACTOR);
+    await closeRegistration(prisma, t.id, ACTOR);
+    await openCheckin(prisma, t.id, ACTOR);
+    const entrantIds: string[] = [];
+    for (let seed = 1; seed <= entrantCount; seed++) {
+      entrantIds.push(await addEntrant(t.id, `p${seed}`, { seed, checkedIn: true }));
+    }
+    await closeCheckin(prisma, t.id, ACTOR);
+    for (let i = 0; i < 12; i++) {
+      await prisma.chart.create({
+        data: { tournamentId: t.id, title: `Song ${i}`, playStyle: 'SINGLE', difficulty: 'EXPERT', meter: 12 },
+      });
+    }
+    return { tournamentId: t.id, entrantIds };
   }
 
   describe('createTournament', () => {
@@ -416,6 +440,177 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
         await dropGuild(guildId);
       }
     });
+
+    it('throws MixedFormatConflictError once a pre-generated bracket disagrees with the default, and each mode resolves it', async () => {
+      const guildId = `ts-format-mixed-${Date.now()}`;
+      const { tournamentId } = await bringToCheckinClosed(guildId, 4);
+      try {
+        await regenerateBracket(prisma, tournamentId, ACTOR); // 7 matches, all Bo5 (the default)
+        await setMatchFormats(prisma, tournamentId, [{ bracket: 'WINNERS', round: 1, slot: 0 }], Bo3ProtectVetoFormat.key, ACTOR);
+
+        const err = await setTournamentFormat(prisma, tournamentId, Bo5ProtectVetoFormat.key, ACTOR).catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(MixedFormatConflictError);
+        expect((err as MixedFormatConflictError).breakdown).toEqual({
+          [Bo5ProtectVetoFormat.key]: 6,
+          [Bo3ProtectVetoFormat.key]: 1,
+        });
+
+        // DEFAULT_ONLY: changes the default, leaves the mix exactly as it was.
+        const defaultOnly = await setTournamentFormat(prisma, tournamentId, Bo5ProtectVetoFormat.key, ACTOR, 'DEFAULT_ONLY');
+        expect(defaultOnly.defaultFormatKey).toBe(Bo5ProtectVetoFormat.key);
+        const stillMixed = await prisma.match.findMany({ where: { tournamentId } });
+        expect(new Set(stillMixed.map((m) => m.formatKey)).size).toBe(2);
+
+        // UPDATE_ALL: every PENDING match follows, and the override that
+        // caused the mix is cleared so it can't re-diverge on a later regenerate.
+        const updateAll = await setTournamentFormat(prisma, tournamentId, Bo3ProtectVetoFormat.key, ACTOR, 'UPDATE_ALL');
+        expect(updateAll.defaultFormatKey).toBe(Bo3ProtectVetoFormat.key);
+        expect(updateAll.formatOverrides).toEqual({});
+        const uniform = await prisma.match.findMany({ where: { tournamentId } });
+        expect(uniform.every((m) => m.formatKey === Bo3ProtectVetoFormat.key)).toBe(true);
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('does not throw the mixed-format conflict when every match already agrees', async () => {
+      const guildId = `ts-format-uniform-${Date.now()}`;
+      const { tournamentId } = await bringToCheckinClosed(guildId, 4);
+      try {
+        await regenerateBracket(prisma, tournamentId, ACTOR);
+        const updated = await setTournamentFormat(prisma, tournamentId, Bo3ProtectVetoFormat.key, ACTOR);
+        expect(updated.defaultFormatKey).toBe(Bo3ProtectVetoFormat.key);
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+  });
+
+  describe('regenerateBracket and setMatchFormats', () => {
+    it('generates real Match rows sized to the checked-in field, stamped with the default format', async () => {
+      const guildId = `ts-bracket-gen-${Date.now()}`;
+      const { tournamentId } = await bringToCheckinClosed(guildId, 4);
+      try {
+        const result = await regenerateBracket(prisma, tournamentId, ACTOR);
+        expect(result.entrantCount).toBe(4);
+        expect(result.matchCount).toBe(7); // WR1(2) + WR2(1) + LR1(1) + LR2(1) + GF(1) + GFR(1)
+        expect(result.overridesReset).toBe(false); // first-ever generation — nothing existed to reset
+        expect(result.assignmentsKept).toBe(0);
+
+        const matches = await prisma.match.findMany({ where: { tournamentId } });
+        expect(matches).toHaveLength(7);
+        for (const m of matches) {
+          expect(m.formatKey).toBe(Bo5ProtectVetoFormat.key);
+          expect(m.status).toBe('PENDING');
+        }
+        const t = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
+        expect(t.bracketEntrantCount).toBe(4);
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('assigns a single match and a whole round, and both survive an in-band regenerate', async () => {
+      const guildId = `ts-bracket-assign-${Date.now()}`;
+      const { tournamentId } = await bringToCheckinClosed(guildId, 4);
+      try {
+        await regenerateBracket(prisma, tournamentId, ACTOR);
+
+        const grandFinalRefs: MatchRef[] = [
+          { bracket: 'GRAND_FINAL', round: 1, slot: 0 },
+          { bracket: 'GRAND_FINAL', round: 2, slot: 0 },
+        ];
+        await setMatchFormats(prisma, tournamentId, grandFinalRefs, Bo3ProtectVetoFormat.key, ACTOR);
+        const gfBefore = await prisma.match.findMany({ where: { tournamentId, bracket: 'GRAND_FINAL' } });
+        expect(gfBefore.every((m) => m.formatKey === Bo3ProtectVetoFormat.key)).toBe(true);
+
+        // 4 -> 3 checked in stays within the same (4-slot) power-of-two band —
+        // the ref set is identical, so both assignments must carry untouched.
+        const fourth = await prisma.entrant.findFirstOrThrow({ where: { tournamentId, seed: 4 } });
+        await prisma.entrant.update({ where: { id: fourth.id }, data: { checkedIn: false } });
+
+        const result = await regenerateBracket(prisma, tournamentId, ACTOR);
+        expect(result.entrantCount).toBe(3);
+        expect(result.overridesReset).toBe(false);
+        expect(result.assignmentsKept).toBe(2);
+
+        const gfAfter = await prisma.match.findMany({ where: { tournamentId, bracket: 'GRAND_FINAL' } });
+        expect(gfAfter.every((m) => m.formatKey === Bo3ProtectVetoFormat.key)).toBe(true);
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('resets every assignment, and reports it, when a regenerate crosses a power-of-two boundary', async () => {
+      const guildId = `ts-bracket-resize-${Date.now()}`;
+      const { tournamentId } = await bringToCheckinClosed(guildId, 5); // size 8
+      try {
+        await regenerateBracket(prisma, tournamentId, ACTOR);
+        await setMatchFormats(prisma, tournamentId, [{ bracket: 'WINNERS', round: 1, slot: 0 }], Bo3ProtectVetoFormat.key, ACTOR);
+
+        // 5 -> 4 checked in crosses from an 8-slot bracket to a 4-slot one.
+        const fifth = await prisma.entrant.findFirstOrThrow({ where: { tournamentId, seed: 5 } });
+        await prisma.entrant.update({ where: { id: fifth.id }, data: { checkedIn: false } });
+
+        const result = await regenerateBracket(prisma, tournamentId, ACTOR);
+        expect(result.entrantCount).toBe(4);
+        expect(result.overridesReset).toBe(true);
+        expect(result.assignmentsKept).toBe(0);
+
+        const matches = await prisma.match.findMany({ where: { tournamentId } });
+        expect(matches.every((m) => m.formatKey === Bo5ProtectVetoFormat.key)).toBe(true);
+        const t = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
+        expect(t.formatOverrides).toEqual({});
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('refuses to regenerate once the tournament has moved past CHECKIN_CLOSED', async () => {
+      const guildId = `ts-bracket-past-checkin-${Date.now()}`;
+      const { tournamentId } = await bringToCheckinClosed(guildId, 4);
+      try {
+        await regenerateBracket(prisma, tournamentId, ACTOR);
+        await startTournament(prisma, sequentialRandomPort(guildId), tournamentId, new Map(), ACTOR);
+        await expect(regenerateBracket(prisma, tournamentId, ACTOR)).rejects.toThrow(TournamentTransitionError);
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('setMatchFormats refuses a match that has already started, even once RUNNING', async () => {
+      const guildId = `ts-assign-underway-${Date.now()}`;
+      const { tournamentId } = await bringToCheckinClosed(guildId, 4);
+      try {
+        await regenerateBracket(prisma, tournamentId, ACTOR);
+        await startTournament(prisma, sequentialRandomPort(guildId), tournamentId, new Map(), ACTOR);
+
+        await expect(
+          setMatchFormats(prisma, tournamentId, [{ bracket: 'WINNERS', round: 1, slot: 0 }], Bo3ProtectVetoFormat.key, ACTOR),
+        ).rejects.toThrow(TournamentTransitionError);
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('setMatchFormats on a still-PENDING future match works even once RUNNING', async () => {
+      const guildId = `ts-assign-future-${Date.now()}`;
+      const { tournamentId } = await bringToCheckinClosed(guildId, 4);
+      try {
+        await regenerateBracket(prisma, tournamentId, ACTOR);
+        await startTournament(prisma, sequentialRandomPort(guildId), tournamentId, new Map(), ACTOR);
+
+        // The Grand Final is real, PENDING match rows the moment the bracket
+        // exists — round 1 starting doesn't touch it.
+        await setMatchFormats(prisma, tournamentId, [{ bracket: 'GRAND_FINAL', round: 1, slot: 0 }], Bo3ProtectVetoFormat.key, ACTOR);
+        const gf = await prisma.match.findUniqueOrThrow({
+          where: { tournamentId_bracket_round_slot: { tournamentId, bracket: 'GRAND_FINAL', round: 1, slot: 0 } },
+        });
+        expect(gf.formatKey).toBe(Bo3ProtectVetoFormat.key);
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
   });
 
   describe('openCheckin', () => {
@@ -688,6 +883,33 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
         const [r1, r2] = await Promise.all([e1, e2].map((id) => prisma.entrant.findUniqueOrThrow({ where: { id } })));
         expect(r1!.seed).toBe(1);
         expect(r2!.seed).toBe(2); // collapsed from 3, relative order preserved
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('refuses to start once a pre-generated bracket no longer matches the checked-in field, and regenerating clears it', async () => {
+      const guildId = `ts-start-stale-bracket-${Date.now()}`;
+      const { tournamentId, entrantIds } = await bringToCheckinClosed(guildId, 4);
+      try {
+        await regenerateBracket(prisma, tournamentId, ACTOR);
+
+        // A change in who's checked in after generation, without regenerating
+        // — exactly the gap the start guard exists to close.
+        await prisma.entrant.update({ where: { id: entrantIds[3]! }, data: { checkedIn: false } });
+
+        await expect(startTournament(prisma, sequentialRandomPort(guildId), tournamentId, new Map(), ACTOR)).rejects.toThrow(
+          TournamentTransitionError,
+        );
+
+        await regenerateBracket(prisma, tournamentId, ACTOR);
+        const result = await startTournament(prisma, sequentialRandomPort(guildId), tournamentId, new Map(), ACTOR);
+        expect(result.tournament.state).toBe('RUNNING');
+
+        // No match was ever seated with the dropped entrant, even transiently
+        // — the silent-walkover failure mode the guard exists to prevent.
+        const seated = await prisma.matchParticipant.findFirst({ where: { entrantId: entrantIds[3]! } });
+        expect(seated).toBeNull();
       } finally {
         await dropGuild(guildId);
       }

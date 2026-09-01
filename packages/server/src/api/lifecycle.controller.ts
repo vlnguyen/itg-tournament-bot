@@ -1,7 +1,7 @@
-import type { LifecycleStatus as LifecycleStatusWire } from '@itg/shared';
-import { FORMAT_LABEL, LifecycleRequest, LifecycleStatus as LifecycleStatusSchema, plural } from '@itg/shared';
+import type { FormatKey, LifecycleStatus as LifecycleStatusWire } from '@itg/shared';
+import { FORMAT_LABEL, LifecycleRequest, LifecycleStatus as LifecycleStatusSchema, plural, SetMatchFormatsRequest } from '@itg/shared';
 import { EmbedBuilder, type Client } from 'discord.js';
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post } from '@nestjs/common';
 import { ZodError } from 'zod';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { TierService } from '../auth/tier.service.js';
@@ -22,9 +22,12 @@ import {
   closeCheckin,
   closeRegistration,
   getLifecycleStatus,
+  MixedFormatConflictError,
   openCheckin,
   openRegistration,
+  regenerateBracket,
   renameTournament,
+  setMatchFormats,
   setTournamentFormat,
   TournamentTransitionError,
 } from '../services/tournament-service.js';
@@ -85,6 +88,10 @@ export class LifecycleController {
       await this.applyAction(guildId, id, request, discordUserId!, actorName);
     } catch (err) {
       if (err instanceof TournamentTransitionError) throw new BadRequestException(`Can't do that: ${err.reason}.`);
+      // Not a plain rejection — the matches genuinely disagree, and the
+      // client needs the breakdown to put the three-way choice to the TO
+      // (update every match, change the default only, or cancel).
+      if (err instanceof MixedFormatConflictError) throw new ConflictException({ message: err.message, breakdown: err.breakdown });
       throw err;
     }
     // One call covers every action below — a lifecycle change made here
@@ -204,11 +211,61 @@ export class LifecycleController {
         return;
       }
       case 'SET_FORMAT': {
-        const t = await setTournamentFormat(this.prisma, tournamentId, request.formatKey, actorId);
+        const t = await setTournamentFormat(this.prisma, tournamentId, request.formatKey, actorId, request.mode);
         await this.log(guildId, actorName, linkifyTournamentName(`Format set to **${FORMAT_LABEL[request.formatKey]}** for **${t.name}**.`, t.name, t.id));
         return;
       }
+      case 'GENERATE_BRACKET': {
+        const result = await regenerateBracket(this.prisma, tournamentId, actorId);
+        const t = result.tournament;
+        const detail = result.overridesReset
+          ? `the bracket changed size, so per-match formats were reset to **${FORMAT_LABEL[t.defaultFormatKey as FormatKey]}** — reassign them on the bracket page.`
+          : result.assignmentsKept > 0
+            ? `bracket size unchanged; ${plural(result.assignmentsKept, 'format assignment', 'format assignments')} kept.`
+            : `${plural(result.entrantCount, 'entrant', 'entrants')}, ${plural(result.matchCount, 'match', 'matches')}.`;
+        await this.log(guildId, actorName, linkifyTournamentName(`Generated the bracket for **${t.name}** — ${detail}`, t.name, t.id));
+        return;
+      }
     }
+  }
+
+  /**
+   * `POST /api/tournaments/:id/match-formats` — assigns one format to one or
+   * more matches at once (a single match, a whole round, or an arbitrary
+   * selection; the bracket page and `/tournament format`'s round/match
+   * option both funnel into this same service call). Not part of
+   * `LifecycleRequest`/`applyAction` above: it targets matches, not the
+   * tournament's own state machine, and works into `RUNNING` for a future
+   * match — `setMatchFormats`'s guard is "still PENDING," not a lifecycle
+   * state, so this endpoint has none of its own beyond organizer tier.
+   */
+  @Post(':id/match-formats')
+  async postMatchFormats(@Param('id') id: string, @Body() body: unknown, @CurrentUser() discordUserId: string | null): Promise<{ ok: true }> {
+    const { guildId } = await this.requireOrganizer(id, discordUserId);
+
+    let request: SetMatchFormatsRequest;
+    try {
+      request = SetMatchFormatsRequest.parse(body);
+    } catch (err) {
+      if (err instanceof ZodError) throw new BadRequestException(err.issues);
+      throw err;
+    }
+
+    try {
+      await setMatchFormats(this.prisma, id, request.refs, request.formatKey, discordUserId!);
+    } catch (err) {
+      if (err instanceof TournamentTransitionError) throw new BadRequestException(`Can't do that: ${err.reason}.`);
+      throw err;
+    }
+
+    const actorName = await this.tierService.resolveDisplayName(guildId, discordUserId!);
+    await this.log(guildId, actorName, `Set ${plural(request.refs.length, 'match', 'matches')} to **${FORMAT_LABEL[request.formatKey]}**.`);
+
+    // Same broadcast `applyAction` uses — no per-match `seq` to patch a
+    // realtime frame with (this isn't a match event), so the client just
+    // refetches the whole snapshot, same as any other lifecycle change.
+    this.realtime.publishLifecycleChanged(id);
+    return { ok: true };
   }
 
   /** Same close-the-thread sequence `handleCancel` runs — a note, a cleared prompt, then archived. */

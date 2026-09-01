@@ -16,6 +16,10 @@ export const Action = {
   RESET_PV: 'RESETPV',
   /** A player's sign-off once the set is decided — `SET_RESULT_CONFIRMED`. */
   CONFIRM: 'CONFIRM',
+  /** The three-way mixed-format conflict resolution — carried on `t1:` (tournament-scoped) ids, not `v1:` (match-scoped) ones. `arg` is the format key being set. */
+  FORMAT_UPDATE_ALL: 'TFMTALL',
+  FORMAT_DEFAULT_ONLY: 'TFMTDEF',
+  FORMAT_CANCEL: 'TFMTNO',
 } as const;
 
 /** The `customId` a "Submit score" text input carries within its modal. */

@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { LifecycleController } from '../src/api/lifecycle.controller.js';
@@ -198,6 +198,69 @@ describe.skipIf(!(await isReachable()))('GET/POST /api/tournaments/:id/lifecycle
       status = await controller.postAction(tournamentId, { action: 'CANCEL' }, TO);
       expect(status.state).toBe('CANCELLED');
       expect(status.legalActions).toEqual([]); // terminal
+    });
+  });
+
+  describe('POST :id/lifecycle GENERATE_BRACKET, and POST :id/match-formats', () => {
+    it('is legal at CHECKIN_CLOSED, generates real matches, and a per-match override survives to a mixed-format conflict', async () => {
+      const gid = `api-lifecycle-bracket-${Date.now()}`;
+      await prisma.guild.create({
+        data: {
+          id: gid,
+          matchesChannelId: 'matches-chan',
+          alertChannelId: 'alerts-chan',
+          resultsChannelId: 'results-chan',
+          refereeRoleId: 'referee-role',
+          toRoleId: 'to-role',
+        },
+      });
+      try {
+        const t = await createTournament(prisma, gid, 'Bracket Test', TO);
+        await controller.postAction(t.id, { action: 'OPEN_REGISTRATION' }, TO);
+        for (const p of ['p1', 'p2', 'p3', 'p4']) await rosterAdd(prisma, gid, p, TO);
+        await controller.postAction(t.id, { action: 'CLOSE_REGISTRATION' }, TO);
+        await controller.postAction(t.id, { action: 'OPEN_CHECKIN' }, TO);
+        for (const p of ['p1', 'p2', 'p3', 'p4']) await rosterCheckin(prisma, gid, p, TO);
+        const closed = await controller.postAction(t.id, { action: 'CLOSE_CHECKIN' }, TO);
+        expect(closed.legalActions).toContain('GENERATE_BRACKET');
+        expect(closed.bracketEntrantCount).toBeNull(); // nothing generated yet
+
+        const generated = await controller.postAction(t.id, { action: 'GENERATE_BRACKET' }, TO);
+        expect(generated.bracketEntrantCount).toBe(4);
+        const matches = await prisma.match.findMany({ where: { tournamentId: t.id } });
+        expect(matches.length).toBeGreaterThan(0);
+        expect(matches.every((m) => m.status === 'PENDING' && m.formatKey === 'bo5-protect-veto')).toBe(true);
+
+        const wr1 = matches.find((m) => m.bracket === 'WINNERS' && m.round === 1)!;
+        await controller.postMatchFormats(t.id, { refs: [{ bracket: 'WINNERS', round: 1, slot: wr1.slot }], formatKey: 'bo3-protect-veto' }, TO);
+        const reassigned = await prisma.match.findUniqueOrThrow({ where: { id: wr1.id } });
+        expect(reassigned.formatKey).toBe('bo3-protect-veto');
+
+        // The default now disagrees with that one override — a plain
+        // SET_FORMAT with no mode must surface the conflict, not silently pick a side.
+        await expect(controller.postAction(t.id, { action: 'SET_FORMAT', formatKey: 'bo3-protect-veto' }, TO)).rejects.toBeInstanceOf(
+          ConflictException,
+        );
+
+        // UPDATE_ALL resolves it: every match follows, override cleared.
+        const resolved = await controller.postAction(t.id, { action: 'SET_FORMAT', formatKey: 'bo3-protect-veto', mode: 'UPDATE_ALL' }, TO);
+        expect(resolved.defaultFormatKey).toBe('bo3-protect-veto');
+        const uniform = await prisma.match.findMany({ where: { tournamentId: t.id } });
+        expect(uniform.every((m) => m.formatKey === 'bo3-protect-veto')).toBe(true);
+      } finally {
+        await prisma.guild.delete({ where: { id: gid } }).catch(() => undefined);
+      }
+    });
+
+    it('rejects a malformed match-formats body with 400', async () => {
+      await expect(controller.postMatchFormats(tournamentId, { refs: [] }, TO)).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects match-formats for a signed-in user below Tournament Organizer tier', async () => {
+      hasTierResult = false;
+      await expect(
+        controller.postMatchFormats(tournamentId, { refs: [{ bracket: 'WINNERS', round: 1, slot: 0 }], formatKey: 'bo3-protect-veto' }, 'someone'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
     });
   });
 });

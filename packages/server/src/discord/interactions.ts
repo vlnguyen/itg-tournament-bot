@@ -11,14 +11,17 @@ import {
   type StringSelectMenuInteraction,
 } from 'discord.js';
 import type { PrismaClient } from '@prisma/client';
+import { FORMAT_LABEL, type FormatKey } from '@itg/shared';
 import type { EntrantId, MatchEvent, MatchState, PendingAction } from '../domain/types.js';
 import { requireFormat } from '../services/engine.js';
 import { appendMatchEvent, IllegalActionError } from '../services/match-service.js';
 import type { RandomPort, RealtimeBroadcastPort } from '../services/ports.js';
+import { setTournamentFormat, TournamentTransitionError } from '../services/tournament-service.js';
+import { linkifyTournamentName } from '../web-url.js';
 import { Action, SCORE_MODAL_EX_FIELD } from './actions.js';
 import type { CommandContext } from './commands/context.js';
 import { dispatchAutocomplete, dispatchChatInputCommand } from './commands/router.js';
-import { decodeCustomId, encodeCustomId, type CustomId } from './custom-id.js';
+import { decodeCustomId, decodeTournamentCustomId, encodeCustomId, type CustomId, type TournamentCustomId } from './custom-id.js';
 import { renderResetLog, renderRulingLog, renderSetRulingLog } from './log-messages.js';
 import { applyAppendResult, CANCELLED_MATCH_MESSAGE, describeStale } from './match-event-effects.js';
 import { buildPlayerDirectory, loadMatch } from './match-lookup.js';
@@ -88,6 +91,18 @@ async function handle(
   }
 
   if (!interaction.isButton() && !interaction.isStringSelectMenu()) return;
+
+  // Tournament-scoped conflict-resolution buttons — a separate `t1:` codec
+  // since these have no matchId at all (see `custom-id.ts`'s comment on
+  // why). Checked before the match-scoped `v1:` decode below, which would
+  // otherwise just ignore a `t1:` id as "not one of ours."
+  if (interaction.isButton()) {
+    const tDecoded = decodeTournamentCustomId(interaction.customId);
+    if (tDecoded) {
+      await handleFormatConflictButton(interaction, tDecoded, prisma, alert, realtime);
+      return;
+    }
+  }
 
   const decoded = decodeCustomId(interaction.customId);
   if (!decoded) return; // not one of ours
@@ -260,6 +275,59 @@ function rolesOfMember(member: ButtonInteraction['member']): string[] {
 /** A referee's name attributed on a ruling/reset log must be how this *server* shows them — nickname if set — never the raw Discord username. */
 function refereeDisplayName(interaction: ButtonInteraction): string {
   return memberDisplayName(interaction.member, interaction.user);
+}
+
+/**
+ * Resolves `setTournamentFormat`'s three-way mixed-format conflict —
+ * "update all," "change the default only," or "cancel" — posted by
+ * `commands/tournament.ts`'s `handleFormat`. Tournament-scoped, not a
+ * participant or a referee action, so tier is checked the same inline way
+ * `handleRulingButton` checks Referee tier: against the guild's configured
+ * role, not against being seated in a match (there is no match here).
+ */
+async function handleFormatConflictButton(
+  interaction: ButtonInteraction,
+  decoded: TournamentCustomId,
+  prisma: PrismaClient,
+  alert: AlertPort,
+  realtime: RealtimeBroadcastPort,
+): Promise<void> {
+  await interaction.deferUpdate();
+
+  if (decoded.action === Action.FORMAT_CANCEL) {
+    await interaction.editReply({ content: 'No change made.', components: [] });
+    return;
+  }
+  if (decoded.action !== Action.FORMAT_UPDATE_ALL && decoded.action !== Action.FORMAT_DEFAULT_ONLY) return;
+
+  const tournament = await prisma.tournament.findUnique({ where: { id: decoded.tournamentId } });
+  if (!tournament) {
+    await interaction.editReply({ content: 'This tournament no longer exists.', components: [] });
+    return;
+  }
+
+  const guild = await prisma.guild.findUnique({ where: { id: tournament.guildId } });
+  const tierConfig: TierRoleConfig = guild ?? { refereeRoleId: null, toRoleId: null, adminRoleId: null };
+  if (!hasTier(rolesOfMember(interaction.member), tierConfig, Tier.TOURNAMENT_ORGANIZER)) {
+    await interaction.followUp({ ephemeral: true, content: 'Only a Tournament Organizer can resolve this.' });
+    return;
+  }
+
+  const formatKey = decoded.arg as FormatKey;
+  const mode = decoded.action === Action.FORMAT_UPDATE_ALL ? 'UPDATE_ALL' : 'DEFAULT_ONLY';
+  try {
+    const t = await setTournamentFormat(prisma, tournament.id, formatKey, interaction.user.id, mode);
+    const description = `Format set to **${FORMAT_LABEL[formatKey]}**.`;
+    await interaction.editReply({ content: description, components: [] });
+    await logToOrganizers(alert, tournament.guildId, `📋 **${interaction.user.username}**: ${linkifyTournamentName(description, t.name, t.id)}`);
+    realtime.publishLifecycleChanged(t.id);
+  } catch (err) {
+    if (err instanceof TournamentTransitionError) {
+      await interaction.editReply({ content: `Can't do that: ${err.reason}`, components: [] });
+      return;
+    }
+    throw err;
+  }
 }
 
 async function handleRulingButton(

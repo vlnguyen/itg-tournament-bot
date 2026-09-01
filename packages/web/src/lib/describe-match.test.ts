@@ -5,6 +5,7 @@ import { describeMatch, matchStateLabel } from './describe-match.js';
 function base(overrides: Partial<BracketMatch> = {}): BracketMatch {
   return {
     seq: 1,
+    formatKey: 'bo5-protect-veto',
     participants: [
       { entrantId: 'a', seed: 1, displayName: 'Alice' },
       { entrantId: 'b', seed: 2, displayName: 'Bob' },
@@ -84,5 +85,27 @@ describe('describeMatch', () => {
       winnerId: 'a',
     });
     expect(describeMatch(m)).toBe('seed 1 Alice receives a bye. Walkover.');
+  });
+
+  it('reads out a round-1 seed-order projection for an organizer, mirroring the dimmed/italic visual cue', () => {
+    const m = base({ status: 'PENDING', participants: [] });
+    expect(describeMatch(m, [{ kind: 'entrant', seed: 1, displayName: 'Alice' }, { kind: 'entrant', seed: 2, displayName: 'Bob' }])).toBe(
+      'seed 1 Alice projected, versus seed 2 Bob projected. Pending.',
+    );
+  });
+
+  it('reads a projected bye slot as "a bye" rather than a name', () => {
+    const m = base({ status: 'PENDING', participants: [] });
+    expect(describeMatch(m, [{ kind: 'entrant', seed: 1, displayName: 'Alice' }, { kind: 'bye' }])).toBe('seed 1 Alice projected, versus a bye. Pending.');
+  });
+
+  it('ignores a projection once the match has actually seated, or for a non-pending status', () => {
+    expect(describeMatch(base({ points: { a: 2, b: 1 } }), [{ kind: 'entrant', seed: 1, displayName: 'Someone Else' }, undefined])).toBe(
+      'seed 1 Alice, 2, versus seed 2 Bob, 1. In progress.',
+    );
+  });
+
+  it('falls back to "not yet determined" when a projection carries no entries at all', () => {
+    expect(describeMatch(base({ status: 'PENDING', participants: [] }), [undefined, undefined])).toBe('Pending, not yet determined.');
   });
 });

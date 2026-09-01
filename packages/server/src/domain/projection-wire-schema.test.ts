@@ -33,14 +33,14 @@ function withNames<T extends { participants: { entrantId: string }[] }>(x: T): T
 }
 
 /**
- * `bracket`/`round` aren't part of `toPublicMatch`'s own output either —
- * they're `Match` row columns, not derived from `MatchState` — the real
- * API/realtime layer joins them in the same way it joins in `displayName`
- * (see `match-event-effects.ts`, `matches.controller.ts`). Stand-in here
- * for the same reason `withNames` exists.
+ * `bracket`/`round`/`slot` aren't part of `toPublicMatch`'s own output
+ * either — they're `Match` row columns, not derived from `MatchState` — the
+ * real API/realtime layer joins them in the same way it joins in
+ * `displayName` (see `match-event-effects.ts`, `matches.controller.ts`).
+ * Stand-in here for the same reason `withNames` exists.
  */
-function withRef<T>(x: T): T & { bracket: 'WINNERS'; round: number } {
-  return { ...x, bracket: 'WINNERS', round: 1 };
+function withRef<T>(x: T): T & { bracket: 'WINNERS'; round: number; slot: number } {
+  return { ...x, bracket: 'WINNERS', round: 1, slot: 0 };
 }
 
 describe('PublicMatch / BracketMatch wire schemas', () => {

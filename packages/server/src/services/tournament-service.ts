@@ -1,10 +1,13 @@
 import { Prisma, type Guild, type PrismaClient, type Tournament, type TournamentState } from '@prisma/client';
 import { DEFAULT_TOURNAMENT_CONFIG, type LifecycleAction, type LifecycleStatus } from '@itg/shared';
 import { Bo5ProtectVetoFormat } from '../domain/bo5.js';
+import { matchKey, type MatchRef } from '../domain/bracket.js';
 import { logAction } from './audit-log.js';
-import { materializeBracket } from './bracket-service.js';
-import { requireFormat, type Tx } from './engine.js';
+import { generateBracketGraph, materializeBracket } from './bracket-service.js';
+import { requireFormat, TournamentTransitionError, type Tx } from './engine.js';
 import type { RandomPort } from './ports.js';
+
+export { TournamentTransitionError };
 
 /**
  * The tournament lifecycle state machine — see DESIGN.md, "Tournament
@@ -16,16 +19,6 @@ import type { RandomPort } from './ports.js';
  * layers that on top. Mirrors the split `bracket-service.ts` and
  * `match-service.ts` already draw.
  */
-
-export class TournamentTransitionError extends Error {
-  constructor(
-    readonly tournamentId: string,
-    readonly reason: string,
-  ) {
-    super(`tournament ${tournamentId}: ${reason}`);
-    this.name = 'TournamentTransitionError';
-  }
-}
 
 /** Thrown by `createTournament` when the guild already holds one — see `findActiveTournament`. */
 export class TournamentSlotOccupiedError extends Error {
@@ -195,10 +188,30 @@ export async function openRegistration(prisma: PrismaClient, tournamentId: strin
       throw new TournamentTransitionError(tournamentId, `this server isn't fully configured yet, missing: ${missing.join(', ')}. Run /setup.`);
     }
 
+    await discardBracketIfReopening(tx, tournamentId, t.state);
+
     const updated = await tx.tournament.update({ where: { id: tournamentId }, data: { state: 'REGISTRATION_OPEN' } });
     await logAction(tx, actorId, 'REGISTRATION_OPENED', 'Tournament', tournamentId, {});
     return updated;
   });
+}
+
+/**
+ * A bracket generated ahead of start (`GENERATE_BRACKET`) is only ever valid
+ * for the field it was built against. Reopening registration or check-in
+ * from `CHECKIN_CLOSED` — the one state a bracket can exist in pre-`RUNNING`
+ * — lets that field change again, so any pre-generated rows are discarded.
+ * Always safe: every `Match` row that can exist this early is `PENDING` by
+ * construction (nothing seats or starts before `RUNNING`).
+ *
+ * `bracketEntrantCount`/`formatOverrides` are deliberately **not** cleared —
+ * `generateBracketGraph`'s resize rule reads them at the next generation to
+ * decide whether the TO's per-match assignments still apply.
+ */
+async function discardBracketIfReopening(tx: Tx, tournamentId: string, fromState: TournamentState): Promise<void> {
+  if (fromState === 'CHECKIN_CLOSED') {
+    await tx.match.deleteMany({ where: { tournamentId } });
+  }
 }
 
 /**
@@ -234,17 +247,49 @@ const FORMAT_EDITABLE_STATES: readonly TournamentState[] = [
 ];
 
 /**
+ * Thrown by `setTournamentFormat` when the tournament's matches are not all
+ * on one format and no `mode` resolved which way to go. Carries the
+ * breakdown (`{ "bo3-protect-veto": 8, "bo5-protect-veto": 2 }`) so a client
+ * can render it without a second fetch. See that function's own comment for
+ * the three choices this puts to the TO.
+ */
+export class MixedFormatConflictError extends Error {
+  constructor(
+    readonly tournamentId: string,
+    readonly breakdown: Record<string, number>,
+  ) {
+    super(`tournament ${tournamentId}: matches are mixed across formats (${JSON.stringify(breakdown)})`);
+    this.name = 'MixedFormatConflictError';
+  }
+}
+
+export type SetTournamentFormatMode = 'UPDATE_ALL' | 'DEFAULT_ONLY';
+
+/**
  * The picker DESIGN.md's "Configurability" section anticipates: which
- * ruleset gets stamped onto every match this tournament generates. Modelled
- * directly on `renameTournament` below, but gated to `FORMAT_EDITABLE_STATES`
- * rather than "any non-terminal state" — unlike a name, a format change
- * after the bracket exists would be misleading rather than merely late.
+ * ruleset gets stamped onto every match this tournament generates by
+ * default. Modelled directly on `renameTournament` below, but gated to
+ * `FORMAT_EDITABLE_STATES` rather than "any non-terminal state" — unlike a
+ * name, a format change after the bracket exists would be misleading rather
+ * than merely late.
+ *
+ * A bracket can now exist well before `RUNNING` (`GENERATE_BRACKET`), so
+ * "the default is editable" and "every match already agrees with it" are no
+ * longer the same fact — a TO can generate at Bo3, hand-assign a few matches
+ * to Bo5, and only then change the default. `mode` resolves what that means:
+ * omitted, this throws `MixedFormatConflictError` the first time the matches
+ * disagree, so a caller can put the choice to the TO; `'UPDATE_ALL'` stamps
+ * every `PENDING` match and clears `formatOverrides` (otherwise they would
+ * re-diverge on the next regeneration); `'DEFAULT_ONLY'` changes nothing but
+ * the default, same as when nothing was mixed to begin with. "Cancel" is not
+ * a mode — the caller simply doesn't call.
  */
 export async function setTournamentFormat(
   prisma: PrismaClient,
   tournamentId: string,
   formatKey: string,
   actorId: string,
+  mode?: SetTournamentFormatMode,
 ): Promise<Tournament> {
   return prisma.$transaction(async (tx) => {
     const t = await tx.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
@@ -252,9 +297,107 @@ export async function setTournamentFormat(
       throw new TournamentTransitionError(tournamentId, `the bracket is already generated, so the format is locked (state is ${t.state})`);
     }
     requireFormat(formatKey); // throws on an unregistered key before it ever reaches the column.
-    const updated = await tx.tournament.update({ where: { id: tournamentId }, data: { defaultFormatKey: formatKey } });
-    await logAction(tx, actorId, 'TOURNAMENT_FORMAT_SET', 'Tournament', tournamentId, { from: t.defaultFormatKey, to: formatKey });
+
+    if (!mode) {
+      const matches = await tx.match.findMany({ where: { tournamentId }, select: { formatKey: true } });
+      const breakdown: Record<string, number> = {};
+      for (const m of matches) breakdown[m.formatKey] = (breakdown[m.formatKey] ?? 0) + 1;
+      if (Object.keys(breakdown).length > 1) {
+        throw new MixedFormatConflictError(tournamentId, breakdown);
+      }
+    }
+
+    if (mode === 'UPDATE_ALL') {
+      // Every match this early is PENDING by construction (see
+      // `generateBracketGraph`'s comment) — filtered anyway so this can never
+      // touch a match that has since started, if that invariant is ever wrong.
+      await tx.match.updateMany({ where: { tournamentId, status: 'PENDING' }, data: { formatKey } });
+    }
+
+    const updated = await tx.tournament.update({
+      where: { id: tournamentId },
+      data: { defaultFormatKey: formatKey, ...(mode === 'UPDATE_ALL' ? { formatOverrides: {} } : {}) },
+    });
+    await logAction(tx, actorId, 'TOURNAMENT_FORMAT_SET', 'Tournament', tournamentId, {
+      from: t.defaultFormatKey,
+      to: formatKey,
+      mode: mode ?? 'DEFAULT_ONLY',
+    });
     return updated;
+  });
+}
+
+/**
+ * Assigns `formatKey` to one match, a whole round, or an arbitrary
+ * multi-selection — `refs` is just "however many matches this call
+ * targets," so the bulk affordances (a round-heading control, a
+ * multi-select) are different ways of building `refs`, not different code
+ * paths. Writes both the durable intent (`Tournament.formatOverrides`) and
+ * the `Match` rows it currently maps onto.
+ *
+ * Guarded on `PENDING` alone, not a lifecycle state — correcting a future
+ * match's format works even once `RUNNING`, the one thing
+ * `FORMAT_EDITABLE_STATES` (the *default's* gate) cannot express.
+ */
+export async function setMatchFormats(
+  prisma: PrismaClient,
+  tournamentId: string,
+  refs: MatchRef[],
+  formatKey: string,
+  actorId: string,
+): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    requireFormat(formatKey);
+    const tournament = await tx.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
+    const overrides: Record<string, string> = { ...(tournament.formatOverrides as Record<string, string>) };
+
+    for (const ref of refs) {
+      const match = await tx.match.findUnique({
+        where: { tournamentId_bracket_round_slot: { tournamentId, bracket: ref.bracket, round: ref.round, slot: ref.slot } },
+      });
+      if (!match) throw new TournamentTransitionError(tournamentId, `no match at ${matchKey(ref)}`);
+      if (match.status !== 'PENDING') {
+        throw new TournamentTransitionError(tournamentId, `${matchKey(ref)} has already started, its format can't change`);
+      }
+      overrides[matchKey(ref)] = formatKey;
+      await tx.match.update({ where: { id: match.id }, data: { formatKey } });
+    }
+
+    await tx.tournament.update({ where: { id: tournamentId }, data: { formatOverrides: overrides } });
+    await logAction(tx, actorId, 'MATCH_FORMAT_SET', 'Tournament', tournamentId, { formatKey, matches: refs.map(matchKey) });
+  });
+}
+
+export interface RegenerateBracketResult {
+  tournament: Tournament;
+  entrantCount: number;
+  matchCount: number;
+  assignmentsKept: number;
+  overridesReset: boolean;
+}
+
+/**
+ * `/tournament`'s "Generate Bracket" step and the web config page's matching
+ * button — the graph half of what used to happen only at `start`, pulled
+ * forward so a TO has real matches to assign formats to before pressing
+ * Start. Idempotent: calling it again regenerates, per
+ * `generateBracketGraph`'s resize rule.
+ */
+export async function regenerateBracket(prisma: PrismaClient, tournamentId: string, actorId: string): Promise<RegenerateBracketResult> {
+  return prisma.$transaction(async (tx) => {
+    await requireState(tx, tournamentId, 'CHECKIN_CLOSED');
+    const entrantCount = await tx.entrant.count({ where: { tournamentId, status: 'ACTIVE', checkedIn: true } });
+    if (entrantCount < 2) {
+      throw new TournamentTransitionError(tournamentId, `needs at least 2 checked-in entrants to generate a bracket, only has ${entrantCount}`);
+    }
+    const { bracket, overridesReset, assignmentsKept } = await generateBracketGraph(tx, tournamentId, entrantCount);
+    const tournament = await tx.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
+    await logAction(tx, actorId, 'BRACKET_GENERATED', 'Tournament', tournamentId, {
+      entrantCount,
+      matchCount: bracket.matches.length,
+      overridesReset,
+    });
+    return { tournament, entrantCount, matchCount: bracket.matches.length, assignmentsKept, overridesReset };
   });
 }
 
@@ -285,7 +428,8 @@ export async function closeRegistration(prisma: PrismaClient, tournamentId: stri
  */
 export async function openCheckin(prisma: PrismaClient, tournamentId: string, actorId: string): Promise<Tournament> {
   return prisma.$transaction(async (tx) => {
-    await requireStateIn(tx, tournamentId, ['REGISTRATION_CLOSED', 'CHECKIN_CLOSED']);
+    const t = await requireStateIn(tx, tournamentId, ['REGISTRATION_CLOSED', 'CHECKIN_CLOSED']);
+    await discardBracketIfReopening(tx, tournamentId, t.state);
     const updated = await tx.tournament.update({ where: { id: tournamentId }, data: { state: 'CHECKIN_OPEN' } });
     await logAction(tx, actorId, 'CHECKIN_OPENED', 'Tournament', tournamentId, {});
     return updated;
@@ -456,13 +600,33 @@ export async function startTournament(
   const packSizeWarning = await prisma.$transaction(async (tx) => {
     const t = await requireState(tx, tournamentId, 'CHECKIN_CLOSED');
     // "The start also asserts that every generated match's `formatKey`
-    // resolves to a registered format." Every match is stamped from this
-    // one default, so asserting it here covers every match `materializeBracket`
-    // is about to create.
+    // resolves to a registered format." Every match is stamped from the
+    // default or an override, so asserting both here covers every match
+    // `materializeBracket` is about to create or reuse.
+    const overrides = t.formatOverrides as Record<string, string>;
     const format = requireFormat(t.defaultFormatKey);
+    for (const key of Object.values(overrides)) requireFormat(key);
 
     const droppedForNoShow = await tx.entrant.count({ where: { tournamentId, status: 'ACTIVE', checkedIn: false } });
     const { survivingCount } = await renormalizeSeeds(tx, tournamentId);
+
+    // A bracket generated ahead of start (`GENERATE_BRACKET`) is only valid
+    // for the field it was built against — the same invariant
+    // `discardBracketIfReopening` exists to protect on the way back out of
+    // `CHECKIN_CLOSED`. Checked here too because check-in can also close a
+    // *second* time onto a different field without ever reopening in
+    // between (a referee-driven withdrawal, say) — nothing else re-validates
+    // it right before the bracket rows are trusted. Silently regenerating
+    // instead was considered and rejected: it would either strand a TO's
+    // per-match assignments without them noticing, or (worse) reuse a
+    // bracket built for the wrong field, per `entrantCountAtStart`'s own
+    // comment on why this count must never drift from what was materialized.
+    if (t.bracketEntrantCount !== null && t.bracketEntrantCount !== survivingCount) {
+      throw new TournamentTransitionError(
+        tournamentId,
+        `the generated bracket was built for ${t.bracketEntrantCount} checked-in entrants, but ${survivingCount} remain — regenerate the bracket before starting`,
+      );
+    }
 
     // Both guarded *before* the state flips to RUNNING below — `generateBracket`
     // requires at least two entrants and `draw()` requires a non-empty pack;
@@ -489,7 +653,11 @@ export async function startTournament(
     await tx.tournament.update({ where: { id: tournamentId }, data: { state: 'RUNNING' } });
     await logAction(tx, actorId, 'TOURNAMENT_STARTED', 'Tournament', tournamentId, { entrantCount: active.length, droppedForNoShow });
 
-    return chartCount < format.recommendedPackSize ? { recommended: format.recommendedPackSize, actual: chartCount } : null;
+    // DESIGN.md, "Configurability": "once a tournament can mix formats, the
+    // threshold is the maximum across those in use" — every format the
+    // bracket will actually carry, not just the default.
+    const recommendedPackSize = Math.max(format.recommendedPackSize, ...Object.values(overrides).map((k) => requireFormat(k).recommendedPackSize));
+    return chartCount < recommendedPackSize ? { recommended: recommendedPackSize, actual: chartCount } : null;
   });
 
   // Materializes round 1 (and any bye cascade) as its own transaction, same
@@ -516,7 +684,7 @@ const LEGAL_ACTIONS: Record<TournamentState, LifecycleAction[]> = {
   REGISTRATION_OPEN: ['CLOSE_REGISTRATION', 'RENAME', 'CANCEL'],
   REGISTRATION_CLOSED: ['OPEN_REGISTRATION', 'OPEN_CHECKIN', 'RENAME', 'CANCEL'],
   CHECKIN_OPEN: ['OPEN_REGISTRATION', 'CLOSE_REGISTRATION', 'CLOSE_CHECKIN', 'RENAME', 'CANCEL'],
-  CHECKIN_CLOSED: ['OPEN_REGISTRATION', 'OPEN_CHECKIN', 'START', 'RENAME', 'CANCEL'],
+  CHECKIN_CLOSED: ['OPEN_REGISTRATION', 'OPEN_CHECKIN', 'START', 'GENERATE_BRACKET', 'RENAME', 'CANCEL'],
   RUNNING: ['RENAME', 'CANCEL'],
   COMPLETE: [],
   CANCELLED: [],
@@ -538,6 +706,11 @@ export async function getLifecycleStatus(prisma: PrismaClient, tournamentId: str
     prisma.chart.count({ where: { tournamentId } }),
   ]);
 
+  // Only meaningful once a bracket exists — `null` means nothing has been
+  // generated yet, which is not a problem: Start still works by generating
+  // fresh, exactly as it always has. See `materializeBracket`.
+  const bracketOk = tournament.bracketEntrantCount === null || tournament.bracketEntrantCount === checkedInCount;
+
   return {
     state: tournament.state,
     name: tournament.name,
@@ -546,8 +719,15 @@ export async function getLifecycleStatus(prisma: PrismaClient, tournamentId: str
       { label: 'Server is fully configured (channels and roles)', ok: missingGuildConfig(guild).length === 0 },
       { label: 'At least 2 checked-in entrants', ok: checkedInCount >= 2 },
       { label: 'Chart pack has at least 1 chart', ok: chartCount > 0 },
+      {
+        label: bracketOk
+          ? 'Bracket matches the checked-in field'
+          : `Bracket is stale (built for ${tournament.bracketEntrantCount}, ${checkedInCount} checked in now) — regenerate it`,
+        ok: bracketOk,
+      },
     ],
     defaultFormatKey: tournament.defaultFormatKey as LifecycleStatus['defaultFormatKey'],
     formatEditable: FORMAT_EDITABLE_STATES.includes(tournament.state),
+    bracketEntrantCount: tournament.bracketEntrantCount,
   };
 }

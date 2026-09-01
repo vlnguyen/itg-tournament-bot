@@ -1,6 +1,6 @@
-import type { LifecycleAction } from '@itg/shared';
+import type { LifecycleAction, SetTournamentFormatMode } from '@itg/shared';
 import { FORMAT_LABEL, FormatKey } from '@itg/shared';
-import { Alert, Button, Center, Group, List, Loader, Select, Stack, Text, TextInput, Title } from '@mantine/core';
+import { Alert, Button, Center, Group, List, Loader, Modal, Select, Stack, Text, TextInput, Title } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
@@ -16,6 +16,11 @@ const ACTION_LABEL: Record<LifecycleAction, string> = {
   OPEN_CHECKIN: 'Open Check-in',
   CLOSE_CHECKIN: 'Close Check-in',
   START: 'Start Tournament',
+  // Never rendered from this table — the Bracket section below has its own
+  // Generate/Regenerate button (wording driven by `status.bracketEntrantCount`)
+  // and is filtered out of the generic action row. The key still has to be
+  // here for `Record<LifecycleAction, string>` to stay exhaustive.
+  GENERATE_BRACKET: 'Generate Bracket',
   CANCEL: 'Cancel Tournament',
   RENAME: 'Rename',
 };
@@ -56,10 +61,33 @@ export default function TournamentLifecycle(): JSX.Element {
   // Separate from `mutation` above: SET_FORMAT isn't a `LifecycleAction` (see
   // that type's comment in `@itg/shared`) — it takes an argument, so it's a
   // Select's onChange, not one of the one-click buttons below.
+  const [conflict, setConflict] = useState<{ formatKey: FormatKey; breakdown: Record<string, number> } | null>(null);
   const formatMutation = useMutation({
-    mutationFn: (formatKey: FormatKey) => submitLifecycleAction(tournamentId!, { action: 'SET_FORMAT', formatKey }),
+    mutationFn: ({ formatKey, mode }: { formatKey: FormatKey; mode?: SetTournamentFormatMode }) =>
+      submitLifecycleAction(tournamentId!, { action: 'SET_FORMAT', formatKey, mode }),
     onSuccess: (updated) => {
       queryClient.setQueryData(['lifecycle', tournamentId], updated);
+      setConflict(null);
+    },
+    onError: (err, variables) => {
+      // Matches are mixed across formats and no mode was given — put the
+      // three-way choice to the TO instead of failing outright. Any other
+      // error surfaces as the plain Alert below, same as always.
+      if (err instanceof ApiError && err.status === 409 && err.breakdown) {
+        setConflict({ formatKey: variables.formatKey, breakdown: err.breakdown });
+      }
+    },
+  });
+
+  // The graph half of `materializeBracket`, pulled ahead of Start so
+  // per-match formats have real matches to land on — see DESIGN.md, "Match
+  // Format as a Plugin". Idempotent: calling it again regenerates.
+  const bracketMutation = useMutation({
+    mutationFn: () => submitLifecycleAction(tournamentId!, { action: 'GENERATE_BRACKET' }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['lifecycle', tournamentId], updated);
+      // The bracket page reads the tournament snapshot, not this query.
+      void queryClient.invalidateQueries({ queryKey: ['tournament', tournamentId] });
     },
   });
 
@@ -142,13 +170,18 @@ export default function TournamentLifecycle(): JSX.Element {
             </Title>
             {formatMutation.isPending && <Loader size="xs" aria-label="Updating format" />}
           </Group>
+          {formatMutation.isError && !conflict && (
+            <Alert color="red" title="Couldn't do that" mb="xs">
+              {formatMutation.error instanceof ApiError ? formatMutation.error.message : 'Something went wrong.'}
+            </Alert>
+          )}
           <Select
             maw={320}
             data={FormatKey.options.map((key) => ({ value: key, label: FORMAT_LABEL[key] }))}
             value={status.defaultFormatKey}
             disabled={!status.formatEditable || formatMutation.isPending}
             allowDeselect={false}
-            onChange={(value) => value && formatMutation.mutate(value as FormatKey)}
+            onChange={(value) => value && formatMutation.mutate({ formatKey: value as FormatKey })}
           />
           {!status.formatEditable && (
             <Text size="xs" c="dimmed" mt={4}>
@@ -157,26 +190,57 @@ export default function TournamentLifecycle(): JSX.Element {
           )}
         </div>
 
+        {(status.legalActions.includes('GENERATE_BRACKET') || status.bracketEntrantCount !== null) && (
+          <div>
+            <Title order={2} size="h3" mb="xs">
+              Bracket
+            </Title>
+            {bracketMutation.isError && (
+              <Alert color="red" title="Couldn't generate the bracket" mb="xs">
+                {bracketMutation.error instanceof ApiError ? bracketMutation.error.message : 'Something went wrong.'}
+              </Alert>
+            )}
+            <Group gap="sm" align="center">
+              {status.legalActions.includes('GENERATE_BRACKET') && (
+                <Button size="sm" loading={bracketMutation.isPending} onClick={() => bracketMutation.mutate()}>
+                  {status.bracketEntrantCount === null ? 'Generate Bracket' : 'Regenerate Bracket'}
+                </Button>
+              )}
+              {status.bracketEntrantCount !== null && (
+                <Text size="sm" c="dimmed">
+                  Built for {status.bracketEntrantCount} checked-in entrants.
+                </Text>
+              )}
+            </Group>
+            <Text size="xs" c="dimmed" mt={4}>
+              Generating early lets you assign Best of 3 or Best of 5 per round or per match from the bracket page, before
+              Start.
+            </Text>
+          </div>
+        )}
+
         <div>
           <Title order={2} size="h3" mb="xs">
             Actions
           </Title>
-          {status.legalActions.length === 0 ? (
+          {status.legalActions.filter((a) => a !== 'GENERATE_BRACKET').length === 0 ? (
             <Text c="dimmed">Nothing to do: this tournament is {STATE_LABEL[status.state].toLowerCase()}.</Text>
           ) : (
             <Group gap="xs">
-              {status.legalActions.map((action) => (
-                <Button
-                  key={action}
-                  size="sm"
-                  variant={action === 'CANCEL' ? 'outline' : 'filled'}
-                  {...(action === 'CANCEL' ? { color: 'red' } : {})}
-                  {...(action === 'START' ? { color: 'green' } : {})}
-                  onClick={() => runAction(action)}
-                >
-                  {ACTION_LABEL[action]}
-                </Button>
-              ))}
+              {status.legalActions
+                .filter((a) => a !== 'GENERATE_BRACKET')
+                .map((action) => (
+                  <Button
+                    key={action}
+                    size="sm"
+                    variant={action === 'CANCEL' ? 'outline' : 'filled'}
+                    {...(action === 'CANCEL' ? { color: 'red' } : {})}
+                    {...(action === 'START' ? { color: 'green' } : {})}
+                    onClick={() => runAction(action)}
+                  >
+                    {ACTION_LABEL[action]}
+                  </Button>
+                ))}
             </Group>
           )}
         </div>
@@ -198,6 +262,31 @@ export default function TournamentLifecycle(): JSX.Element {
             ))}
           </List>
         </div>
+
+        <Modal opened={conflict !== null} onClose={() => setConflict(null)} title="Matches are on different formats">
+          {conflict && (
+            <Stack gap="sm">
+              <Text size="sm">This tournament's matches aren't all on one format right now:</Text>
+              <List size="sm">
+                {Object.entries(conflict.breakdown).map(([key, count]) => (
+                  <List.Item key={key}>
+                    {FORMAT_LABEL[key as FormatKey]}: {count}
+                  </List.Item>
+                ))}
+              </List>
+              <Text size="sm">How should setting the default to {FORMAT_LABEL[conflict.formatKey]} be handled?</Text>
+              <Group justify="flex-end" gap="xs">
+                <Button variant="subtle" onClick={() => setConflict(null)}>
+                  Cancel
+                </Button>
+                <Button variant="outline" onClick={() => formatMutation.mutate({ formatKey: conflict.formatKey, mode: 'DEFAULT_ONLY' })}>
+                  Change the default only
+                </Button>
+                <Button onClick={() => formatMutation.mutate({ formatKey: conflict.formatKey, mode: 'UPDATE_ALL' })}>Update all matches</Button>
+              </Group>
+            </Stack>
+          )}
+        </Modal>
       </>
     );
   }

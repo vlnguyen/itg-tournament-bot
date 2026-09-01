@@ -2,6 +2,17 @@
   list-style: none;
 }
 
+.cellInner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mantine-spacing-xs);
+}
+
+.select {
+  margin-top: var(--mantine-spacing-xs);
+  flex-shrink: 0;
+}
+
 .link {
   display: block;
   border: 1px solid var(--mantine-color-default-border);
@@ -10,6 +21,7 @@
   text-decoration: none;
   color: inherit;
   min-width: 200px;
+  flex: 1;
 }
 
 .link:hover,

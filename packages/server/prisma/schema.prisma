@@ -78,6 +78,16 @@ model Tournament {
   guildId   String
   name      String
   defaultFormatKey String // stamped onto every match this tournament generates
+  // TO intent for matches that deviate from defaultFormatKey — Record<matchKey, FormatKey>
+  // (matchKey per @itg/shared's `matchKey(ref)`). Reset to {} whenever a
+  // regeneration changes the bracket's size, since a ref's meaning does not
+  // carry across a size change. See DESIGN.md, "Match Format as a Plugin".
+  formatOverrides Json @default("{}")
+  // The checked-in field size the current Match rows (and formatOverrides)
+  // were generated for. Null before GENERATE_BRACKET has ever run. Read by
+  // entrantCountAtStart so advancement, standings, and the web bracket layout
+  // all agree on one shape while a bracket exists ahead of RUNNING.
+  bracketEntrantCount Int?
   config    Json // TournamentConfig
   state     TournamentState @default(DRAFT)
   createdAt DateTime        @default(now())

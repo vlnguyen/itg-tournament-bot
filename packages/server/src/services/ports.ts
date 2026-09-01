@@ -45,7 +45,7 @@ export interface RealtimeBroadcastPort {
    * joining them in here costs nothing extra the way a gateway-side DB
    * lookup would.
    */
-  publish(tournamentId: string, matchId: string, seq: number, projection: PublicMatch & { bracket: BracketSide; round: number }): void;
+  publish(tournamentId: string, matchId: string, seq: number, projection: PublicMatch & { bracket: BracketSide; round: number; slot: number }): void;
   /**
    * "The seeding page is sensitive to real-time roster changes" — a join,
    * check-in, un-check-in, withdrawal, removal, or reorder from *any*

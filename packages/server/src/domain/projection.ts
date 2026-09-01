@@ -136,6 +136,8 @@ export type BracketMatchStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETE';
 export interface BracketMatch {
   /** Same resync role as `PublicMatch.seq` — see that field's comment. */
   seq: number;
+  /** The ruleset this match runs under — `format.key`, already in hand from the caller's own `requireFormat(match.formatKey)` lookup. */
+  formatKey: string;
   participants: { entrantId: EntrantId; seed: number }[];
   status: BracketMatchStatus;
   /**
@@ -176,6 +178,7 @@ export function toBracketMatch(format: MatchFormat, state: MatchState): BracketM
   const active = state.songs.find((s) => !s.result);
   return {
     seq: state.seq,
+    formatKey: format.key,
     participants: state.participants,
     status: deriveMatchStatus(format, state),
     awaitingTo: format.pendingAction(state).kind === 'AWAITING_TO',

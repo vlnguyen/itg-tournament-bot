@@ -25,7 +25,8 @@ function nameOf(entrant: { displayName: string | null; discordUserId: string }):
   return entrant.displayName ?? entrant.discordUserId;
 }
 
-function buildMatchLabel(bracket: BracketSide, round: number, participants: ParticipantRow[]): string {
+/** Exported for `commands/tournament.ts`'s `/tournament format` autocomplete, which needs the same "round · Alice vs Bob" label — degrading to "· ? vs ?" for a match not yet seated, which is the normal case for anything past round 1. */
+export function buildMatchLabel(bracket: BracketSide, round: number, participants: ParticipantRow[]): string {
   const [a, b] = [...participants].sort((p, q) => p.slot - q.slot).map((p) => nameOf(p.entrant));
   return `${sectionLabel(bracket, round)} · ${a ?? '?'} vs ${b ?? '?'}`;
 }

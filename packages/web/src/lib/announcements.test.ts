@@ -11,6 +11,7 @@ function frame(overrides: Partial<PublicMatch> = {}, seq = 5): RealtimeFrame {
       formatKey: 'bo5-protect-veto',
       bracket: 'WINNERS',
       round: 1,
+      slot: 0,
       participants: [
         { entrantId: 'a', seed: 1, displayName: 'Alice' },
         { entrantId: 'b', seed: 2, displayName: 'Bob' },

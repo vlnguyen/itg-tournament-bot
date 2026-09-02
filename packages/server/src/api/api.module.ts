@@ -12,6 +12,7 @@ import { PlayersController } from './players.controller.js';
 import { RosterController } from './roster.controller.js';
 import { RulingsController } from './rulings.controller.js';
 import { SetupController } from './setup.controller.js';
+import { SongPoolController } from './song-pool.controller.js';
 import { TournamentsController } from './tournaments.controller.js';
 
 @Module({
@@ -22,6 +23,7 @@ import { TournamentsController } from './tournaments.controller.js';
     GuildsController,
     PlayersController,
     ChartsController,
+    SongPoolController,
     RulingsController,
     RosterController,
     LifecycleController,

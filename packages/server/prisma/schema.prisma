@@ -190,9 +190,16 @@ model ChartLabel {
 
   chart Chart @relation(fields: [chartId], references: [id], onDelete: Cascade)
 
-  @@unique([tournamentId, formatKey, chartId]) // one label per chart per tab
-  @@unique([tournamentId, formatKey, label]) // a label used once per tab
-  @@index([tournamentId, formatKey])
+  // One label per chart per tab is DB-enforced — the wire payload (a
+  // Record<chartId, label>) already makes the reverse structurally
+  // impossible, so this is only a defensive backstop. NOT unique on
+  // (tournamentId, formatKey, label): a label assigned to two different
+  // charts is an invalid-but-representable state Save must be able to
+  // store and report on (NEW_FORMAT.md's "if a label has been used
+  // multiple times... say which songs it's been assigned to") — the DB
+  // must not silently refuse it before application code ever sees it.
+  @@unique([tournamentId, formatKey, chartId])
+  @@index([tournamentId, formatKey, label])
 }
 
 // Tracks a static-pool tab's existence independently of whether its labels

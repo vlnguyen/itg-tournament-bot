@@ -1,12 +1,15 @@
 import { afterAll, describe, expect, it } from 'vitest';
+import { FORMAT_SONG_LABELS } from '@itg/shared';
 import { Bo3ProtectVetoFormat } from '../src/domain/bo3.js';
 import { Bo5ProtectVetoFormat } from '../src/domain/bo5.js';
 import { matchKey, type MatchRef } from '../src/domain/bracket.js';
+import { createSongPoolTab, saveSongPoolLabels } from '../src/services/song-pool-service.js';
 import {
   cancelTournament,
   closeCheckin,
   closeRegistration,
   createTournament,
+  getLifecycleStatus,
   MixedFormatConflictError,
   openCheckin,
   openRegistration,
@@ -797,6 +800,87 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
 
         const after = await prisma.tournament.findUniqueOrThrow({ where: { id: t.id } });
         expect(after.state).toBe('CHECKIN_CLOSED');
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('refuses to start with an incomplete static song pool, and starts once it is well-formed', async () => {
+      const guildId = `ts-start-hb11-${Date.now()}`;
+      await makeGuild(guildId, true);
+      try {
+        const t = await createTournament(prisma, guildId, 'T', ACTOR);
+        await openRegistration(prisma, t.id, ACTOR);
+        await closeRegistration(prisma, t.id, ACTOR);
+        await openCheckin(prisma, t.id, ACTOR);
+        await addEntrant(t.id, 'p1', { seed: 1, checkedIn: true });
+        await addEntrant(t.id, 'p2', { seed: 2, checkedIn: true });
+        await closeCheckin(prisma, t.id, ACTOR);
+        await setTournamentFormat(prisma, t.id, 'hb11-static-pool', ACTOR);
+
+        const labels = FORMAT_SONG_LABELS['hb11-static-pool']!;
+        const chartIds: string[] = [];
+        for (let i = 0; i < labels.length; i++) {
+          const c = await prisma.chart.create({
+            data: { tournamentId: t.id, title: `Song ${i}`, playStyle: 'SINGLE', difficulty: 'EXPERT', meter: 12 },
+          });
+          chartIds.push(c.id);
+        }
+
+        // No song pool tab at all yet.
+        await expect(startTournament(prisma, sequentialRandomPort(guildId), t.id, new Map(), ACTOR)).rejects.toThrow(
+          TournamentTransitionError,
+        );
+
+        // A tab, but only partially labeled.
+        await createSongPoolTab(prisma, t.id, 'hb11-static-pool', ACTOR);
+        await saveSongPoolLabels(prisma, t.id, 'hb11-static-pool', { [chartIds[0]!]: labels[0]! }, ACTOR);
+        await expect(startTournament(prisma, sequentialRandomPort(guildId), t.id, new Map(), ACTOR)).rejects.toThrow(
+          TournamentTransitionError,
+        );
+        expect((await prisma.tournament.findUniqueOrThrow({ where: { id: t.id } })).state).toBe('CHECKIN_CLOSED');
+
+        // Fully labeled — Start succeeds.
+        const assignments = Object.fromEntries(chartIds.map((id, i) => [id, labels[i]!]));
+        await saveSongPoolLabels(prisma, t.id, 'hb11-static-pool', assignments, ACTOR);
+        const result = await startTournament(prisma, sequentialRandomPort(guildId), t.id, new Map(), ACTOR);
+        expect(result.tournament.state).toBe('RUNNING');
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('surfaces the same static-pool check in getLifecycleStatus\'s startGuards, ahead of the hard block', async () => {
+      const guildId = `ts-lifecycle-hb11-${Date.now()}`;
+      await makeGuild(guildId, true);
+      try {
+        const t = await createTournament(prisma, guildId, 'T', ACTOR);
+        await openRegistration(prisma, t.id, ACTOR);
+        await closeRegistration(prisma, t.id, ACTOR);
+        await openCheckin(prisma, t.id, ACTOR);
+        await addEntrant(t.id, 'p1', { seed: 1, checkedIn: true });
+        await addEntrant(t.id, 'p2', { seed: 2, checkedIn: true });
+        await closeCheckin(prisma, t.id, ACTOR);
+        await setTournamentFormat(prisma, t.id, 'hb11-static-pool', ACTOR);
+
+        const before = await getLifecycleStatus(prisma, t.id);
+        const guardBefore = before.startGuards.find((g) => g.label.includes('hb11-static-pool'));
+        expect(guardBefore?.ok).toBe(false);
+
+        const labels = FORMAT_SONG_LABELS['hb11-static-pool']!;
+        await createSongPoolTab(prisma, t.id, 'hb11-static-pool', ACTOR);
+        const assignments: Record<string, string> = {};
+        for (let i = 0; i < labels.length; i++) {
+          const c = await prisma.chart.create({
+            data: { tournamentId: t.id, title: `Song ${i}`, playStyle: 'SINGLE', difficulty: 'EXPERT', meter: 12 },
+          });
+          assignments[c.id] = labels[i]!;
+        }
+        await saveSongPoolLabels(prisma, t.id, 'hb11-static-pool', assignments, ACTOR);
+
+        const after = await getLifecycleStatus(prisma, t.id);
+        const guardAfter = after.startGuards.find((g) => g.label.includes('hb11-static-pool'));
+        expect(guardAfter?.ok).toBe(true);
       } finally {
         await dropGuild(guildId);
       }

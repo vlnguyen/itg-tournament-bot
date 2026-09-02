@@ -6,6 +6,7 @@ import { logAction } from './audit-log.js';
 import { generateBracketGraph, materializeBracket } from './bracket-service.js';
 import { requireFormat, TournamentTransitionError, type Tx } from './engine.js';
 import type { RandomPort } from './ports.js';
+import { songPoolIssuesSummary, staticPoolFormatKeysInPlay, validateSongPool } from './song-pool-service.js';
 
 export { TournamentTransitionError };
 
@@ -607,6 +608,17 @@ export async function startTournament(
     const format = requireFormat(t.defaultFormatKey);
     for (const key of Object.values(overrides)) requireFormat(key);
 
+    // Every static-pool format in play (HB-11/HB-13) needs a well-formed
+    // labeled pool before Start — see NEW_FORMAT.md's "Song Pool" and the
+    // plan's "Tabs persist independently of completion... Start Tournament
+    // is the actual hard gate."
+    for (const key of staticPoolFormatKeysInPlay(t.defaultFormatKey, overrides)) {
+      const issues = await validateSongPool(tx, tournamentId, key);
+      if (issues) {
+        throw new TournamentTransitionError(tournamentId, `the "${key}" song pool isn't well-formed yet: ${songPoolIssuesSummary(issues)}`);
+      }
+    }
+
     const droppedForNoShow = await tx.entrant.count({ where: { tournamentId, status: 'ACTIVE', checkedIn: false } });
     const { survivingCount } = await renormalizeSeeds(tx, tournamentId);
 
@@ -711,6 +723,23 @@ export async function getLifecycleStatus(prisma: PrismaClient, tournamentId: str
   // fresh, exactly as it always has. See `materializeBracket`.
   const bracketOk = tournament.bracketEntrantCount === null || tournament.bracketEntrantCount === checkedInCount;
 
+  // One guard per static-pool format in play, mirroring `startTournament`'s
+  // own hard check — surfaced ahead of time so a TO can see exactly which
+  // pool (and which labels) still need attention before pressing Start.
+  const staticPoolKeys = staticPoolFormatKeysInPlay(
+    tournament.defaultFormatKey,
+    tournament.formatOverrides as Record<string, string>,
+  );
+  const staticPoolGuards = await Promise.all(
+    staticPoolKeys.map(async (key) => {
+      const issues = await validateSongPool(prisma, tournamentId, key);
+      return {
+        label: issues ? `Song pool "${key}" isn't well-formed: ${songPoolIssuesSummary(issues)}` : `Song pool "${key}" is well-formed`,
+        ok: !issues,
+      };
+    }),
+  );
+
   return {
     state: tournament.state,
     name: tournament.name,
@@ -725,6 +754,7 @@ export async function getLifecycleStatus(prisma: PrismaClient, tournamentId: str
           : `Bracket is stale (built for ${tournament.bracketEntrantCount}, ${checkedInCount} checked in now) — regenerate it`,
         ok: bracketOk,
       },
+      ...staticPoolGuards,
     ],
     defaultFormatKey: tournament.defaultFormatKey as LifecycleStatus['defaultFormatKey'],
     formatEditable: FORMAT_EDITABLE_STATES.includes(tournament.state),

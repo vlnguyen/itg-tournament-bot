@@ -18,6 +18,7 @@ function chart(overrides: Partial<ChartSnapshot> = {}): ChartSnapshot {
     description: null,
     sourcePack: 'Test Pack',
     flags: [],
+    poolLabel: null,
     ...overrides,
   };
 }

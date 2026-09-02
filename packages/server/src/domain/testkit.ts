@@ -4,7 +4,7 @@ import { draw } from './draw.js';
 import type { EntrantId, MatchEvent, MatchFormat, MatchState, PendingAction } from './types.js';
 import { emptyState } from './types.js';
 
-export const chart = (n: number): ChartSnapshot => ({
+export const chart = (n: number, poolLabel: string | null = null): ChartSnapshot => ({
   chartId: `chart-${n}`,
   title: `Song ${n}`,
   titleTranslit: null,
@@ -19,10 +19,15 @@ export const chart = (n: number): ChartSnapshot => ({
   description: null,
   sourcePack: null,
   flags: [],
+  poolLabel,
 });
 
 export const makePack = (n: number): ChartSnapshot[] =>
   Array.from({ length: n }, (_, i) => chart(i));
+
+/** A Hubert-format static pool, fully labeled — one chart per `FORMAT_SONG_LABELS[formatKey]` entry, in that order. */
+export const makeStaticPool = (labels: readonly string[]): ChartSnapshot[] =>
+  labels.map((label, i) => chart(i, label));
 
 /**
  * A miniature of the service loop: append an event, fold it, then execute any
@@ -97,6 +102,21 @@ export class MatchDriver {
         },
       } as MatchEvent;
     }
+    if (d.do === 'DRAW_STATIC') {
+      // Hubert-format tests build `this.pack` as the exact labeled pool
+      // already (see `makeStaticPool`) — no random sampling, the whole
+      // pack becomes the Draw as-is.
+      return { seq, actorId: null, type: 'DRAW_MADE', payload: { seed: 'static', charts: this.pack } } as MatchEvent;
+    }
+    if (d.do === 'RANDOM_SIDE_ASSIGN') {
+      const [a, b] = this.state.participants.map((p) => p.entrantId);
+      return {
+        seq,
+        actorId: null,
+        type: 'SIDES_ASSIGNED',
+        payload: { seed: `sides-${seq}`, a: a!, b: b! },
+      } as MatchEvent;
+    }
     const songIndex = this.state.songs.length;
     const chartSnapshot =
       d.drawIndex !== undefined
@@ -152,6 +172,17 @@ export class MatchDriver {
         payload: { by: p.actor, drawIndex: p.choices[0]! },
       });
     }
+  }
+
+  /** Pick a song to play next (Hubert formats' `SELECT_SONG` step — the forced Tiebreaker never goes through this). */
+  pickSong(index = 0): this {
+    const p = this.pending;
+    if (p.kind !== 'SELECT_SONG') throw new Error(`expected SELECT_SONG, got ${p.kind}`);
+    return this.apply({
+      actorId: p.actor,
+      type: 'CHART_SELECTED',
+      payload: { by: p.actor, drawIndex: p.choices[index]! },
+    });
   }
 
   /** Score the live song and agree a winner. `null` means both players tie. */

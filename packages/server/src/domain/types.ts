@@ -4,7 +4,14 @@ export type EntrantId = string;
 export type ChartId = string;
 
 /** Why a match is waiting on a referee. */
-export type EscalationReason = 'WINNER_DISAGREEMENT' | 'SETTINGS_VIOLATION' | 'SET_RESULT_DISAGREEMENT';
+export type EscalationReason =
+  | 'WINNER_DISAGREEMENT'
+  | 'SETTINGS_VIOLATION'
+  | 'SET_RESULT_DISAGREEMENT'
+  // A static-pool format (Hubert's formats) reached its forced Tiebreaker
+  // song with nothing left to play, and points and average EX% both came
+  // out equal — no rule left to apply short of a referee. See `hubert.ts`.
+  | 'TIEBREAK_UNRESOLVED';
 
 /** How a song's result was reached. */
 export type SongResultBy = 'AGREEMENT' | 'RULING';
@@ -16,7 +23,9 @@ export type SongSource =
   | 'PROTECT_ORDER' // a tie left no loser, so protect order decides
   | 'DECIDER'
   | 'FORCED' // one chart left, so no choice existed
-  | 'TIEBREAK';
+  | 'TIEBREAK'
+  | 'PICK' // a static-pool format's player-driven song selection — see `hubert.ts`
+  | 'HB_TIEBREAKER'; // a static-pool format's forced Tiebreaker song, whichever trigger forced it
 
 // ---------------------------------------------------------------------------
 // Events. The append-only log is the source of truth; everything else is a fold.
@@ -38,8 +47,16 @@ export type MatchEvent =
       type: 'SEED_CHOICE_MADE';
       payload: { by: EntrantId; order: 'FIRST' | 'SECOND' };
     })
+  // Bot-authored, static-pool formats only: a coin flip decides Player A/B
+  // up front, rather than a human SEED_CHOICE. `seed` is stored for the
+  // same audit reason a Draw's seed is. See `hubert.ts`.
+  | (Envelope & { type: 'SIDES_ASSIGNED'; payload: { seed: string; a: EntrantId; b: EntrantId } })
   | (Envelope & { type: 'CHART_PROTECTED'; payload: { by: EntrantId; drawIndex: number } })
   | (Envelope & { type: 'CHART_VETOED'; payload: { by: EntrantId; drawIndex: number } })
+  // Player-driven, static-pool formats only: choosing which Draw position
+  // plays next, rather than an algorithmically-decided `nextDrawSong`. See
+  // `hubert.ts`.
+  | (Envelope & { type: 'CHART_SELECTED'; payload: { by: EntrantId; drawIndex: number } })
   | (Envelope & { type: 'PROTECT_VETO_RESET'; payload: { reason: string } })
   | (Envelope & {
       type: 'SONG_STARTED';
@@ -142,6 +159,8 @@ export interface MatchState {
   vetoes: { drawIndex: number; by: EntrantId }[];
   /** The one Draw position left after Protect/Veto. */
   deciderIndex?: number | undefined;
+  /** A static-pool format's player-driven song selections, in the order made. Unused (stays empty) by every other format. See `hubert.ts`. */
+  picks: { drawIndex: number; by: EntrantId }[];
   songs: SongRecord[];
   points: Record<EntrantId, number>;
   tiebreaks: TiebreakRound[];
@@ -172,6 +191,13 @@ export interface MatchState {
 export type BotDirective =
   | { do: 'DRAW'; count: number }
   | { do: 'DRAW_TIEBREAK'; round: number; count: number }
+  // Static-pool formats only: load the tournament's labeled pool for this
+  // match's format instead of a random draw. No `count` — the pool is
+  // exactly however many labels are assigned. See `hubert.ts`.
+  | { do: 'DRAW_STATIC' }
+  // Static-pool formats only: assign Player A/B by coin flip, before any
+  // veto or pick. See `hubert.ts`.
+  | { do: 'RANDOM_SIDE_ASSIGN' }
   | {
       do: 'START_SONG';
       source: SongSource;
@@ -184,6 +210,7 @@ export type PendingAction =
   | { kind: 'SEED_CHOICE'; actor: EntrantId }
   | { kind: 'PROTECT'; actor: EntrantId; choices: number[] }
   | { kind: 'VETO'; actor: EntrantId; choices: number[] }
+  | { kind: 'SELECT_SONG'; actor: EntrantId; choices: number[] }
   | { kind: 'SUBMIT_SCORE'; actors: EntrantId[]; songIndex: number }
   | { kind: 'SELECT_WINNER'; actors: EntrantId[]; songIndex: number }
   | { kind: 'TIEBREAK_PICK'; actors: EntrantId[]; round: number; choices: number[] }
@@ -255,6 +282,7 @@ export function emptyState(): MatchState {
     draw: [],
     protects: [],
     vetoes: [],
+    picks: [],
     songs: [],
     points: {},
     tiebreaks: [],

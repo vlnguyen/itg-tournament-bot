@@ -116,6 +116,14 @@ export type CommitPackChangesRequest = z.infer<typeof CommitPackChangesRequest>;
  * Chart metadata as it was when a chart was drawn, written into the draw event.
  * History renders from this; the pack renders from the Chart row. See
  * DESIGN.md, "Snapshotting a chart".
+ *
+ * `poolLabel` (e.g. "RD3") is set only for a static-pool format's draw —
+ * frozen at draw time from the tournament's `ChartLabel` assignment, same
+ * reasoning as everything else here: history reads from its own copy, never
+ * back from a pool's live labels.
  */
-export const ChartSnapshot = ChartInput.extend({ chartId: z.string().min(1) });
+export const ChartSnapshot = ChartInput.extend({
+  chartId: z.string().min(1),
+  poolLabel: z.string().nullable().default(null),
+});
 export type ChartSnapshot = z.infer<typeof ChartSnapshot>;

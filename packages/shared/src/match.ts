@@ -19,6 +19,7 @@ export const EscalationReason = z.enum([
   'WINNER_DISAGREEMENT',
   'SETTINGS_VIOLATION',
   'SET_RESULT_DISAGREEMENT',
+  'TIEBREAK_UNRESOLVED',
 ]);
 export type EscalationReason = z.infer<typeof EscalationReason>;
 
@@ -31,6 +32,8 @@ export function escalationReasonLabel(reason: EscalationReason): string {
       return 'a reported settings violation';
     case 'SET_RESULT_DISAGREEMENT':
       return 'a disagreement over who won the set';
+    case 'TIEBREAK_UNRESOLVED':
+      return 'a fully tied match';
   }
 }
 
@@ -44,6 +47,8 @@ export const SongSource = z.enum([
   'DECIDER',
   'FORCED',
   'TIEBREAK',
+  'PICK',
+  'HB_TIEBREAKER',
 ]);
 export type SongSource = z.infer<typeof SongSource>;
 

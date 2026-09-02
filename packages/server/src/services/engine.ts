@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import type { ChartSnapshot } from '@itg/shared';
 import { draw } from '../domain/draw.js';
+import { makeRng } from '../domain/rng.js';
 import { formatRegistry } from '../domain/golden/registry.js';
 import { generateBracket, liveSourceCount, type GeneratedBracket, type MatchRef } from '../domain/bracket.js';
 import { grandFinalNeedsReset, routeCompletedMatch } from '../domain/advancement.js';
@@ -132,9 +133,26 @@ export async function appendOne(
   return format.reduce(state, full);
 }
 
-async function loadChartPack(tx: Tx, tournamentId: string): Promise<ChartSnapshot[]> {
-  const charts = await tx.chart.findMany({ where: { tournamentId } });
-  return charts.map((c) => ({
+function toChartSnapshot(
+  c: {
+    id: string;
+    title: string;
+    titleTranslit: string | null;
+    subtitle: string | null;
+    subtitleTranslit: string | null;
+    artist: string | null;
+    artistTranslit: string | null;
+    playStyle: ChartSnapshot['playStyle'];
+    difficulty: ChartSnapshot['difficulty'];
+    meter: number;
+    stepartist: string | null;
+    description: string | null;
+    sourcePack: string | null;
+    flags: unknown;
+  },
+  poolLabel: string | null = null,
+): ChartSnapshot {
+  return {
     chartId: c.id,
     title: c.title,
     titleTranslit: c.titleTranslit,
@@ -149,7 +167,30 @@ async function loadChartPack(tx: Tx, tournamentId: string): Promise<ChartSnapsho
     description: c.description,
     sourcePack: c.sourcePack,
     flags: c.flags as ChartSnapshot['flags'],
-  }));
+    poolLabel,
+  };
+}
+
+async function loadChartPack(tx: Tx, tournamentId: string): Promise<ChartSnapshot[]> {
+  const charts = await tx.chart.findMany({ where: { tournamentId } });
+  return charts.map((c) => toChartSnapshot(c));
+}
+
+/**
+ * A static-pool format's Draw: every `ChartLabel` row for this tournament
+ * and format, joined to its `Chart`, ordered by label so the Draw's
+ * position numbering is stable and reproducible — not random, unlike
+ * `loadChartPack` + `draw()`. Only ever returns labeled charts; an
+ * unlabeled chart in the same pack is never part of the pool. See
+ * `hubert.ts`'s `DRAW_STATIC` directive.
+ */
+async function loadStaticPool(tx: Tx, tournamentId: string, formatKey: string): Promise<ChartSnapshot[]> {
+  const labels = await tx.chartLabel.findMany({
+    where: { tournamentId, formatKey },
+    include: { chart: true },
+    orderBy: { label: 'asc' },
+  });
+  return labels.map((l) => toChartSnapshot(l.chart, l.label));
 }
 
 /**
@@ -199,6 +240,30 @@ export async function settleBotLoop(
         actorId: null,
         type: 'TIEBREAK_DRAWN',
         payload: { round: d.round, seed, charts: draw(pack, d.count, (c) => !seen.has(c.chartId), seed) },
+      };
+      state = await appendOne(tx, matchId, state, format, event);
+      continue;
+    }
+
+    if (d.do === 'DRAW_STATIC') {
+      const charts = await loadStaticPool(tx, tournamentId, format.key);
+      const event: Omit<MatchEvent, 'seq'> = {
+        actorId: null,
+        type: 'DRAW_MADE',
+        payload: { seed: 'static', charts },
+      };
+      state = await appendOne(tx, matchId, state, format, event);
+      continue;
+    }
+
+    if (d.do === 'RANDOM_SIDE_ASSIGN') {
+      const seed = random.newSeed();
+      const [x, y] = state.participants.map((p) => p.entrantId);
+      const aFirst = makeRng(seed).nextInt(2) === 0;
+      const event: Omit<MatchEvent, 'seq'> = {
+        actorId: null,
+        type: 'SIDES_ASSIGNED',
+        payload: aFirst ? { seed, a: x!, b: y! } : { seed, a: y!, b: x! },
       };
       state = await appendOne(tx, matchId, state, format, event);
       continue;

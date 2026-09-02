@@ -29,6 +29,13 @@ export function isLegal(pending: PendingAction, event: MatchEvent): boolean {
         pending.choices.includes(event.payload.drawIndex)
       );
 
+    case 'CHART_SELECTED':
+      return (
+        pending.kind === 'SELECT_SONG' &&
+        pending.actor === event.payload.by &&
+        pending.choices.includes(event.payload.drawIndex)
+      );
+
     case 'SCORE_SUBMITTED':
       return (
         pending.kind === 'SUBMIT_SCORE' &&
@@ -121,6 +128,7 @@ export function isLegal(pending: PendingAction, event: MatchEvent): boolean {
     case 'SONG_STARTED':
     case 'TIEBREAK_DRAWN':
     case 'WALKOVER':
+    case 'SIDES_ASSIGNED':
       return false;
   }
 }

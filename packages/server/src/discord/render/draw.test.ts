@@ -14,9 +14,9 @@ const chart = (n: number): ChartSnapshot => ({
   difficulty: 'EXPERT',
   meter: 12,
   stepartist: null,
-  description: null,
-  sourcePack: null,
+  description: null,  sourcePack: null,
   flags: [],
+  poolLabel: null,
 });
 
 describe('buildDrawEmbed', () => {

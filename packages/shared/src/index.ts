@@ -12,5 +12,6 @@ export * from './roster.js';
 export * from './rulings.js';
 export * from './run-view.js';
 export * from './setup.js';
+export * from './song-pool.js';
 export * from './standings.js';
 export * from './simfile-parser.js';

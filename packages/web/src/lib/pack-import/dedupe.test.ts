@@ -22,7 +22,7 @@ function input(overrides: Partial<ChartInput> = {}): ChartInput {
 }
 
 function snapshot(overrides: Partial<ChartSnapshot> = {}): ChartSnapshot {
-  return { ...input(overrides), chartId: 'existing-1' };
+  return { ...input(overrides), chartId: 'existing-1', poolLabel: null };
 }
 
 describe('buildPreview', () => {

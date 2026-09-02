@@ -14,9 +14,9 @@ const base: ChartSnapshot = {
   difficulty: 'EXPERT' as const,
   meter: 12,
   stepartist: null,
-  description: null,
-  sourcePack: null,
+  description: null,  sourcePack: null,
   flags: [],
+  poolLabel: null,
 };
 
 describe('compactChartLabel', () => {

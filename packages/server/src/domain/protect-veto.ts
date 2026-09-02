@@ -75,7 +75,8 @@ function actorFor(s: MatchState, who: SequenceActor): EntrantId | undefined {
   return who === 'HIGHER_SEED' ? higher : higher && opponentOf(s, higher);
 }
 
-function computePoints(s: MatchState): Record<EntrantId, number> {
+/** Shared with `hubert.ts` — points are always "one per committed song won outright", regardless of how a format decides play order. */
+export function computePoints(s: MatchState): Record<EntrantId, number> {
   const points: Record<EntrantId, number> = {};
   for (const id of idsOf(s)) points[id] = 0;
   for (const song of s.songs) {
@@ -87,7 +88,8 @@ function computePoints(s: MatchState): Record<EntrantId, number> {
   return points;
 }
 
-const activeSong = (s: MatchState): { song: SongRecord; index: number } | undefined => {
+/** Shared with `hubert.ts` — the one song still awaiting a result, if any; every format's play loop needs this same lookup. */
+export const activeSong = (s: MatchState): { song: SongRecord; index: number } | undefined => {
   const index = s.songs.findIndex((x) => !x.result);
   return index === -1 ? undefined : { song: s.songs[index]!, index };
 };

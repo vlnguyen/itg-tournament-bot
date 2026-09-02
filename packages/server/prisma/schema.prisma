@@ -98,6 +98,7 @@ model Tournament {
   matches  Match[]
   timers   Timer[]
   alerts   Alert[]
+  songPoolTabs SongPoolTab[]
 
   @@index([guildId, state])
 }
@@ -171,8 +172,40 @@ model Chart {
 
   tournament    Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   currentInMatches Match[] @relation("MatchCurrentChart")
+  labels           ChartLabel[]
 
   @@index([tournamentId])
+}
+
+// One row per (chart, format tab) label assignment for a static song pool —
+// see DESIGN.md "Match Format as a Plugin". Scoped per format, not per chart:
+// the same chart can carry a different label (or none) in each tab, since a
+// tournament can run more than one static-pool format at once.
+model ChartLabel {
+  id           String @id @default(cuid())
+  tournamentId String // denormalized from Chart, so the two uniques below can scope by tab
+  formatKey    String
+  chartId      String
+  label        String // e.g. RD1, FT2, FN3, TB
+
+  chart Chart @relation(fields: [chartId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, formatKey, chartId]) // one label per chart per tab
+  @@unique([tournamentId, formatKey, label]) // a label used once per tab
+  @@index([tournamentId, formatKey])
+}
+
+// Tracks a static-pool tab's existence independently of whether its labels
+// are complete — a TO can create a tab via "+" and leave it partially
+// filled; Start Tournament is what actually gates on completeness.
+model SongPoolTab {
+  tournamentId String
+  formatKey    String
+  createdAt    DateTime @default(now())
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  @@id([tournamentId, formatKey])
 }
 
 model Match {

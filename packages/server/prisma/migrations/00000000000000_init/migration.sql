@@ -17,7 +17,7 @@ CREATE TYPE "DifficultySlot" AS ENUM ('NOVICE', 'EASY', 'MEDIUM', 'HARD', 'EXPER
 CREATE TYPE "BracketSide" AS ENUM ('WINNERS', 'LOSERS', 'GRAND_FINAL');
 
 -- CreateEnum
-CREATE TYPE "MatchStatus" AS ENUM ('PENDING', 'IN_PROGRESS', 'COMPLETE', 'CANCELLED');
+CREATE TYPE "MatchStatus" AS ENUM ('PENDING', 'IN_PROGRESS', 'COMPLETE');
 
 -- CreateTable
 CREATE TABLE "Guild" (
@@ -52,9 +52,6 @@ CREATE TABLE "User" (
     "displayName" TEXT,
     "avatarHash" TEXT,
     "lastSignInAt" TIMESTAMP(3),
-    "discordAccessToken" TEXT,
-    "discordRefreshToken" TEXT,
-    "discordTokenExpiresAt" TIMESTAMP(3),
 
     CONSTRAINT "User_pkey" PRIMARY KEY ("discordUserId")
 );

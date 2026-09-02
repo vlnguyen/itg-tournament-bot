@@ -77,4 +77,24 @@ describe('buildDrawStatusLines', () => {
     // precedence should still be deterministic rather than accidental.
     expect(lines.split('\n')[0]).toContain('Vetoed');
   });
+
+  it('leads with the shorthand pool label when set (Hubert formats), never the spelled-out category', () => {
+    const labeled = [{ ...chart(1), poolLabel: 'RD1' }, chart(2)];
+    const lines = buildDrawStatusLines({ draw: labeled, protects: [], vetoes: [], deciderIndex: undefined }, nameOf);
+    expect(lines.split('\n')[0]).toBe('1. **RD1** Song 1 SX 12');
+  });
+
+  it('marks a picked chart (Hubert formats\' SELECT_SONG, not Protect/Veto)', () => {
+    const lines = buildDrawStatusLines(
+      { draw, protects: [], vetoes: [], deciderIndex: undefined, picks: [{ drawIndex: 0, by: 'alice' }] },
+      nameOf,
+    );
+    expect(lines.split('\n')[0]).toBe('1. Song 1 SX 12 🎵 Picked by Alice');
+  });
+
+  it('marks the reserved Tiebreaker song as such until it is picked', () => {
+    const labeled = [chart(1), { ...chart(2), poolLabel: 'TB' }];
+    const lines = buildDrawStatusLines({ draw: labeled, protects: [], vetoes: [], deciderIndex: undefined }, nameOf);
+    expect(lines.split('\n')[1]).toBe('2. **TB** Song 2 SX 12 🔒 Reserved for the Tiebreaker');
+  });
 });

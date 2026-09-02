@@ -59,6 +59,8 @@ export function renderStateMessage(
     case 'PROTECT':
     case 'VETO':
       return renderProtectVeto(matchId, pending.kind, pending.actor, pending.choices, state, players);
+    case 'SELECT_SONG':
+      return renderSelectSong(matchId, pending.actor, pending.choices, state, players);
     case 'SUBMIT_SCORE':
       return renderSubmitScore(matchId, pending.songIndex, state, players);
     case 'SELECT_WINNER':
@@ -159,6 +161,48 @@ function renderProtectVeto(
 
   const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
   return { embeds: [embed], components: [row, resetButtonRow(matchId)] };
+}
+
+/**
+ * A static-pool format's player-driven pick (Hubert's formats) — "Player B
+ * selects the first song to play, then song picks alternate players from
+ * there," NEW_FORMAT.md. Reuses `Action.PROTECT_VETO`'s custom id: it's
+ * already a generic "pick a Draw position from a select menu" action,
+ * disambiguated on receipt by `pendingAction.kind` — see
+ * `interactions.ts`'s `buildEvent`. No reset button: a referee's
+ * Protect/Veto reset is legal only before song 1 starts, well before any
+ * pick is ever offered.
+ */
+function renderSelectSong(
+  matchId: string,
+  actorId: EntrantId,
+  choices: number[],
+  state: MatchState,
+  players: PlayerDirectory,
+): RenderedMessage {
+  const embed = new EmbedBuilder()
+    .setTitle('🎵 Pick a song')
+    .setColor(LOG_COLOR.PROTECT)
+    .setDescription(`${mention(players, actorId)}, choose the next song to play from the Draw above.`)
+    .addFields({
+      name: 'Draw status',
+      value: buildDrawStatusLines(state, (id) => displayName(players, id)),
+    });
+
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(encodeCustomId({ matchId, action: Action.PROTECT_VETO }))
+    .setPlaceholder('Select a song to play next')
+    .addOptions(
+      choices.map((i) => {
+        const chart = state.draw[i]!;
+        const option = new StringSelectMenuOptionBuilder().setLabel(selectOptionLabel(chart)).setValue(String(i));
+        const description = selectOptionDescription(chart);
+        return description ? option.setDescription(description) : option;
+      }),
+    );
+
+  const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
+  return { embeds: [embed], components: [row] };
 }
 
 function renderSubmitScore(

@@ -626,7 +626,10 @@ function buildEvent(
       if (!interaction.isStringSelectMenu()) return null;
       const drawIndex = Number(interaction.values[0]);
       if (!Number.isInteger(drawIndex)) return null;
-      const type = cachedPending.kind === 'VETO' ? 'CHART_VETOED' : 'CHART_PROTECTED';
+      // Reused for a static-pool format's pick (SELECT_SONG) too — see
+      // `state-message.ts`'s `renderSelectSong`, which shares this same
+      // custom id rather than adding a new Action.
+      const type = cachedPending.kind === 'VETO' ? 'CHART_VETOED' : cachedPending.kind === 'SELECT_SONG' ? 'CHART_SELECTED' : 'CHART_PROTECTED';
       return { actorId, type, payload: { by: entrantId, drawIndex } };
     }
     case Action.WINNER: {

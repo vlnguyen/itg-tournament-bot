@@ -10,6 +10,7 @@ import { LOG_COLOR } from './draw.js';
 type EscalationPlayers = readonly [{ entrantId: EntrantId; name: string }, { entrantId: EntrantId; name: string }];
 
 function escalationTitle(songIndex: number | undefined, reason: EscalationReason): string {
+  if (reason === 'TIEBREAK_UNRESOLVED') return 'Match fully tied';
   return songIndex === undefined ? 'Set result disagreement' : reason === 'WINNER_DISAGREEMENT' ? 'Song disagreement' : 'Settings violation reported';
 }
 

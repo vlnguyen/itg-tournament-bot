@@ -264,12 +264,25 @@ export function makeHubertFormat(config: HubertConfig): MatchFormat {
         if (!s.terminal) s.terminal = { winnerId: event.payload.winnerId, by: 'WALKOVER' };
         break;
 
+      // `isLegal` allows this whenever a VETO is pending — format-agnostic,
+      // same as every other pending kind it checks — so a Hubert match can
+      // reach this case even though NEW_FORMAT.md never mentions it. Same
+      // semantics as protect-veto.ts's own reset: "the Draw stands; the
+      // sequence is cleared, including the seed choice" — here, the coin
+      // flip. Only ever reachable before song 1 starts (VETO is only ever
+      // pending then), so `s.songs` is already empty; nothing there to undo.
+      case 'PROTECT_VETO_RESET':
+        s.vetoes = [];
+        s.picks = [];
+        s.a = undefined;
+        s.b = undefined;
+        break;
+
       // Not applicable to this format — never emitted or legal for a Hubert
       // match (no PROTECT step, no human SEED_CHOICE, no private-pick
       // tiebreak round).
       case 'SEED_CHOICE_MADE':
       case 'CHART_PROTECTED':
-      case 'PROTECT_VETO_RESET':
       case 'TIEBREAK_DRAWN':
       case 'TIEBREAK_CHOICE':
         break;

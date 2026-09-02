@@ -16,14 +16,14 @@ import { displayName, type PlayerDirectory } from './state-message.js';
  * than plain content.
  */
 export function renderProtectVetoLog(
-  kind: 'PROTECT' | 'VETO',
+  kind: 'PROTECT' | 'VETO' | 'PICK',
   actorId: EntrantId,
   chart: ChartSnapshot,
   players: PlayerDirectory,
 ): RenderedMessage {
-  const verb = kind === 'PROTECT' ? 'protects' : 'vetoes';
-  const emoji = kind === 'PROTECT' ? '🛡️' : '🚫';
-  const color = kind === 'PROTECT' ? LOG_COLOR.PROTECT : LOG_COLOR.VETO;
+  const verb = kind === 'PROTECT' ? 'protects' : kind === 'VETO' ? 'vetoes' : 'picks';
+  const emoji = kind === 'PROTECT' ? '🛡️' : kind === 'VETO' ? '🚫' : '🎵';
+  const color = kind === 'VETO' ? LOG_COLOR.VETO : LOG_COLOR.PROTECT;
   return { embeds: [new EmbedBuilder().setColor(color).setDescription(`${emoji} **${displayName(players, actorId)}** ${verb} ${compactChartLabel(chart)}`)] };
 }
 

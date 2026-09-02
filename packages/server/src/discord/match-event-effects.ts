@@ -63,6 +63,8 @@ function renderActionLog(
       return renderProtectVetoLog('PROTECT', event.payload.by, after.draw[event.payload.drawIndex]!, players);
     case 'CHART_VETOED':
       return renderProtectVetoLog('VETO', event.payload.by, after.draw[event.payload.drawIndex]!, players);
+    case 'CHART_SELECTED':
+      return renderProtectVetoLog('PICK', event.payload.by, after.draw[event.payload.drawIndex]!, players);
     default:
       return null;
   }

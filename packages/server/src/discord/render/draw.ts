@@ -21,7 +21,7 @@ export const LOG_COLOR = {
   RESULT_ANNOUNCEMENT: 0x2ecc71,
   /** The tournament-complete standings announcement — gold, distinct from the per-match green. */
   TOURNAMENT_COMPLETE: 0xffd700,
-  /** Protect, and its permanent log line. The seed-choice ("Protect order") *log* line reuses this same green; its state-message prompt does not — see `PROTECT_ORDER` below. */
+  /** Protect, and its permanent log line. The seed-choice ("Protect order") *log* line reuses this same green; its state-message prompt does not — see `PROTECT_ORDER` below. Also a static-pool format's player-driven song pick — same green, no separate color for it. */
   PROTECT: 0x2ecc71,
   /** Veto — the state-message prompt and its permanent log line. */
   VETO: 0xe74c3c,

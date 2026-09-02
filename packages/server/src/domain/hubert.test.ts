@@ -67,6 +67,28 @@ describe('opening a match', () => {
       }
     }
   });
+
+  it('a referee reset clears vetoes and the coin flip, but the Draw stands', () => {
+    const d = opened11();
+    const drawBefore = d.state.draw;
+    const firstVeto = d.pending;
+    if (firstVeto.kind !== 'VETO') throw new Error('expected VETO');
+    d.apply({ actorId: firstVeto.actor, type: 'CHART_VETOED', payload: { by: firstVeto.actor, drawIndex: firstVeto.choices[0]! } });
+    expect(d.state.vetoes).toHaveLength(1);
+
+    d.apply({ actorId: 'referee', type: 'PROTECT_VETO_RESET', payload: { reason: 'test' } });
+
+    expect(d.state.vetoes).toEqual([]);
+    expect(d.state.picks).toEqual([]);
+    // apply() auto-settles AWAITING_BOT directives, so by the time control
+    // returns, RANDOM_SIDE_ASSIGN has already re-run — a fresh coin flip,
+    // not the stale sides from before the reset (both are defined again,
+    // not necessarily the same assignment).
+    expect(d.state.a).toBeDefined();
+    expect(d.state.b).toBeDefined();
+    expect(d.state.draw).toEqual(drawBefore); // same Draw, not re-fetched (state is immutable, so not the same array reference)
+    expect(d.pending.kind).toBe('VETO');
+  });
 });
 
 describe('a normal race to 3', () => {

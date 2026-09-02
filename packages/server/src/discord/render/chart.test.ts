@@ -54,6 +54,10 @@ describe('fullChartDescription', () => {
     expect(full).toBe(['Vertex^ SX 12', 'Stepper [BR+ JU+ FS XO]'].join('\n'));
   });
 
+  it('leads with the shorthand pool label when set, never the spelled-out category', () => {
+    expect(fullChartDescription({ ...base, poolLabel: 'FT2' })).toBe('**FT2** Vertex^ SX 12');
+  });
+
   it('renders the noCmod flag as "No CMOD"', () => {
     const full = fullChartDescription({ ...base, flags: ['noCmod'] });
     expect(full).toBe(['Vertex^ SX 12', '⚠️ No CMOD'].join('\n'));
@@ -76,6 +80,10 @@ describe('selectOptionLabel', () => {
 
   it('appends a warning icon for a noCmod chart — visible without opening the option', () => {
     expect(selectOptionLabel({ ...base, flags: ['noCmod'] })).toBe('Vertex^ SX 12 ⚠️');
+  });
+
+  it('leads with the shorthand pool label when set, never the spelled-out category', () => {
+    expect(selectOptionLabel({ ...base, poolLabel: 'RD1' })).toBe('RD1: Vertex^ SX 12');
   });
 });
 

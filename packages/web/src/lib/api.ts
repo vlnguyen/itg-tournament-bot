@@ -14,13 +14,16 @@ import {
   Roster,
   RulingRequest,
   RunView,
+  SaveSongPoolLabelsResponse,
   SetupChannelsRequest,
   SetupRolesRequest,
   SetupStatus,
+  SongPoolTabsResponse,
   Standings,
   TournamentSnapshot,
   type FormatKey,
   type MatchRef,
+  type PoolLabelAssignments,
 } from '@itg/shared';
 import { z } from 'zod';
 
@@ -265,4 +268,45 @@ export async function commitPackChanges(
   });
   if (!res.ok) throw new ApiError(res.status, await describeError(res, `PATCH /api/tournaments/${tournamentId}/charts -> ${res.status}`));
   return CommitPackChangesResult.parse(await res.json());
+}
+
+/** Static-pool format tabs (HB-11/HB-13) — the pack view's per-format tabs, alongside "All Songs". */
+export async function fetchSongPools(tournamentId: string): Promise<SongPoolTabsResponse> {
+  const res = await fetch(`/api/tournaments/${tournamentId}/song-pools`);
+  if (!res.ok) throw new ApiError(res.status, await describeError(res, `GET /api/tournaments/${tournamentId}/song-pools -> ${res.status}`));
+  return SongPoolTabsResponse.parse(await res.json());
+}
+
+const CreateSongPoolTabResult = z.object({ formatKey: z.string() });
+
+export async function createSongPoolTab(tournamentId: string, formatKey: FormatKey): Promise<void> {
+  const res = await fetch(`/api/tournaments/${tournamentId}/song-pools`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ formatKey }),
+  });
+  if (!res.ok) throw new ApiError(res.status, await describeError(res, `POST /api/tournaments/${tournamentId}/song-pools -> ${res.status}`));
+  CreateSongPoolTabResult.parse(await res.json());
+}
+
+export async function deleteSongPoolTab(tournamentId: string, formatKey: FormatKey): Promise<void> {
+  const res = await fetch(`/api/tournaments/${tournamentId}/song-pools/${formatKey}`, { method: 'DELETE' });
+  if (!res.ok) throw new ApiError(res.status, await describeError(res, `DELETE /api/tournaments/${tournamentId}/song-pools/${formatKey} -> ${res.status}`));
+}
+
+/** Always succeeds if the tab exists — Save is never blocked by an incomplete or conflicting pool, only Start Tournament is. `issues` (null once well-formed) is what the Save banner warns from. */
+export async function saveSongPoolLabels(
+  tournamentId: string,
+  formatKey: FormatKey,
+  assignments: PoolLabelAssignments,
+): Promise<SaveSongPoolLabelsResponse> {
+  const res = await fetch(`/api/tournaments/${tournamentId}/song-pools/${formatKey}/labels`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assignments }),
+  });
+  if (!res.ok) {
+    throw new ApiError(res.status, await describeError(res, `PUT /api/tournaments/${tournamentId}/song-pools/${formatKey}/labels -> ${res.status}`));
+  }
+  return SaveSongPoolLabelsResponse.parse(await res.json());
 }

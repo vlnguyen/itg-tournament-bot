@@ -14,6 +14,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
 
   # NestJS: Discord gateway + API + websockets + the static Vite build,
   # all in one process — see DESIGN.md, "Deployment".

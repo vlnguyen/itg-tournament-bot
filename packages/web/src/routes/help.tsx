@@ -7,6 +7,7 @@ const TOC: { id: string; label: string }[] = [
   { id: 'configuring', label: 'Configuring the server' },
   { id: 'creating-a-tournament', label: 'Creating a tournament' },
   { id: 'song-pack', label: 'Building the song pack' },
+  { id: 'phases', label: 'Tournament phases' },
   { id: 'registration', label: 'Opening registration' },
   { id: 'checkin', label: 'Check-in' },
   { id: 'seeding', label: 'Seeding' },
@@ -138,6 +139,47 @@ export default function Help(): JSX.Element {
       </div>
 
       <div>
+        <Title order={2} id="phases">
+          Tournament phases
+        </Title>
+        <Text mt="xs">
+          A tournament moves through phases in one direction, one step at a time:
+        </Text>
+        <List size="sm" mt={4} type="ordered">
+          <List.Item>
+            <Badge color="gray" variant="light">Draft</Badge> — created, not yet visible to competitors
+          </List.Item>
+          <List.Item>
+            <Cmd>/tournament open-registration</Cmd> → <Badge color="blue" variant="light">Registration open</Badge>
+          </List.Item>
+          <List.Item>
+            <Cmd>/tournament close-registration</Cmd> → <Badge variant="light">Registration closed</Badge>
+          </List.Item>
+          <List.Item>
+            <Cmd>/tournament open-checkin</Cmd> → <Badge color="blue" variant="light">Check-in open</Badge>
+          </List.Item>
+          <List.Item>
+            <Cmd>/tournament close-checkin</Cmd> → <Badge variant="light">Check-in closed</Badge>
+          </List.Item>
+          <List.Item>
+            <Cmd>/tournament start</Cmd> → <Badge color="green" variant="light">Running</Badge>
+          </List.Item>
+        </List>
+        <Text mt="xs">
+          Each command only works from the phase right before it. Try to skip one — opening check-in while registration is still
+          open, say — and the bot refuses and names the phase it expected instead. <strong>Close registration before you open
+          check-in.</strong> Some steps also run in reverse: <Cmd>/tournament open-registration</Cmd> reopens a tournament stuck
+          in <Badge variant="light">Registration closed</Badge> or later, and <Cmd>/tournament open-checkin</Cmd> reopens one
+          stuck in <Badge variant="light">Check-in closed</Badge>, for when you closed a phase too early.
+        </Text>
+        <Text mt="xs">
+          Seeding isn't a phase of its own — the bot seeds every player the moment they join, and keeps adjusting the order
+          until the tournament starts. There's no separate seed or generate-bracket step; <Cmd>/tournament start</Cmd> builds
+          the bracket from whatever seeding is in place at that moment.
+        </Text>
+      </div>
+
+      <div>
         <Title order={2} id="registration">
           Opening registration
         </Title>
@@ -146,6 +188,10 @@ export default function Help(): JSX.Element {
           page). This posts an announcement to the general channel and lets competitors run <Cmd>/join</Cmd> to register. A
           player can join more than once with no error, and can <Cmd>/leave</Cmd> at any point before the tournament starts.
         </Text>
+        <Text mt="xs">
+          When you're done taking registrants, run <Cmd>/tournament close-registration</Cmd>. This is a required step, not an
+          optional one: registration has to be closed before check-in can open.
+        </Text>
       </div>
 
       <div>
@@ -153,8 +199,8 @@ export default function Help(): JSX.Element {
           Check-in
         </Title>
         <Text mt="xs">
-          Run <Cmd>/tournament open-checkin</Cmd> to close registration and open check-in. Every registered player gets a direct
-          message with a link back to the server, and can confirm attendance with <Cmd>/checkin</Cmd>. The{' '}
+          Once registration is closed, run <Cmd>/tournament open-checkin</Cmd> to open check-in. Every registered player gets a
+          direct message with a link back to the server, and can confirm attendance with <Cmd>/checkin</Cmd>. The{' '}
           <strong>Seeding</strong> page marks who has checked in and whose check-in DM the bot couldn't deliver, so an organizer
           can chase down anyone it couldn't reach.
         </Text>
@@ -431,6 +477,15 @@ export default function Help(): JSX.Element {
           FAQ
         </Title>
         <Accordion variant="separated" mt="xs">
+          <Accordion.Item value="checkin-order">
+            <Accordion.Control>Why won't check-in open?</Accordion.Control>
+            <Accordion.Panel>
+              Registration has to be closed first. Run <Cmd>/tournament close-registration</Cmd>, then{' '}
+              <Cmd>/tournament open-checkin</Cmd>. Phases only move forward one step at a time — see{' '}
+              <Anchor href="#phases">Tournament phases</Anchor> — and the bot's error names the phase it expected if you try to
+              skip one.
+            </Accordion.Panel>
+          </Accordion.Item>
           <Accordion.Item value="signin">
             <Accordion.Control>Do I have to sign in?</Accordion.Control>
             <Accordion.Panel>

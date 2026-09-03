@@ -226,7 +226,8 @@ function renderSubmitScore(
     .addFields({
       name: 'Status',
       value: buildScoreTicksLines(song, participantIds, (id) => displayName(players, id)),
-    });
+    })
+    .setFooter({ text: 'Post your photo as a message in this thread.' });
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()

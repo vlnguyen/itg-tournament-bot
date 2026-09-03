@@ -445,23 +445,21 @@ describe.skipIf(!(await isReachable()))('roster-service', () => {
   });
 
   describe('getRoster / reorderSeeds', () => {
-    it('getRoster returns [] when the guild has no active tournament', async () => {
-      const guildId = `rs-seed-none-${Date.now()}`;
-      await makeGuild(guildId);
-      try {
-        expect(await getRoster(prisma, guildId)).toEqual([]);
-      } finally {
-        await dropGuild(guildId);
-      }
+    it('getRoster returns [] for a tournament id with no entrants', async () => {
+      // getRoster takes a tournament id directly (not a guild lookup) — see
+      // its own comment on why: unlike reorderSeeds, it has to keep working
+      // for a COMPLETE/CANCELLED tournament, which a guild-scoped
+      // "currently active tournament" lookup would never find.
+      expect(await getRoster(prisma, 'does-not-exist')).toEqual([]);
     });
 
     it('getRoster reports a real seed immediately, independent of check-in', async () => {
       const guildId = `rs-seed-immediate-${Date.now()}`;
       try {
-        await toCheckinOpen(guildId);
+        const tournamentId = await toCheckinOpen(guildId);
         await rosterAdd(prisma, guildId, 'p1', TO);
 
-        const roster = await getRoster(prisma, guildId);
+        const roster = await getRoster(prisma, tournamentId);
         expect(roster).toHaveLength(1);
         expect(roster[0]!.discordUserId).toBe('p1');
         expect(roster[0]!.checkedIn).toBe(false);
@@ -484,7 +482,7 @@ describe.skipIf(!(await isReachable()))('roster-service', () => {
         const [e1, e2, e3] = await Promise.all(['p1', 'p2', 'p3'].map((id) => entrantOf(tournamentId, id)));
         await reorderSeeds(prisma, guildId, [e2!.id, e1!.id, e3!.id], TO);
 
-        const roster = await getRoster(prisma, guildId);
+        const roster = await getRoster(prisma, tournamentId);
         expect(roster.map((e) => e.discordUserId)).toEqual(['p2', 'p1', 'p3']);
         expect(roster.find((e) => e.discordUserId === 'p3')!.checkedIn).toBe(false);
         expect(roster.find((e) => e.discordUserId === 'p3')!.seed).toBe(3);

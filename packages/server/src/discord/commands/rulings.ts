@@ -163,7 +163,7 @@ async function handleMatchScopeDq(interaction: ChatInputCommandInteraction, ctx:
     );
   } catch (err) {
     if (err instanceof IllegalActionError) {
-      await interaction.editReply(`Can't rule on that: ${describeStale(err)}.`);
+      await interaction.editReply(`Can't rule on that. ${describeStale(err, buildPlayerDirectory(match))}`);
       return;
     }
     throw err;
@@ -330,7 +330,7 @@ export async function handleRule(interaction: ChatInputCommandInteraction, ctx: 
       await interaction.editReply(`Awarded the set to **${displayName(players, rulingResult)}**.`);
     } catch (err) {
       if (err instanceof IllegalActionError) {
-        await interaction.editReply(`Can't rule on that: ${describeStale(err)}.`);
+        await interaction.editReply(`Can't rule on that. ${describeStale(err, buildPlayerDirectory(match))}`);
         return;
       }
       throw err;
@@ -399,7 +399,7 @@ export async function handleRule(interaction: ChatInputCommandInteraction, ctx: 
     }
   } catch (err) {
     if (err instanceof IllegalActionError) {
-      await interaction.editReply(`Can't rule on that: ${describeStale(err)}.`);
+      await interaction.editReply(`Can't rule on that. ${describeStale(err, buildPlayerDirectory(match))}`);
       return;
     }
     throw err;

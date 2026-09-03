@@ -1,4 +1,4 @@
-import { FORMAT_LABEL, FORMAT_SHORT_LABEL, FormatKey, matchKey, sectionLabel } from '@itg/shared';
+import { canEditMatchFormat, FORMAT_LABEL, FORMAT_SHORT_LABEL, FormatKey, matchKey, sectionLabel } from '@itg/shared';
 import type { BracketShape, BracketSide, MatchRef, Standings } from '@itg/shared';
 import { Alert, Button, Center, Group, Loader, Select, Stack, Table, Text, Title, VisuallyHidden } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -67,7 +67,7 @@ function BracketSection({
   columns,
   shape,
   activeRoundIndex,
-  isOrganizer,
+  canEditFormats,
   selected,
   onToggleSelect,
   onAssignRound,
@@ -78,7 +78,8 @@ function BracketSection({
   columns: BracketColumn[];
   shape: BracketShape;
   activeRoundIndex: number;
-  isOrganizer: boolean;
+  /** Organizer-only *and* only before the tournament starts — see `canEditMatchFormat`. */
+  canEditFormats: boolean;
   selected: Map<string, MatchRef>;
   onToggleSelect: (ref: MatchRef) => void;
   onAssignRound: (refs: MatchRef[], formatKey: FormatKey) => void;
@@ -95,7 +96,7 @@ function BracketSection({
           <li key={`${col.bracket}-${col.round}`} className={styles.round} data-active={i === activeRoundIndex}>
             <Group gap="xs" wrap="nowrap" align="center">
               <p className={styles.roundHeading}>{sectionLabel(col.bracket, col.round, shape)}</p>
-              {isOrganizer && col.matches.length > 0 && (
+              {canEditFormats && col.matches.length > 0 && (
                 <Select
                   size="xs"
                   w={90}
@@ -112,7 +113,7 @@ function BracketSection({
                   tournamentId={tournamentId}
                   entry={m}
                   selection={
-                    isOrganizer
+                    canEditFormats
                       ? { checked: selected.has(matchKey({ bracket: m.bracket, round: m.round, slot: m.slot })), onToggle: () => onToggleSelect({ bracket: m.bracket, round: m.round, slot: m.slot }) }
                       : undefined
                   }
@@ -133,6 +134,12 @@ export default function TournamentBracket(): JSX.Element {
   const { data: standings } = useStandings(tournamentId!);
   const { data: lifecycleStatus } = useLifecycleStatus(tournamentId!);
   const isOrganizer = lifecycleStatus !== undefined;
+  // Format-assignment controls (the round "Set…" Select, per-match
+  // selection checkboxes) are organizer-only *and* locked once the
+  // tournament has started — same as `match-detail.tsx`'s own format
+  // `Select`. A still-`PENDING` future match doesn't exempt it: the
+  // tournament as a whole having started is what locks it.
+  const canEditFormats = isOrganizer && !!snapshot && canEditMatchFormat(snapshot.state);
   // Organizer-only, same gate as `/roster` itself — a spectator's seat is
   // never a projection target, so there's nothing to fetch for one.
   const { data: roster } = useRoster(tournamentId!, isOrganizer);
@@ -235,7 +242,7 @@ export default function TournamentBracket(): JSX.Element {
           </Alert>
         )}
 
-        {isOrganizer && selected.size > 0 && (
+        {canEditFormats && selected.size > 0 && (
           <Group gap="xs" wrap="nowrap">
             <Text size="sm">{selected.size} match(es) selected</Text>
             <Select
@@ -267,7 +274,7 @@ export default function TournamentBracket(): JSX.Element {
           columns={layout.winnersColumns}
           shape={layout.generated}
           activeRoundIndex={winnersActiveIndex}
-          isOrganizer={isOrganizer}
+          canEditFormats={canEditFormats}
           selected={selected}
           onToggleSelect={toggleSelect}
           onAssignRound={(refs, formatKey) => assignMutation.mutate({ refs, formatKey })}
@@ -281,7 +288,7 @@ export default function TournamentBracket(): JSX.Element {
             columns={layout.losersColumns}
             shape={layout.generated}
             activeRoundIndex={losersActiveIndex}
-            isOrganizer={isOrganizer}
+            canEditFormats={canEditFormats}
             selected={selected}
             onToggleSelect={toggleSelect}
             onAssignRound={(refs, formatKey) => assignMutation.mutate({ refs, formatKey })}
@@ -299,7 +306,7 @@ export default function TournamentBracket(): JSX.Element {
                 <li className={`${styles.round} ${styles.grandFinalRound}`}>
                   <Group gap="xs" wrap="nowrap" align="center">
                     <p className={styles.roundHeading}>{sectionLabel('GRAND_FINAL', 1)}</p>
-                    {isOrganizer && (
+                    {canEditFormats && (
                       <Select
                         size="xs"
                         w={90}
@@ -313,7 +320,7 @@ export default function TournamentBracket(): JSX.Element {
                     <MatchCell
                       tournamentId={tournamentId!}
                       entry={layout.grandFinal}
-                      selection={isOrganizer ? { checked: selected.has('GRAND_FINAL:1:0'), onToggle: () => toggleSelect({ bracket: 'GRAND_FINAL', round: 1, slot: layout.grandFinal!.slot }) } : undefined}
+                      selection={canEditFormats ? { checked: selected.has('GRAND_FINAL:1:0'), onToggle: () => toggleSelect({ bracket: 'GRAND_FINAL', round: 1, slot: layout.grandFinal!.slot }) } : undefined}
                     />
                   </ol>
                 </li>
@@ -322,7 +329,7 @@ export default function TournamentBracket(): JSX.Element {
                 <li className={`${styles.round} ${styles.grandFinalRound}`}>
                   <Group gap="xs" wrap="nowrap" align="center">
                     <p className={styles.roundHeading}>{sectionLabel('GRAND_FINAL', 2)}</p>
-                    {isOrganizer && (
+                    {canEditFormats && (
                       <Select
                         size="xs"
                         w={90}
@@ -337,7 +344,7 @@ export default function TournamentBracket(): JSX.Element {
                       tournamentId={tournamentId!}
                       entry={layout.grandFinalReset}
                       selection={
-                        isOrganizer ? { checked: selected.has('GRAND_FINAL:2:0'), onToggle: () => toggleSelect({ bracket: 'GRAND_FINAL', round: 2, slot: layout.grandFinalReset!.slot }) } : undefined
+                        canEditFormats ? { checked: selected.has('GRAND_FINAL:2:0'), onToggle: () => toggleSelect({ bracket: 'GRAND_FINAL', round: 2, slot: layout.grandFinalReset!.slot }) } : undefined
                       }
                     />
                   </ol>

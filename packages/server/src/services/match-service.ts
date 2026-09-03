@@ -66,7 +66,7 @@ export async function appendMatchEventTx(
   const { match, state, format, ref } = await lockAndLoadMatch(tx, matchId);
   const pending = format.pendingAction(state);
   const probe = { ...event, seq: state.seq + 1 } as MatchEvent;
-  if (!isLegal(pending, probe)) {
+  if (!isLegal(pending, probe, state)) {
     throw new IllegalActionError(matchId, pending, event);
   }
 

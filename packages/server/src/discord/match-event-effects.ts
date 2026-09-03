@@ -2,6 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import type { EntrantId, MatchEvent, MatchFormat, MatchState } from '../domain/types.js';
 import { toPublicMatch } from '../domain/projection.js';
 import { computeTournamentStandings } from '../services/advancement-service.js';
+import { bracketShapeOf } from '../services/bracket-service.js';
 import type { AppendResult, IllegalActionError } from '../services/match-service.js';
 import type { RealtimeBroadcastPort } from '../services/ports.js';
 import {
@@ -41,9 +42,45 @@ import { displayName, renderStateMessage, type PlayerDirectory } from './state-m
  */
 export const CANCELLED_MATCH_MESSAGE = "You can't do that. The tournament is cancelled.";
 
-export function describeStale(err: IllegalActionError): string {
-  if (err.pending.kind === 'DONE') return 'the match is already decided';
-  return `it's waiting on ${err.pending.kind.toLowerCase().replaceAll('_', ' ')}`;
+/** Every actor a pending action names, in order — for the two-actor kinds, joined into prose. */
+function namesOf(players: PlayerDirectory, actors: readonly EntrantId[]): string {
+  return actors.map((id) => displayName(players, id)).join(' and ');
+}
+
+/**
+ * A full sentence naming what the match is actually waiting on — "Waiting
+ * for Hubert to pick a song," not the raw pending kind. Told to whoever
+ * just got refused (a player acting out of turn, a referee ruling on
+ * something already resolved), so it reads as an answer, not an error code.
+ */
+export function describeStale(err: IllegalActionError, players: PlayerDirectory): string {
+  const p = err.pending;
+  switch (p.kind) {
+    case 'SEED_CHOICE':
+      return `Waiting for ${displayName(players, p.actor)} to choose Protect order.`;
+    case 'PROTECT':
+      return `Waiting for ${displayName(players, p.actor)} to Protect.`;
+    case 'VETO':
+      return `Waiting for ${displayName(players, p.actor)} to Veto.`;
+    case 'SELECT_SONG':
+      return `Waiting for ${displayName(players, p.actor)} to pick a song.`;
+    case 'SUBMIT_SCORE':
+      return `Waiting for ${namesOf(players, p.actors)} to submit EX%.`;
+    case 'SELECT_WINNER':
+      return `Waiting for ${namesOf(players, p.actors)} to select the winner.`;
+    case 'TIEBREAK_PICK':
+      // Never names who specifically — a tiebreak pick is hidden from the
+      // opponent until both are in. See DESIGN.md, "The tiebreak".
+      return 'Waiting for a tiebreak pick.';
+    case 'CONFIRM_RESULT':
+      return `Waiting for ${namesOf(players, p.actors)} to confirm the result.`;
+    case 'AWAITING_BOT':
+      return 'Waiting for the bot to finish its move.';
+    case 'AWAITING_TO':
+      return "Waiting for a referee's ruling.";
+    case 'DONE':
+      return 'The match is already decided.';
+  }
 }
 
 function renderActionLog(
@@ -192,6 +229,7 @@ export async function applyAppendResult(
     const summary = buildResultSummaryEmbed(publicMatch.songs, publicMatch.points, outcome, participantIds, nameOf);
     await matchChannel.postLogMessage(ref, { embeds: [summary] });
 
+    const shape = await bracketShapeOf(prisma, match.tournamentId);
     const announcement = buildResultAnnouncement(
       match.bracket,
       match.round,
@@ -203,6 +241,7 @@ export async function applyAppendResult(
       match.id,
       match.tournament.name,
       publicMatch.songs,
+      shape,
     );
     await matchChannel.publishResult(ref, announcement);
 

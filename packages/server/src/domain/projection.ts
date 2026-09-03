@@ -76,6 +76,8 @@ export interface PublicMatch {
   draw: ChartSnapshot[];
   protects: { drawIndex: number; by: EntrantId }[];
   vetoes: { drawIndex: number; by: EntrantId }[];
+  /** Hubert's formats only — a player-driven song pick. Always `[]` for Bo3/Bo5, which never emits `CHART_SELECTED`. */
+  picks: { drawIndex: number; by: EntrantId }[];
   deciderIndex?: number | undefined;
   songs: PublicSong[];
   points: Record<EntrantId, number>;
@@ -110,6 +112,7 @@ export function toPublicMatch(format: MatchFormat, state: MatchState): PublicMat
     draw: state.draw,
     protects: state.protects,
     vetoes: state.vetoes,
+    picks: state.picks,
     deciderIndex: state.deciderIndex,
     songs: state.songs.map((s, index) => ({
       index,

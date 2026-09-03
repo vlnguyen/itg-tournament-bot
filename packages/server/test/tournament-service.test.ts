@@ -596,7 +596,7 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
       }
     });
 
-    it('setMatchFormats on a still-PENDING future match works even once RUNNING', async () => {
+    it('refuses setMatchFormats once the tournament is RUNNING, even for a still-PENDING future match', async () => {
       const guildId = `ts-assign-future-${Date.now()}`;
       const { tournamentId } = await bringToCheckinClosed(guildId, 4);
       try {
@@ -604,12 +604,16 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
         await startTournament(prisma, sequentialRandomPort(guildId), tournamentId, new Map(), ACTOR);
 
         // The Grand Final is real, PENDING match rows the moment the bracket
-        // exists — round 1 starting doesn't touch it.
-        await setMatchFormats(prisma, tournamentId, [{ bracket: 'GRAND_FINAL', round: 1, slot: 0 }], Bo3ProtectVetoFormat.key, ACTOR);
+        // exists — round 1 starting doesn't touch it — but the tournament
+        // itself has started, so this is refused regardless.
+        const err = await setMatchFormats(prisma, tournamentId, [{ bracket: 'GRAND_FINAL', round: 1, slot: 0 }], Bo3ProtectVetoFormat.key, ACTOR).catch(
+          (e: unknown) => e,
+        );
+        expect(err).toBeInstanceOf(TournamentTransitionError);
         const gf = await prisma.match.findUniqueOrThrow({
           where: { tournamentId_bracket_round_slot: { tournamentId, bracket: 'GRAND_FINAL', round: 1, slot: 0 } },
         });
-        expect(gf.formatKey).toBe(Bo3ProtectVetoFormat.key);
+        expect(gf.formatKey).toBe(Bo5ProtectVetoFormat.key); // untouched — the default, never Bo3
       } finally {
         await dropGuild(guildId);
       }

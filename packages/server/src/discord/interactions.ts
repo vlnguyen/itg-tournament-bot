@@ -174,7 +174,7 @@ async function handle(
     if (err instanceof IllegalActionError) {
       await interaction.followUp({
         ephemeral: true,
-        content: `That's not available anymore: ${describeStale(err)}.`,
+        content: `This action is not available. ${describeStale(err, buildPlayerDirectory(match))}`,
       });
       return;
     }
@@ -253,7 +253,7 @@ async function handleScoreModalSubmit(
     if (err instanceof IllegalActionError) {
       await interaction.followUp({
         ephemeral: true,
-        content: `That's not available anymore: ${describeStale(err)}.`,
+        content: `This action is not available. ${describeStale(err, buildPlayerDirectory(match))}`,
       });
       return;
     }
@@ -414,7 +414,7 @@ async function handleRulingButton(
       if (err instanceof IllegalActionError) {
         await interaction.followUp({
           ephemeral: true,
-          content: `That's not available anymore: ${describeStale(err)}.`,
+          content: `This action is not available. ${describeStale(err, players)}`,
         });
         return;
       }
@@ -467,7 +467,7 @@ async function handleRulingButton(
     if (err instanceof IllegalActionError) {
       await interaction.followUp({
         ephemeral: true,
-        content: `That's not available anymore: ${describeStale(err)}.`,
+        content: `This action is not available. ${describeStale(err, players)}`,
       });
       return;
     }
@@ -522,7 +522,7 @@ async function handleResetButton(
     if (err instanceof IllegalActionError) {
       await interaction.followUp({
         ephemeral: true,
-        content: `That's not available anymore: ${describeStale(err)}.`,
+        content: `This action is not available. ${describeStale(err, buildPlayerDirectory(match))}`,
       });
       return;
     }

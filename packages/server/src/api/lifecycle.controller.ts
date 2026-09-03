@@ -235,9 +235,11 @@ export class LifecycleController {
    * selection; the bracket page and `/tournament format`'s round/match
    * option both funnel into this same service call). Not part of
    * `LifecycleRequest`/`applyAction` above: it targets matches, not the
-   * tournament's own state machine, and works into `RUNNING` for a future
-   * match — `setMatchFormats`'s guard is "still PENDING," not a lifecycle
-   * state, so this endpoint has none of its own beyond organizer tier.
+   * tournament's own state machine — but `setMatchFormats` still guards on
+   * it, same upper bound seeding and song-pool editing use: blocked once
+   * the tournament has started (`RUNNING`) or reached a terminal state
+   * (`COMPLETE`/`CANCELLED`), regardless of whether the individual match
+   * itself is still `PENDING`.
    */
   @Post(':id/match-formats')
   async postMatchFormats(@Param('id') id: string, @Body() body: unknown, @CurrentUser() discordUserId: string | null): Promise<{ ok: true }> {

@@ -19,6 +19,7 @@ function frame(overrides: Partial<PublicMatch> = {}, seq = 5): RealtimeFrame {
       draw: [],
       protects: [],
       vetoes: [],
+      picks: [],
       songs: [],
       points: { a: 1, b: 0 },
       tiebreaks: [],

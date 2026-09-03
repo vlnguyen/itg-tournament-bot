@@ -1,8 +1,9 @@
-import { PublicMatch as PublicMatchSchema, BracketMatch as BracketMatchSchema, deriveBracketMatch } from '@itg/shared';
+import { FORMAT_SONG_LABELS, PublicMatch as PublicMatchSchema, BracketMatch as BracketMatchSchema, deriveBracketMatch } from '@itg/shared';
 import { describe, expect, it } from 'vitest';
 import { Bo5ProtectVetoFormat as F } from './bo5.js';
+import { Hb11StaticPoolFormat as HB11 } from './hubert.js';
 import { toBracketMatch, toPublicMatch } from './projection.js';
-import { MatchDriver } from './testkit.js';
+import { MatchDriver, makeStaticPool } from './testkit.js';
 import { emptyState } from './types.js';
 
 /**
@@ -109,6 +110,48 @@ describe('PublicMatch / BracketMatch wire schemas', () => {
   it('accepts the empty state a fresh match starts from', () => {
     expect(() => PublicMatchSchema.parse(wireRoundTrip(withNames(withRef(toPublicMatch(F, emptyState())))))).not.toThrow();
     expect(() => BracketMatchSchema.parse(wireRoundTrip(withNames(toBracketMatch(F, emptyState()))))).not.toThrow();
+  });
+});
+
+/**
+ * Hubert's formats (HB-11/HB-13) exercise `PendingAction` branches Bo3/Bo5
+ * never reaches — `SELECT_SONG` above all. This is exactly the class of bug
+ * `SELECT_SONG` shipped with: the domain type had it from the start, but
+ * the shared wire schema's `PendingAction` union didn't grow a matching
+ * branch until a live veto→pick transition crashed `RealtimeGateway.publish`
+ * on every single one, silently — the state message never re-rendered
+ * because the exception fired before `postMatchState` ever ran. This
+ * describe block is the regression test: every Hubert-only `PendingAction`
+ * kind, driven for real and round-tripped through the same schema.
+ */
+describe('PublicMatch / BracketMatch wire schemas — Hubert format', () => {
+  const hb11Pool = () => makeStaticPool(FORMAT_SONG_LABELS['hb11-static-pool']!);
+  const openedHB = () => new MatchDriver(hb11Pool(), HB11).create(A, B);
+
+  it('accepts a match awaiting the song 1 pick (SELECT_SONG) — the branch that was missing entirely', () => {
+    const d = openedHB();
+    d.runProtectVeto();
+    expect(d.pending.kind).toBe('SELECT_SONG');
+    const pub = PublicMatchSchema.parse(wireRoundTrip(withNames(withRef(toPublicMatch(HB11, d.state)))));
+    expect(pub.pending.kind).toBe('SELECT_SONG');
+    expect(() => BracketMatchSchema.parse(wireRoundTrip(withNames(toBracketMatch(HB11, d.state))))).not.toThrow();
+  });
+
+  it('accepts a completed HB-11 match, outcome and winnerId populated', () => {
+    const d = openedHB();
+    d.runProtectVeto();
+    while (HB11.outcome(d.state) === null) {
+      const p = d.pending;
+      if (p.kind === 'SELECT_SONG') d.pickSong();
+      else if (p.kind === 'SUBMIT_SCORE') d.playSong(A);
+      else if (p.kind === 'CONFIRM_RESULT') d.confirmResult();
+      else throw new Error(`unexpected ${p.kind}`);
+    }
+    const pub = PublicMatchSchema.parse(wireRoundTrip(withNames(withRef(toPublicMatch(HB11, d.state)))));
+    expect(pub.outcome?.by).toBe('AGREEMENT');
+    const bracket = BracketMatchSchema.parse(wireRoundTrip(withNames(toBracketMatch(HB11, d.state))));
+    expect(bracket.status).toBe('COMPLETE');
+    expect(bracket.winnerId).toBe(A);
   });
 });
 

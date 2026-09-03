@@ -1,12 +1,12 @@
 import { EmbedBuilder } from 'discord.js';
-import type { BracketSide } from '@itg/shared';
+import type { BracketShape, BracketSide } from '@itg/shared';
+import { sectionLabel } from '@itg/shared';
 import type { EntrantId, MatchOutcome } from '../../domain/types.js';
 import type { PublicMatch } from '../../domain/projection.js';
 import { isAbsoluteWebUrl, matchUrl, tournamentUrl } from '../../web-url.js';
 import type { RenderedMessage } from '../ports.js';
 import { compactChartLabel } from './chart.js';
 import { LOG_COLOR } from './draw.js';
-import { roundLabel } from '../thread-name.js';
 
 export interface NameLookup {
   (entrantId: EntrantId): string;
@@ -65,8 +65,13 @@ function announcementOutcomeText(song: PublicMatch['songs'][number], nameOf: Nam
 function announcementSongLine(song: PublicMatch['songs'][number], nameOf: NameLookup): string {
   const outcomeText = announcementOutcomeText(song, nameOf);
   const chart = compactChartLabel(song.chart);
-  const label = song.tiebreakRound !== undefined ? `Tiebreak ${song.tiebreakRound} (${chart})` : chart;
-  return `${song.index + 1}. **${label}**${outcomeText ? `: ${outcomeText}` : ''}`;
+  // `compactChartLabel` already bolds the pool label itself for a labeled
+  // chart (Hubert's formats) — wrapping that in a second `**...**` here
+  // nests markers Discord can't parse, showing literal asterisks instead
+  // of bold text. Only add the wrapper when there's nothing bold yet.
+  const emphasized = song.chart.poolLabel ? chart : `**${chart}**`;
+  const label = song.tiebreakRound !== undefined ? `**Tiebreak ${song.tiebreakRound}** (${emphasized})` : emphasized;
+  return `${song.index + 1}. ${label}${outcomeText ? `: ${outcomeText}` : ''}`;
 }
 
 /**
@@ -127,11 +132,12 @@ export function buildResultAnnouncement(
   matchId: string,
   tournamentName: string,
   songs: PublicMatch['songs'],
+  shape?: BracketShape,
 ): RenderedMessage {
   const winner = outcome.placements.find((p) => p.place === 1)!;
   const [a, b] = participantIds;
   const loserId = a === winner.entrantId ? b : a;
-  const label = roundLabel(bracket, round);
+  const label = sectionLabel(bracket, round, shape);
 
   // Same wording either way a set can end: songs actually played (there
   // may be none — a forfeit/DQ before any song entered play).

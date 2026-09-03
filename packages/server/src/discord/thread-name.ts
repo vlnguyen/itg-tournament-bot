@@ -1,20 +1,16 @@
-import type { BracketSide } from '@itg/shared';
-
-/**
- * "`WR2 · Alice vs Bob`" — bracket side and round, then both competitors,
- * fixed at creation and never renamed. See DESIGN.md, "Creating the
- * thread". `GRAND_FINAL` uses `GF<round>` rather than `GFR<round>` — round 1
- * is the first game, round 2 the reset, and design calls it "GF2," not
- * "GFR2."
- */
-export function roundLabel(bracket: BracketSide, round: number): string {
-  if (bracket === 'GRAND_FINAL') return `GF${round}`;
-  return `${bracket === 'WINNERS' ? 'W' : 'L'}R${round}`;
-}
+import type { BracketShape, BracketSide } from '@itg/shared';
+import { sectionLabel } from '@itg/shared';
 
 const MAX_LENGTH = 100;
 
 /**
+ * "`Winners Round 2 · Alice vs Bob`" — the full round name, in prose, same
+ * as the website's bracket headings and run view (`sectionLabel`), not the
+ * old abbreviated "WR2" this used to read. `shape`, when the caller has
+ * it, upgrades the last few rounds on each side to "Finals"/"Semifinals"/
+ * "Quarterfinals," matching `sectionLabel`'s own rule; omitted, it falls
+ * back to the plain numbered form.
+ *
  * Truncated to fit Discord's 100-character thread-name limit, "longest
  * first so both stay legible" — shave one character at a time off whichever
  * name is currently longer, rather than a fixed side or a flat percentage,
@@ -27,8 +23,15 @@ const MAX_LENGTH = 100;
  * doesn't fit (an implausibly long tournament name) does the whole string
  * get a hard cut, as a last resort.
  */
-export function formatThreadName(bracket: BracketSide, round: number, nameA: string, nameB: string, tournamentName: string): string {
-  const prefix = roundLabel(bracket, round);
+export function formatThreadName(
+  bracket: BracketSide,
+  round: number,
+  nameA: string,
+  nameB: string,
+  tournamentName: string,
+  shape?: BracketShape,
+): string {
+  const prefix = sectionLabel(bracket, round, shape);
   const suffix = ` · ${tournamentName}`;
   let a = nameA;
   let b = nameB;

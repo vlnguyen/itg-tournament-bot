@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { FORMAT_SONG_LABELS } from '@itg/shared';
 import { isLegal } from './validate.js';
-import { MatchDriver } from './testkit.js';
+import { Hb11StaticPoolFormat as HB11 } from './hubert.js';
+import { MatchDriver, makeStaticPool } from './testkit.js';
 import type { MatchEvent, PendingAction } from './types.js';
 
 const A = 'alice';
@@ -8,6 +10,8 @@ const B = 'bob';
 
 const opened = (higherSeedTakes: 'FIRST' | 'SECOND' = 'FIRST') =>
   new MatchDriver().create(A, B).chooseSeed(higherSeedTakes).runProtectVeto();
+
+const hb11Pool = () => makeStaticPool(FORMAT_SONG_LABELS['hb11-static-pool']!);
 
 describe('SEED_CHOICE', () => {
   it('accepts the named actor, rejects anyone else or a different pending kind', () => {
@@ -181,13 +185,59 @@ describe('referee events', () => {
     expect(isLegal({ kind: 'DONE' }, ruling)).toBe(false);
   });
 
-  it('PROTECT_VETO_RESET is legal before song 1 starts, not after', () => {
+  it('PROTECT_VETO_RESET is legal before any pick, and without a state to check against', () => {
     const reset: MatchEvent = { seq: 0, actorId: 'ref', type: 'PROTECT_VETO_RESET', payload: { reason: 'misclick' } } as MatchEvent;
     expect(isLegal({ kind: 'SEED_CHOICE', actor: A }, reset)).toBe(true);
     expect(isLegal({ kind: 'PROTECT', actor: A, choices: [0] }, reset)).toBe(true);
     expect(isLegal({ kind: 'VETO', actor: A, choices: [0] }, reset)).toBe(true);
+    // SUBMIT_SCORE/SELECT_WINNER/SELECT_SONG need `state` to tell "song 1,
+    // uncommitted" apart from a later song — omitted here, so this fails
+    // closed rather than guessing.
     expect(isLegal({ kind: 'SUBMIT_SCORE', actors: [A, B], songIndex: 0 }, reset)).toBe(false);
+    expect(isLegal({ kind: 'SELECT_SONG', actor: A, choices: [0] }, reset)).toBe(false);
     expect(isLegal({ kind: 'DONE' }, reset)).toBe(false);
+  });
+
+  it('PROTECT_VETO_RESET stays legal through song 1 (pick, scoring, winner select) until it commits, then stops', () => {
+    const reset: MatchEvent = { seq: 0, actorId: 'ref', type: 'PROTECT_VETO_RESET', payload: { reason: 'misclick' } } as MatchEvent;
+    const d = opened(); // Bo5: vetoes/protects done, song 1 auto-started
+    let p = d.pending;
+    if (p.kind !== 'SUBMIT_SCORE') throw new Error('expected SUBMIT_SCORE');
+    expect(isLegal(p, reset, d.state)).toBe(true); // song 1 picked and started, no score yet
+
+    const songIndex = p.songIndex;
+    for (const id of [...p.actors]) {
+      d.apply({ actorId: id, type: 'SCORE_SUBMITTED', payload: { songIndex, by: id, ex: 90 } });
+      d.apply({ actorId: null, type: 'PHOTO_OBSERVED', payload: { songIndex, by: id, messageId: `m-${id}` } });
+    }
+    p = d.pending;
+    if (p.kind !== 'SELECT_WINNER') throw new Error('expected SELECT_WINNER');
+    expect(isLegal(p, reset, d.state)).toBe(true); // scored, not yet agreed
+
+    for (const id of [...p.actors]) {
+      d.apply({ actorId: id, type: 'SONG_WINNER_SELECTED', payload: { songIndex, by: id, choice: A } });
+    }
+    p = d.pending; // whatever's pending for song 2 now — song 1 has committed
+    expect(isLegal(p, reset, d.state)).toBe(false);
+  });
+
+  it("PROTECT_VETO_RESET covers Hubert's SELECT_SONG step too, before song 1's pick lands and not for a later song's", () => {
+    const reset: MatchEvent = { seq: 0, actorId: 'ref', type: 'PROTECT_VETO_RESET', payload: { reason: 'misclick' } } as MatchEvent;
+    const d = new MatchDriver(hb11Pool(), HB11).create(A, B); // sides + Draw settle automatically
+    d.runProtectVeto(); // both vetoes
+    let p = d.pending;
+    if (p.kind !== 'SELECT_SONG') throw new Error('expected SELECT_SONG');
+    expect(isLegal(p, reset, d.state)).toBe(true); // song 1 not picked yet
+
+    d.pickSong(); // auto-settles through START_SONG to SUBMIT_SCORE
+    p = d.pending;
+    if (p.kind !== 'SUBMIT_SCORE') throw new Error('expected SUBMIT_SCORE');
+    expect(isLegal(p, reset, d.state)).toBe(true); // song 1 picked, not scored yet
+
+    d.playSong(A); // commits song 1
+    p = d.pending;
+    if (p.kind !== 'SELECT_SONG') throw new Error('expected SELECT_SONG for song 2');
+    expect(isLegal(p, reset, d.state)).toBe(false);
   });
 
   it('FORFEIT_APPLIED and DQ_APPLIED are legal any time the match is not DONE', () => {

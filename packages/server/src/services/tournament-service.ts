@@ -340,6 +340,22 @@ export async function setTournamentFormat(
  * match's format works even once `RUNNING`, the one thing
  * `FORMAT_EDITABLE_STATES` (the *default's* gate) cannot express.
  */
+/**
+ * Editing a match's format is open from tournament creation up to the
+ * moment it starts, then blocked for the rest of its life — same upper
+ * bound `SEEDING_STATES`/`SONG_POOL_EDITABLE_STATES` use elsewhere. Once
+ * `RUNNING`, a match already has real players and a Draw drawing from
+ * whatever pool its format implies; once `COMPLETE`/`CANCELLED`, there's
+ * nothing left to reformat at all.
+ */
+const MATCH_FORMAT_EDITABLE_STATES: readonly TournamentState[] = [
+  'DRAFT',
+  'REGISTRATION_OPEN',
+  'REGISTRATION_CLOSED',
+  'CHECKIN_OPEN',
+  'CHECKIN_CLOSED',
+];
+
 export async function setMatchFormats(
   prisma: PrismaClient,
   tournamentId: string,
@@ -349,7 +365,7 @@ export async function setMatchFormats(
 ): Promise<void> {
   await prisma.$transaction(async (tx) => {
     requireFormat(formatKey);
-    const tournament = await tx.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
+    const tournament = await requireStateIn(tx, tournamentId, MATCH_FORMAT_EDITABLE_STATES);
     const overrides: Record<string, string> = { ...(tournament.formatOverrides as Record<string, string>) };
 
     for (const ref of refs) {

@@ -1,7 +1,24 @@
 import type { PrismaClient } from '@prisma/client';
+import type { BracketShape } from '@itg/shared';
 import { generateBracket, matchKey, nextPowerOfTwo, type GeneratedBracket } from '../domain/bracket.js';
 import type { RandomPort } from './ports.js';
 import { maybeStartMatch, startWithSeats, TournamentTransitionError, type Tx } from './engine.js';
+
+/**
+ * The two round counts `sectionLabel` needs to name "Winners Semifinals,"
+ * "Losers Quarterfinals," and so on — derived from whatever `Match` rows
+ * already exist for the tournament, same `Math.max` pattern
+ * `commands/tournament.ts`'s round-choice autocomplete already uses,
+ * rather than a fresh `generateBracket` call a caller that only wants a
+ * label has no other reason to make.
+ */
+export async function bracketShapeOf(prisma: PrismaClient, tournamentId: string): Promise<BracketShape> {
+  const matches = await prisma.match.findMany({ where: { tournamentId }, select: { bracket: true, round: true } });
+  return {
+    winnersRounds: Math.max(0, ...matches.filter((m) => m.bracket === 'WINNERS').map((m) => m.round)),
+    losersRounds: Math.max(0, ...matches.filter((m) => m.bracket === 'LOSERS').map((m) => m.round)),
+  };
+}
 
 export interface GenerateBracketGraphResult {
   bracket: GeneratedBracket;

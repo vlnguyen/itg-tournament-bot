@@ -19,9 +19,10 @@ The system has three surfaces:
 | Term | Meaning |
 | --- | --- |
 | **Song pack** | Every chart available in the tournament |
-| **Draw** | The 7 charts drawn for a single match, which Protect/Veto operates on |
-| **Set** | The songs actually played in a match — 3 to 5, plus any tiebreak songs |
-| **Decider** | The one chart left after Protect/Veto, played as the 5th song if the set gets that far |
+| **Draw** | The 7 charts drawn for a single match (Bo5; 5 for Bo3), which Protect/Veto operates on |
+| **Song Pool** | Hubert's formats' equivalent of a Draw — every song in the pack the TO has labeled for that format, fixed rather than drawn — see Configurability |
+| **Set** | The songs actually played in a match — the number varies by format, plus any tiebreak songs |
+| **Decider** | The one chart left after Bo3/Bo5's Protect/Veto, played as the last song if the set gets that far |
 | **Chart** | One difficulty of one song. A song pack holds charts, not songs |
 | **Source pack** | A StepMania `.zip` or folder a song pack can be built from |
 
@@ -182,6 +183,17 @@ The report button is available only **until the song commits**. Once both player
 
 In every case a referee applies the outcome as a forced result, which is permitted because the song has not yet been committed (see Bracket Immutability).
 
+### Song Pool labeling
+
+A format whose match uses a Song Pool instead of a Draw (Hubert's formats — see Configurability) needs every one of its required labels assigned to exactly one song before it can be used. This is a separate step from ordinary pack editing, since it is about *which* songs stand in for which labels, not the songs' own metadata.
+
+- The song pack view carries a **tab per such format**, alongside the ordinary full pack view — a tournament using both HB-11 and HB-13, say, gets one tab each, and a song can carry a different label (or none) in each independently.
+- A TO **creates a tab** for a format, then assigns each song **at most one label** from that format's required set — enforced by the UI, so there is nothing to catch after the fact for that half of it.
+- **Saving never blocks.** It always keeps whatever is currently assigned and reports exactly what's still wrong: which labels remain unassigned, grouped by category, and which have been assigned to more than one song, naming the conflicting songs. A tab can be built up over several passes.
+- **Starting the tournament blocks** if any Hubert format actually in play — the tournament's default, or any per-match override — still has an incomplete or conflicting Song Pool. This is one more line on the same pre-start checklist every other start guard already appears on.
+- A tab, once created, may be **deleted**, which removes every label it carries; it can be recreated from nothing.
+- **Labeling a tab, and deleting one, are only possible before the tournament starts** — the same boundary a format assignment itself is locked to, above, and for the same reason: a running match may already be drawing from the pool. Creating a brand-new, still-empty tab carries no such risk and stays available regardless.
+
 ### Song pack size
 
 There is **no hard minimum**. A TO may start a tournament with a song pack of any size — the general reshuffle rule (see **How the bot draws charts**) absorbs any shortfall, including song packs smaller than the 7 charts a Draw requires.
@@ -223,15 +235,48 @@ A TO configures a tournament by **choosing its default match ruleset**, optional
 
 Assigning a format needs a real match to assign it to, so a TO can generate the bracket once check-in has closed, ahead of starting the tournament — the same graph that would otherwise only appear at start, just available earlier for exactly this reason. From there, a format is assignable per round or per individual match, from the web bracket page or `/tournament format`'s `target` option (a round or a specific match, chosen from a live list — omitting it targets the tournament default instead). Regenerating the bracket after the field changes keeps every assignment that still applies to the same matches; if the field crosses to a different bracket size, assignments reset and the TO reassigns from the newly-shaped bracket rather than the system guessing where an assignment belongs now.
 
+**A format assignment is only ever editable before the tournament starts.** This holds even for a match that has not been reached yet — a still-`PENDING` Grand Final, say, while round 1 is still being played — because a running tournament may already be drawing from whatever pool that match's format implies (see "Song Pool labeling," below, for the same boundary applied to that pool itself). Once the tournament has started or finished, the format a match carries is fixed.
+
 Changing the tournament's default once matches actually disagree with each other puts a three-way choice to the TO, identically on the web and in Discord: update every match to the new default, change only the default going forward, or cancel and leave both untouched.
 
-The match ruleset is **pluggable** rather than hardcoded logic, so further rulesets — prisoner's-dilemma-only, fixed song list, and others — can be added without reworking the system. **Bo5 and Bo3 both ship**; a tournament defaults to Bo5.
+The match ruleset is **pluggable** rather than hardcoded logic, so further rulesets — prisoner's-dilemma-only, fixed song list, and others — can be added without reworking the system. **Bo5, Bo3, and Hubert's formats all ship**; a tournament defaults to Bo5.
 
 Bo3 plays the same way as Bo5 in every respect not called out below: the same photo-and-EX% scoring step, the same tiebreak process once the Draw is exhausted. It differs in scale and one structural rule:
 
 - **5-chart Draw**, not 7. A player wins the set by reaching **2 points**, not 3.
 - **Protect, Protect, Veto, Veto** — no second Protect round. Protects go to whichever player took the first Protect (A) then the other (B), same as Bo5. Vetoes go **by seed**, not by role: the higher seed automatically holds the first Veto, the lower seed the second — the counterpart to the higher seed's own choice between the first and second Protect.
 - **Play order is fixed**, not loser-preference: the first Protect, then the second Protect, then the Decider if the set is still undecided. Unlike Bo5, who won the previous song has no bearing on which chart plays next.
+
+### Hubert's formats
+
+**HB-11** and **HB-13** — named for song count, 11 or 13 — depart from Bo3/Bo5 almost entirely: a fixed, TO-labeled Song Pool instead of a random Draw, a different action order, and an endgame that can't loop forever the way Bo3/Bo5's tiebreak can. What they share with Bo3/Bo5 is only the photo-and-EX% scoring step and the shape of a song's own resolution (both players agree, or a referee rules).
+
+**The Song Pool.** Every song in the tournament's song pack carries at most one label per Hubert format, assigned by the TO ahead of time — see "Song Pool labeling," below. A match doesn't draw charts at all: its Song Pool *is* the full labeled set for that format, every time, unchanged match to match. The labels themselves are fixed by category:
+
+| Category | HB-11 | HB-13 |
+| --- | --- | --- |
+| Reading (RD) | 5 | 6 |
+| Focused-Tech (FT) | 3 | 3 |
+| Fundamentals (FN) | 2 | 3 |
+| Tiebreaker (TB) | 1 | 1 |
+
+The Tiebreaker song is reserved: it is never available to Veto or to pick, and enters play only as the forced tiebreaker described below.
+
+**A coin flip decides who is Player A** — not seeding, since these formats have no Protect step to choose an order for. The assignment is made once, when the match opens, and stands for the rest of the match: it is not part of what a referee's reset (see Bracket Immutability) clears.
+
+**Vetoes only, no Protects.** HB-11: Player A vetoes one song, then Player B vetoes one. HB-13: A, B, A, B — four vetoes. **On HB-13, a player may not use both of their vetoes on the same category** — Player A cannot veto two Reading songs. There is no restriction across players: Player A vetoing a Reading song and Player B separately vetoing a different Reading song is fine.
+
+**Players choose the play order.** Once vetoes finish, **Player B selects the first song to play, then picks alternate players from there** — the opposite of Bo3/Bo5, where the bot determines play order and no player ever chooses.
+
+**Scoring matches Bo5**: 1 point for a win, 0 for a tie, first to 3 points wins outright.
+
+**The endgame** is score-triggered rather than pool-exhaustion-triggered, and it resolves in stages instead of replaying indefinitely:
+
+1. First to 3 points wins outright, same as Bo5.
+2. Short of that, the reserved Tiebreaker song is forced the moment either condition holds: the score reaches 2-2, or every other song has already been used up by ties. It is scored exactly like any other song.
+3. Once the Tiebreaker has been played, the set is decided by **most points**; if that's equal too, by **higher average EX%** across every song played; if that's equal as well — a genuine tie on both — the match escalates to a **referee**, the same as any other stalled match.
+
+Unlike Bo3/Bo5, where every song tying can in principle generate tiebreak rounds forever, a Hubert-format match always terminates on its own or lands in front of a referee — the pool the endgame draws from is fixed in size, not replenished.
 
 ## Automation Boundary
 
@@ -274,13 +319,15 @@ Once a tournament has started:
 
 | State | May a referee intervene? |
 | --- | --- |
-| Protect/Veto, before song 1 is played | Yes — the sequence can be reset |
-| Song currently in progress | Yes — correct a score, force a winner on an escalation |
+| Protect/Veto, and song 1 itself, up until song 1's result commits | Yes — the sequence, and any progress on song 1 (a Hubert-format pick, a submitted score, an agreed-but-not-yet-final winner), can all be reset together |
+| Song 2 onward, currently in progress | Yes — correct a score, force a winner on an escalation |
 | Song whose winner both players have agreed | **No** — frozen |
-| Protect/Veto, once song 1 has been played | **No** — frozen |
+| Protect/Veto, once song 1's result has committed | **No** — frozen |
 | Set whose result both players have confirmed | **No** — frozen |
 
 A committed song result is permanent, whether it was reached by mutual player agreement or by a referee ruling. Nothing rewinds.
+
+**Song 1 is the one song a reset can reach even after it starts.** Every other song's "currently in progress" row above is a narrower power — a referee corrects the song in front of them, but the sequence that led to it stands. Song 1 is different because the sequence that produces it (Protect/Veto, and for a Hubert format, the pick that follows it) is itself still resettable for as long as song 1 hasn't committed, so undoing song 1 and undoing the sequence that chose it are the same action. A Hubert-format reset never re-decides who is Player A — that coin flip happens once, when the match opens, and stands regardless of how many times the rest gets reset.
 
 ## Roles
 
@@ -306,7 +353,7 @@ These are explicitly assigned and confer permissions. The first two are **server
 
 | Role | Scope | Capabilities |
 | --- | --- | --- |
-| Referee | One Discord server | Rule on matches to unblock them — award or void a song, force a result on an escalation, reset Protect/Veto before song 1, disqualify a player at either scope (a plain forfeit is a disqualification scoped to the current match). All within the limits in Bracket Immutability. **Cannot create, start, or close a tournament** |
+| Referee | One Discord server | Rule on matches to unblock them — award or void a song, force a result on an escalation, reset Protect/Veto before song 1 commits, disqualify a player at either scope (a plain forfeit is a disqualification scoped to the current match). All within the limits in Bracket Immutability. **Cannot create, start, or close a tournament** |
 | Tournament Organizer (TO) | One Discord server | Everything a Referee can do, plus create and configure tournaments, manage song packs, open and close registration and check-in, seed the bracket, start and cancel a tournament |
 | Bot Administrator | The whole deployment | View every Discord server the bot has been added to, and the tournaments and brackets belonging to each |
 
@@ -329,7 +376,7 @@ Tiers are cumulative, so each action below lists the **minimum** tier required. 
 | Award an escalated song to a player | Referee |
 | Void a song | Referee |
 | Correct a score on the song currently in progress | Referee |
-| Reset Protect/Veto, before song 1 has been played | Referee |
+| Reset Protect/Veto, before song 1's result commits | Referee |
 | Disqualify a player, either scope, including a plain forfeit (`/dq`) | Referee |
 | Dismiss a timer, departure, or permission alert | Referee |
 | Read any match thread and review any match | Referee |
@@ -567,12 +614,12 @@ The bot does **not** ping a player to prompt a pending action (see Automation Bo
 Each item names the **minimum** tier required; higher tiers have it too.
 
 - Tournament setup and registration management *(TO)* — create a tournament, **choose its default ruleset**, set timer durations and the per-match time allocation, open and close the registration and check-in windows, manage the roster.
-- Song pack management *(TO)* — build and edit the song pack for each tournament.
+- Song pack management *(TO)* — build and edit the song pack for each tournament, and label the Song Pool for any Hubert format in play (see Song Packs, "Song Pool labeling").
 - **Manual seeding** interface *(TO)* — reorder by dragging, or type a seed number directly to move someone a long way in a large field. Both write the same order.
 - **Run view** *(Referee)* — the screen an organizer sits on during an event. Two panes: the **alert queue**, showing everything awaiting a human, and a **live match list**, one row per in-progress match with its round, players, current song and running score. The bracket tree is available but is not this screen; a tree explains structure, a list answers which matches are slow.
 - **Live bracket view** *(Referee)* — real-time match states, current song, and running scores.
 - **Match detail** *(Referee)* — one page per match, reachable from an alert, from the bracket, and from the match list. Every override happens here, so a referee who notices a problem the bot has not flagged has somewhere to act.
-- **Match intervention / overrides** *(Referee)* — see Bracket Immutability for the boundary. A referee may act on the **song currently in progress**, reset a Protect/Veto **before song 1 has been played**, force a result on an escalated song, disqualify a player, and apply forfeits.
+- **Match intervention / overrides** *(Referee)* — see Bracket Immutability for the boundary. A referee may act on the **song currently in progress**, reset a Protect/Veto **before song 1's result commits**, force a result on an escalated song, disqualify a player, and apply forfeits.
 
 ## Public Web View
 

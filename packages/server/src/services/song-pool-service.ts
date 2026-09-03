@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient, TournamentState } from '@prisma/client';
 import { FORMAT_SONG_LABELS, type FormatKey, type PoolLabelAssignments, type SongPoolIssues, type SongPoolTabWire } from '@itg/shared';
 import { logAction } from './audit-log.js';
 import { requireFormat, type Tx } from './engine.js';
@@ -20,6 +20,31 @@ export class SongPoolTabError extends Error {
   ) {
     super(`tournament ${tournamentId}, format ${formatKey}: ${reason}`);
     this.name = 'SongPoolTabError';
+  }
+}
+
+/**
+ * Editing a tab's labels or deleting one is open from tournament creation
+ * up to the moment it starts — the same upper bound `roster-service.ts`'s
+ * `SEEDING_STATES` uses, and for the same reason: `RUNNING` is when the
+ * bracket (and every match's `formatKey`) is already generated and live,
+ * so a label change or a deleted tab afterward couldn't do anything but
+ * silently disagree with matches already underway. Tab *creation* isn't
+ * gated the same way — an empty new tab, unpopulated, can't affect a
+ * running bracket at all.
+ */
+const SONG_POOL_EDITABLE_STATES: readonly TournamentState[] = [
+  'DRAFT',
+  'REGISTRATION_OPEN',
+  'REGISTRATION_CLOSED',
+  'CHECKIN_OPEN',
+  'CHECKIN_CLOSED',
+];
+
+async function requireNotStarted(tx: Tx, tournamentId: string, formatKey: string): Promise<void> {
+  const tournament = await tx.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
+  if (!SONG_POOL_EDITABLE_STATES.includes(tournament.state)) {
+    throw new SongPoolTabError(tournamentId, formatKey, 'the tournament has already started');
   }
 }
 
@@ -78,6 +103,7 @@ export async function deleteSongPoolTab(
       where: { tournamentId_formatKey: { tournamentId, formatKey } },
     });
     if (!existing) throw new SongPoolTabError(tournamentId, formatKey, 'no tab exists for this format');
+    await requireNotStarted(tx, tournamentId, formatKey);
 
     await tx.chartLabel.deleteMany({ where: { tournamentId, formatKey } });
     await tx.songPoolTab.delete({ where: { tournamentId_formatKey: { tournamentId, formatKey } } });
@@ -115,8 +141,10 @@ export async function validateSongPool(tx: Tx, tournamentId: string, formatKey: 
 
 /**
  * Replaces a tab's entire label set with `assignments` and always persists
- * it — Save is never blocked by an incomplete or conflicting pool, only
- * Start Tournament is. Returns whatever `validateSongPool` finds
+ * it — never blocked by an incomplete or conflicting pool (only Start
+ * Tournament is), but blocked once the tournament has started at all, same
+ * as deleting a tab: nothing left in `DRAFT`..`CHECKIN_CLOSED` for a label
+ * change to disagree with. Returns whatever `validateSongPool` finds
  * afterward, for the web layer's warning banner.
  */
 export async function saveSongPoolLabels(
@@ -132,6 +160,7 @@ export async function saveSongPoolLabels(
     }
     const tab = await tx.songPoolTab.findUnique({ where: { tournamentId_formatKey: { tournamentId, formatKey } } });
     if (!tab) throw new SongPoolTabError(tournamentId, formatKey, 'no tab exists for this format');
+    await requireNotStarted(tx, tournamentId, formatKey);
 
     const chartIds = Object.keys(assignments);
     if (chartIds.length > 0) {

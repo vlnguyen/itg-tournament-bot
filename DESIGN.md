@@ -350,11 +350,13 @@ The event catalog. `actor` is the Discord user ID on player and referee events, 
 | Event | Actor | Payload |
 | --- | --- | --- |
 | `MATCH_CREATED` | bot | entrant IDs, seeds, bracket position |
-| `SEED_CHOICE_MADE` | higher seed | `{ order: 'FIRST' \| 'SECOND' }` — fixes who is A |
-| `DRAW_MADE` | bot | `{ seed, charts: ChartSnapshot[7] }` — metadata as it was, not just IDs |
-| `CHART_PROTECTED` | player | `{ chart }` |
+| `SEED_CHOICE_MADE` | higher seed | `{ order: 'FIRST' \| 'SECOND' }` — fixes who is A. Bo3/Bo5 only |
+| `SIDES_ASSIGNED` | bot | `{ seed, a, b }` — the coin flip. Hubert's formats only, in place of `SEED_CHOICE_MADE`; fixes who is A exactly once, never re-decided by a reset |
+| `DRAW_MADE` | bot | `{ seed, charts: ChartSnapshot[7] }` — metadata as it was, not just IDs. For a Hubert format this is the full labeled Song Pool, not a random sample |
+| `CHART_PROTECTED` | player | `{ chart }` — Bo3/Bo5 only |
 | `CHART_VETOED` | player | `{ chart }` |
-| `PROTECT_VETO_RESET` | Referee | `{ reason }` — legal only before song 1 |
+| `CHART_SELECTED` | player | `{ chart }` — a player's song pick. Hubert's formats only |
+| `PROTECT_VETO_RESET` | Referee | `{ reason }` — legal until song 1's result commits, not merely until it starts |
 | `SONG_STARTED` | bot | `{ songIndex, chart, source }` |
 | `SCORE_SUBMITTED` | player | `{ songIndex, ex }` |
 | `PHOTO_OBSERVED` | bot | `{ songIndex, playerId, messageId }` |
@@ -411,6 +413,17 @@ interface MatchFormat {
 
 Everything specific to a ruleset — the action sequence, the play-order rule, points needed to win, the Draw size — lives behind this interface. Bo5 and Bo3 share far more than they differ: the reducer, escalation handling, the outcome/effects logic, and the whole tiebreak loop (the Decider, reaching the target score, the prisoner's dilemma round) are identical between them, so that shared machinery lives once in `protect-veto.ts`'s `makeProtectVetoFormat`, parameterized by a small config (Draw size, points to win, the action sequence, and a `nextDrawSong` play-order function). `bo5.ts` and `bo3.ts` are each just that config plus their own `nextDrawSong` — Bo5's loser-preference fall-through, Bo3's fixed first-Protect/second-Protect/Decider order — exported as `Bo5ProtectVetoFormat` and `Bo3ProtectVetoFormat`. A third ruleset that isn't Protect/Veto-shaped at all (prisoner's-dilemma-only, fixed song list) would implement `MatchFormat` directly rather than going through `protect-veto.ts`, the same way Bo3 didn't have to.
 
+### Hubert's formats implement `MatchFormat` directly
+
+HB-11 and HB-13 (`hb11-static-pool` / `hb13-static-pool`, `domain/hubert.ts`) are that third ruleset — not Protect/Veto-shaped, so they skip `makeProtectVetoFormat` entirely and implement the four `MatchFormat` functions themselves, sharing only the per-song scoring machinery (`activeSong`/`computePoints`/`idsOf`/`opponentOf`) with `protect-veto.ts`, since that part genuinely is the same regardless of what decides which song plays next. Four structural differences drove going around the shared engine rather than parameterizing it further — see Requirements' "Hubert's formats" for the behavior each one implements:
+
+- **The Draw is a fixed, TO-labeled pool, not a random sample.** `pendingAction` returns `AWAITING_BOT` with a `DRAW_STATIC` directive instead of `DRAW`; the bot directive loads the tournament's labeled `ChartLabel` rows for this format verbatim, in one call, rather than sampling from the pack (see "Static-pool tabs," below).
+- **Vetoes are category-restricted** on HB-13, which the shared `protect-veto.ts` sequence has no concept of.
+- **Song selection is a player pick, not an algorithmic `nextDrawSong`.** A new pending kind, `SELECT_SONG`, and a new event, `CHART_SELECTED`, exist for exactly this — the one place a player genuinely chooses the next song, which `protect-veto.ts`'s whole design assumes never happens (see "Play order is fully determined," above). `isLegal`'s `CHART_SELECTED` case is the same shape as `CHART_PROTECTED`/`CHART_VETOED` — actor and an offered `drawIndex` — so validation needed no new concept, just a new case.
+- **The endgame is score-triggered, not draw-exhaustion-triggered**, and resolves in stages rather than replaying indefinitely: first to 3 wins outright; otherwise, once the forced Tiebreaker song has committed (triggered by a 2-2 record or the pool running out from ties), most points wins, then higher average EX%, then a referee alert if both are equal too. Unlike Bo3/Bo5 (see "The rules do not guarantee termination," below), a Hubert-format match cannot loop forever — the pool it draws from is fixed in size, not replenished by a reshuffle.
+
+**The coin flip.** Side assignment is a new bot directive, `RANDOM_SIDE_ASSIGN`, settled the same way `DRAW`/`DRAW_TIEBREAK` are: the format asks for it via `AWAITING_BOT`, the service supplies a seed, and folds the resulting `SIDES_ASSIGNED` event. It happens exactly once. `PROTECT_VETO_RESET`'s reducer case clears vetoes, picks, and any of song 1's own in-progress state (see "Resetting Protect/Veto," below), but never `state.a`/`state.b` — a real bug, live-caught, where an earlier version cleared the coin flip too, so every referee reset silently re-flipped who vetoed first.
+
 ### The format belongs to the match
 
 `Match.formatKey` is the ruleset a match ran under — immutable once stamped, per the rule the rest of this design follows: **capture what applied at the moment it mattered, rather than inferring it later from a parent that can change.** Chart metadata is snapshotted into draw events for that reason; the display name is snapshotted at start for that reason. Reading a match's rules off the tournament instead would mean a later default change silently rewrites how a finished match is interpreted.
@@ -419,11 +432,13 @@ Everything specific to a ruleset — the action sequence, the play-order rule, p
 
 **Assigning a format needs a real match to assign it to, so bracket generation is a step of its own, pulled ahead of `RUNNING`.** `GENERATE_BRACKET`, legal only at `CHECKIN_CLOSED`, runs just the graph half of what `materializeBracket` used to do only at start — every `Match` row, no seating, no chart draw, no threads — sized on the checked-in count and recorded in `Tournament.bracketEntrantCount`. A TO can then assign formats per round or per match from the bracket page (or `/tournament format`'s `target` option) before ever pressing Start.
 
+**"Before ever pressing Start" is an enforced boundary, not merely where the UI happens to stop offering it.** `setMatchFormats` refuses once the tournament has left `CHECKIN_CLOSED` — the same `DRAFT`..`CHECKIN_CLOSED` window `SEEDING_STATES`/`SONG_POOL_EDITABLE_STATES` use — regardless of whether the specific match targeted is itself still `PENDING`: a not-yet-reached Grand Final is exactly as locked as a match already `IN_PROGRESS`, because the tournament as a whole having started is what matters, not that one match's own status. `canEditMatchFormat` (`@itg/shared`) mirrors it client-side, so the web bracket page's per-round and per-match assignment controls are absent rather than present-and-erroring once `RUNNING` — see "Match detail," under The Organizer Console, for the same "absent, not disabled" convention stated in full.
+
 **The bracket never changes underneath the TO — an intentional echo of why there is no `SEEDED` state** (below): rather than silently reconciling a pre-generated bracket against a field that moved since, `startGuards` gets a new entry comparing `bracketEntrantCount` against the current checked-in count, and `startTournament` enforces the same check as a hard guard, in the same first transaction as `renormalizeSeeds` and for the reason already documented there — a mismatch would otherwise seat a match with a seed that no longer exists, which reads not as a crash but as a silent walkover. Regenerating is always explicit, via the same `GENERATE_BRACKET` action.
 
 A regeneration's effect on `formatOverrides` follows one rule: the bracket's *ref set* is a pure function of `nextPowerOfTwo(entrantCount)` alone (see `generateBracket`'s own comment), so a field change that stays within the same power-of-two band leaves every ref — and therefore every assignment — untouched; a change that crosses a boundary genuinely has different matches, so overrides are reset to `{}` and the TO is told to reassign, rather than guessing where an assignment "should" move.
 
-**The duration estimate needs revisiting, live now rather than merely anticipated**: it currently multiplies bracket depth by one `perMatchAllocationMinutes`, which is already wrong the moment one tournament runs any mix of Bo3 and Bo5 — fewer or more songs per match than the estimate assumes, and now genuinely different per round. That is a config shape question — an allocation per format — and it is noted here so it is found by reading rather than by a schedule that runs long.
+**The duration estimate needs revisiting, live now rather than merely anticipated**: it currently multiplies bracket depth by one `perMatchAllocationMinutes`, which is already wrong the moment one tournament runs any mix of Bo3 and Bo5 — fewer or more songs per match than the estimate assumes, and now genuinely different per round. Hubert's formats sharpen the same gap rather than opening a new one — a fixed 11 or 13 songs is its own, third estimate, further still from a Bo3/Bo5 default. That is a config shape question — an allocation per format — and it is noted here so it is found by reading rather than by a schedule that runs long.
 
 `effects` exists because of the derived commit. Something has to notice that song 3 just became final so the thread gets a summary and the match time-limit timer is cancelled, and with no commit event to subscribe to, the alternative is the service comparing `before` and `after` itself — which means a service reasoning about format-specific state shape, exactly the coupling the plugin boundary exists to prevent. Returning a *description* of what to do keeps it pure and testable: `SongCommitted`, `TiebreakResolved`, `EscalationOpened`, `SetDecided`. The service interprets them after the transaction commits. Effects are match-scoped only — bracket advancement is the service's reaction to `outcome() !== null`, because a format has no business knowing brackets exist.
 
@@ -455,6 +470,7 @@ type DomainEffect =
 type PendingAction =
   | { kind: 'SEED_CHOICE'; actor: EntrantId }
   | { kind: 'PROTECT' | 'VETO'; actor: EntrantId; choices: number[] }
+  | { kind: 'SELECT_SONG'; actor: EntrantId; choices: number[] }  // Hubert's formats only
   | { kind: 'SUBMIT_SCORE'; actors: EntrantId[]; songIndex: number }
   | { kind: 'SELECT_WINNER'; actors: EntrantId[]; songIndex: number }
   | { kind: 'TIEBREAK_PICK'; actors: EntrantId[]; round: number; choices: number[] }
@@ -1242,6 +1258,10 @@ The menu is rebuilt at each step over only the **currently eligible** charts, so
 
 **Flags surface at all three points requirements demand**: in the Draw embed against the chart, in the log message when that chart comes up to be played, and in the winner-selection prompt, where a flagged chart adds the settings-confirmation line and the *report a settings problem* button.
 
+**A Hubert format calls this the Song Pool, not the Draw, and renders it differently throughout.** `buildDrawEmbed` titles the embed "Song Pool," groups its fields by category in a fixed order — Reading, then Focused-Tech, then Fundamentals, then the reserved Tiebreaker — rather than numbering them 1–N, and names each field by its label (`RD1`) rather than a position, since the label already is the unique identifier a position number would only duplicate. The reserved Tiebreaker song is called out as such (`🔒 Reserved for the Tiebreaker`) everywhere it would otherwise look like an ordinary pickable entry, and it never appears among a Veto's or a pick's offered choices. HB-13's category restriction on a player's second veto — no repeating a category already used — narrows the select menu's own options live, the same way an already-vetoed chart simply isn't offered again: there is no separate check to fall out of step with the menu.
+
+**The pick step (`SELECT_SONG`) reuses `PROTECT_VETO`'s select-menu custom id** rather than adding a new `Action` — it is already a generic "pick a pool position from a select menu" action, disambiguated on receipt by whichever `PendingAction` kind is actually pending, the same way `isLegal` disambiguates `CHART_VETOED` from `CHART_SELECTED`. The web match-detail page's played-songs table shows a **"Picked by"** column for a Hubert-format match only, naming who chose each song; blank for the forced Tiebreaker, which nobody picks.
+
 ### Scoring a song
 
 The state message for a song shows both players, the chart in full form, and per-player ticks for what has landed — EX% submitted, photo seen. *Submit score* is a button opening a modal with a single EX% field, validated to two decimals in `0.00`–`100.00` before it reaches the thread.
@@ -1262,9 +1282,13 @@ Disagreement escalates immediately. The state message becomes *awaiting an organ
 
 ### Resetting Protect/Veto
 
-A referee may reset the sequence until song 1 has been played. **The Draw is unchanged; the protects and vetoes are cleared.** The requirement permits resetting *the sequence*, and the sequence is the picking — re-drawing would replace the seven charts both players had already read, which is a far larger intervention than the misclick that usually prompts a reset.
+A referee may reset the sequence any time before song 1's result commits — not merely before it starts. **The Draw (or, for a Hubert format, the Song Pool) is unchanged; the protects, vetoes, and any player pick are cleared** — and if song 1 had already started, its own in-progress play (scores, photos, a winner selection already made) is cleared with it, since none of it is final until it commits. The requirement permits resetting *the sequence*, and the sequence is the picking, not the pool: re-drawing would replace charts both players had already read, a far larger intervention than the misclick that usually prompts a reset.
 
-In the thread this is now unremarkable, because of the message split. The Draw was a log message and stays exactly where it is, still accurate. The old prompt was the state message, so it is replaced rather than lingering with stale components — the problem this once posed disappeared when prompts became singular and disposable. A log message records that a referee reset the sequence and that the Draw stands, and a fresh state message asks the higher seed to choose again.
+**The window widened from "before song 1 starts" to "before song 1 commits" once Hubert's formats shipped.** `SELECT_SONG` (a Hubert-format player's song pick — see Match Format as a Plugin) sits between vetoes finishing and song 1 actually starting, a step Bo3/Bo5 never has, and a wrong pick is exactly as catchable as a wrong veto. Extending the same reasoning through an already-started song 1 — a referee catching a mis-scored or wrongly-agreed song 1 is no less a misclick just because a score got submitted — is what unifies the boundary across every format: legal for as long as no song anywhere in the match has committed a result yet (`songOneUncommitted`), which by construction can only ever be true of song 1.
+
+**A Hubert-format coin flip is never re-decided by a reset.** Side assignment (`SIDES_ASSIGNED`) happens once, when the match opens; the reducer clears vetoes, picks, and any of song 1's own state, but never `state.a`/`state.b` — see "Hubert's formats implement `MatchFormat` directly," above, for the real bug this once was.
+
+In the thread this is now unremarkable, because of the message split. The Draw/Song Pool was a log message and stays exactly where it is, still accurate. The old prompt was the state message, so it is replaced rather than lingering with stale components — the problem this once posed disappeared when prompts became singular and disposable. A log message records that a referee reset the sequence and that the pool stands, and a fresh state message asks whoever is on the clock to act again.
 
 The events are appended, never removed, so the public match view shows the abandoned picks followed by the reset and the real ones. Nothing rewinds, including this.
 
@@ -1568,7 +1592,7 @@ Dropping no-shows and collapsing the survivors' seeds to 1..N happens exactly on
 
 **Tournament configuration** is the lifecycle state machine rendered: current state, the transitions currently legal, and each one's guard shown as a checklist so a TO can see what is blocking a start before pressing it.
 
-**Song pack management** is the pack tab's table with editing — the same filtering, plus inline edit, flag toggles, removal, and the import flow from Client-Side Song Pack Parsing.
+**Song pack management** is the pack tab's table with editing — the same filtering, plus inline edit, flag toggles, removal, and the import flow from Client-Side Song Pack Parsing. Alongside it, one tab per static-pool format in play carries that format's labeling UI — see "Static-pool tabs," under The Song Pack.
 
 **Bot administrators** get one extra surface: a list of every server the bot is in with its tournaments, and nothing else. It is read-only by construction — a Bot Administrator holds no tier in a server they have not been given a role in, so the console shows them the same match pages with no override controls.
 
@@ -1618,7 +1642,7 @@ It stays **scoped to one server**. A cross-server view is the one thing sign-in 
 
 ### Snapshotting a chart
 
-**A draw records the chart's metadata, not just its ID.** `DRAW_MADE` and `TIEBREAK_DRAWN` carry a `ChartSnapshot` per chart — the chart ID plus everything needed to render it in full form: both text forms of title, subtitle and artist, playstyle, difficulty, meter, stepartist, description, source pack, flags.
+**A draw records the chart's metadata, not just its ID.** `DRAW_MADE` and `TIEBREAK_DRAWN` carry a `ChartSnapshot` per chart — the chart ID plus everything needed to render it in full form: both text forms of title, subtitle and artist, playstyle, difficulty, meter, stepartist, description, source pack, flags. `ChartSnapshot` also carries `poolLabel` (e.g. `"RD3"`), set only for a Hubert-format draw and frozen from the tournament's `ChartLabel` assignment at draw time — the label itself lives in `ChartLabel`, not on `Chart`, for the same reason everything else here is snapshotted: history reads from its own copy, never back from a pool's live labels (see "Static-pool tabs," below).
 
 This exists because charts stay editable while a tournament runs. A wrong meter or a mistyped title discovered during play should be fixable, and a `Chart` row is referenced by ID from every event that touched it — so without a snapshot, correcting a row silently rewrites how every past match renders. Snapshotting separates the two concerns cleanly:
 
@@ -1666,6 +1690,34 @@ With no tournament accepting entrants it says so rather than erroring. It resolv
 Copying a pack from a previous tournament stays, since it is a server-side row copy with nothing to design and it is how a recurring event starts each edition. Reading that as distinct from "mass import" is a judgment call; it is a line of SQL either way.
 
 Editing covers correcting any metadata field, setting or clearing flags, and removing charts. Every edit is audit-logged. Nothing about editing is gated on tournament state, because the snapshot makes it safe.
+
+### Static-pool tabs
+
+A format flagged in `FORMAT_STATIC_SONG_POOL` (Hubert's formats today — see Requirements' "Hubert's formats") draws from a **fixed, TO-labeled subset of the pack** instead of a random sample, so it needs its own labeling surface layered on top of the ordinary pack view (`song-pool-service.ts`, `tournament-pack.tsx`).
+
+**Two new tables, deliberately independent of each other.** `SongPoolTab` records that a tab for a given format exists at all; `ChartLabel` (`tournamentId, formatKey, chartId, label`) records the actual assignments:
+
+```prisma
+model SongPoolTab {
+  tournamentId String
+  formatKey    String
+  @@id([tournamentId, formatKey])
+}
+
+model ChartLabel {
+  tournamentId String
+  formatKey    String
+  chartId      String
+  label        String                    // e.g. "RD1"
+  @@id([tournamentId, formatKey, chartId])
+}
+```
+
+Splitting them is what lets a TO create an empty tab and fill it in over several passes — a tab's existence and its completeness are different facts, and forcing them to arrive together would mean either blocking tab creation on having every song ready, or a completed-tab flag to keep in sync by hand.
+
+**Validation is a report, not a gate, except at Start.** `validateSongPool` compares a tab's assignments against `FORMAT_SONG_LABELS[formatKey]` — the exact required label set — and returns `null` (well-formed) or a `SongPoolIssues` naming every missing label (grouped by category) and every label assigned more than once (naming the conflicting charts). `saveSongPoolLabels` always persists whatever was submitted and returns whatever `validateSongPool` finds afterward, for the web layer's warning banner — the same "Save never blocks, Start Tournament does" split the rest of pack editing already draws. `startTournament`'s guard runs the same check against every static-pool format actually in play (`staticPoolFormatKeysInPlay` — the default plus every per-match override, deduplicated) and blocks if any of them isn't well-formed.
+
+**Editing locks at the same boundary as seeding and a match's own format assignment.** `saveSongPoolLabels` and `deleteSongPoolTab` both refuse once the tournament has left `CHECKIN_CLOSED` — from `RUNNING` on, a match may already be drawing from the pool, so a label change or a deleted tab afterward could only silently disagree with matches already underway. `canEditSongPool` (`@itg/shared`) mirrors the same boundary client-side, so the web UI's Save button and a tab's "×" are absent rather than present-and-erroring, same convention as "Match detail," under The Organizer Console. **Creating a tab is not gated the same way** — an empty, unpopulated tab can't disagree with anything a running match is doing, so it stays available for as long as the format itself could still be assigned.
 
 ## Client-Side Song Pack Parsing
 

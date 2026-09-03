@@ -25,18 +25,21 @@ export function buildDrawStatusLines(
   return state.draw
     .map((chart, i) => {
       // A specific song always gets its shorthand label (RD1, FT2, ...),
-      // never the spelled-out category — see the plan's naming rule.
+      // never the spelled-out category — see the plan's naming rule. A
+      // labeled chart drops the position number entirely: the label is
+      // already a unique identifier, so a number would only be noise.
       const prefix = chart.poolLabel ? `**${chart.poolLabel}** ` : '';
+      const index = chart.poolLabel ? '' : `${i + 1}. `;
       const label = prefix + titleWithSubtitle(chart) + (chart.flags.includes('noCmod') ? ' ⚠️' : '');
       const vetoedBy = state.vetoes.find((v) => v.drawIndex === i)?.by;
-      if (vetoedBy) return `${i + 1}. ~~${label}~~ ❌ Vetoed by ${nameOf(vetoedBy)}`;
+      if (vetoedBy) return `${index}~~${label}~~ ❌ Vetoed by ${nameOf(vetoedBy)}`;
       const protectedBy = state.protects.find((p) => p.drawIndex === i)?.by;
-      if (protectedBy) return `${i + 1}. ${label} 🛡️ Protected by ${nameOf(protectedBy)}`;
+      if (protectedBy) return `${index}${label} 🛡️ Protected by ${nameOf(protectedBy)}`;
       const pickedBy = state.picks?.find((p) => p.drawIndex === i)?.by;
-      if (pickedBy) return `${i + 1}. ${label} 🎵 Picked by ${nameOf(pickedBy)}`;
-      if (state.deciderIndex === i) return `${i + 1}. ${label} ⭐ Decider`;
-      if (chart.poolLabel === 'TB') return `${i + 1}. ${label} 🔒 Reserved for the Tiebreaker`;
-      return `${i + 1}. ${label}`;
+      if (pickedBy) return `${index}${label} 🎵 Picked by ${nameOf(pickedBy)}`;
+      if (state.deciderIndex === i) return `${index}${label} ⭐ Decider`;
+      if (chart.poolLabel === 'TB') return `${index}${label} 🔒 Reserved for the Tiebreaker`;
+      return `${index}${label}`;
     })
     .join('\n');
 }

@@ -108,4 +108,33 @@ describe.skipIf(!(await isReachable()))('GET/POST /api/tournaments/:id/roster an
       expect(rosterChangedCalls).toEqual([tournamentId]);
     });
   });
+
+  describe('GET :id/roster once the tournament has finished', () => {
+    // Flips the state column directly rather than driving a real
+    // start/complete — this suite only cares about getRoster staying
+    // reachable for an organizer once the tournament is done, not the
+    // lifecycle machinery that normally produces that state.
+    async function setState(state: 'COMPLETE' | 'CANCELLED'): Promise<void> {
+      await prisma.tournament.update({ where: { id: tournamentId }, data: { state } });
+    }
+
+    it('stays reachable for an organizer once COMPLETE — the real bug this fixes, unlike the old guild-scoped lookup', async () => {
+      await setState('COMPLETE');
+      hasTierResult = true;
+      const roster = await controller.getRoster(tournamentId, TO);
+      expect(roster).toHaveLength(2);
+    });
+
+    it('stays reachable once CANCELLED too', async () => {
+      await setState('CANCELLED');
+      hasTierResult = true;
+      const roster = await controller.getRoster(tournamentId, TO);
+      expect(roster).toHaveLength(2);
+    });
+
+    it('still refuses a non-organizer, whatever the tournament state — no public view', async () => {
+      hasTierResult = false;
+      await expect(controller.getRoster(tournamentId, 'someone')).rejects.toBeInstanceOf(ForbiddenException);
+    });
+  });
 });

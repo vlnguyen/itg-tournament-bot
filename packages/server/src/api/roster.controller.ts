@@ -39,7 +39,9 @@ async function toWire(tierService: TierService, guildId: string, entrants: Roste
  * "Seeding": "The roster is the seeding interface." Tournament Organizer
  * tier, same as `/roster` itself and the console's other roster actions —
  * "a Tournament Organizer can do anything a player can do for themselves...
- * to any entrant, until the tournament starts."
+ * to any entrant, until the tournament starts." The public bracket and
+ * standings are enough for anyone else once a tournament finishes; the
+ * roster/seeding order stays organizer-only at every state.
  */
 @Controller('api/tournaments')
 export class RosterController {
@@ -62,7 +64,7 @@ export class RosterController {
   @Get(':id/roster')
   async getRoster(@Param('id') id: string, @CurrentUser() discordUserId: string | null): Promise<RosterWire> {
     const { guildId } = await this.requireOrganizer(id, discordUserId);
-    return toWire(this.tierService, guildId, await getRoster(this.prisma, guildId));
+    return toWire(this.tierService, guildId, await getRoster(this.prisma, id));
   }
 
   @Post(':id/seeding')
@@ -90,6 +92,6 @@ export class RosterController {
     }
 
     this.realtime.publishRosterChanged(id);
-    return toWire(this.tierService, guildId, await getRoster(this.prisma, guildId));
+    return toWire(this.tierService, guildId, await getRoster(this.prisma, id));
   }
 }

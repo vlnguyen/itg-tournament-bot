@@ -40,10 +40,17 @@ const FLAG_LABEL: Record<ChartFlag, string> = { noCmod: 'No CMOD' };
  * getting one each; the artist and source pack don't surface here at all.
  * A flag comes before the stepartist line — it's the more urgent fact.
  */
-export function fullChartDescription(chart: ChartSnapshot): string {
+/**
+ * `showPoolLabel: false` drops the shorthand prefix a static-pool chart
+ * otherwise leads with — for a caller that already shows the label some
+ * other way (the "Song Pool" embed's field name is the label itself), so
+ * it isn't repeated in the field's own value.
+ */
+export function fullChartDescription(chart: ChartSnapshot, opts: { showPoolLabel?: boolean } = {}): string {
   // Same shorthand-first rule as `selectOptionLabel` — a specific song
   // always leads with RD1/FT2/TB/etc. when it has one.
-  const title = chart.poolLabel ? `**${chart.poolLabel}** ${titleWithSubtitle(chart)}` : titleWithSubtitle(chart);
+  const showPoolLabel = opts.showPoolLabel ?? true;
+  const title = chart.poolLabel && showPoolLabel ? `**${chart.poolLabel}** ${titleWithSubtitle(chart)}` : titleWithSubtitle(chart);
   const lines = [title];
   if (chart.flags.length > 0) lines.push(`⚠️ ${chart.flags.map((f) => FLAG_LABEL[f]).join(', ')}`);
   const stepLine = displayStepartistLine(chart);

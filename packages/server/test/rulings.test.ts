@@ -23,8 +23,12 @@ const fakeMatchChannel: MatchChannelPort = {
   publishResult: async () => undefined,
 };
 const resolvedAlerts: RenderedMessage[] = [];
+const raisedAlerts: RenderedMessage[] = [];
 const fakeAlert: AlertPort = {
-  raise: async () => ({ messageId: 'fake-alert' }),
+  raise: async (_guildId, message) => {
+    raisedAlerts.push(message);
+    return { messageId: 'fake-alert' };
+  },
   resolve: async (_guildId, _ref, resolution) => {
     resolvedAlerts.push(resolution);
   },
@@ -173,5 +177,21 @@ describe.skipIf(!(await isReachable()))('POST /api/matches/:id/rulings', () => {
     const winnerEntrant = await prisma.entrant.findUniqueOrThrow({ where: { id: a! } });
     expect(resolvedAlerts[0]!.embeds![0]!.data.description).toContain(`awarded to ${winnerEntrant.discordUserId}`);
     expect(resolvedAlerts[0]!.embeds![0]!.data.description).not.toContain(a!);
+  });
+
+  it('posts to the organizer alerts channel on a DQ, same as the Discord /dq command — regression: this used to be silent', async () => {
+    hasTierResult = true;
+    const match = await prisma.match.findUniqueOrThrow({ where: { id: matchId } });
+    const state = match.state as unknown as MatchState;
+    const [, b] = state.participants.map((p) => p.entrantId);
+
+    raisedAlerts.length = 0;
+    const body = await controller.rule(matchId, { type: 'DQ_APPLIED', playerId: b! }, 'referee');
+    expect(body.outcome?.by).toBe('DQ');
+
+    expect(raisedAlerts).toHaveLength(1);
+    expect(raisedAlerts[0]!.embeds![0]!.data.title).toBe('⛔ Disqualification');
+    const loserEntrant = await prisma.entrant.findUniqueOrThrow({ where: { id: b! } });
+    expect(raisedAlerts[0]!.embeds![0]!.data.description).toContain(`disqualified **${loserEntrant.discordUserId}**`);
   });
 });

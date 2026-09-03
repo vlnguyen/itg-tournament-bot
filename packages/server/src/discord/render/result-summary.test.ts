@@ -95,7 +95,7 @@ describe('buildResultAnnouncement', () => {
     process.env['PUBLIC_BASE_URL'] = 'https://itg.example.com';
     const message = buildResultAnnouncement('WINNERS', 2, outcome, { alice: 3, bob: 1 }, participantIds, nameOf, 't1', 'm1', 'Fort Rapids VII', []);
     const embed = message.embeds![0]!;
-    expect(embed.data.title).toBe('WR2: Alice vs Bob');
+    expect(embed.data.title).toBe('Winners Round 2: Alice vs Bob');
     expect(embed.data.url).toBe('https://itg.example.com/t/t1/matches/m1');
   });
 
@@ -132,7 +132,7 @@ describe('buildResultAnnouncement', () => {
     };
     const message = buildResultAnnouncement('LOSERS', 3, bobWins, { alice: 1, bob: 3 }, participantIds, nameOf, 't1', 'm1', 'T', []);
     const embed = message.embeds![0]!;
-    expect(embed.data.title).toBe('LR3: Alice vs Bob');
+    expect(embed.data.title).toBe('Losers Round 3: Alice vs Bob');
     expect(embed.data.description).toContain('Bob advances (3-1)');
   });
 
@@ -169,7 +169,19 @@ describe('buildResultAnnouncement', () => {
       'T',
       [song(5, 'TIE', 1)],
     );
-    expect(message.embeds![0]!.data.description).toContain('6. **Tiebreak 1 (Song 6 SX 12)**: 🤝 Tie');
+    expect(message.embeds![0]!.data.description).toContain('6. **Tiebreak 1** (**Song 6 SX 12**): 🤝 Tie');
+  });
+
+  it('never nests a second bold pair around a labeled (Hubert-format) chart — compactChartLabel already bolds the pool label itself', () => {
+    // Regression: previously wrapped the whole line (label included) in a
+    // second `**...**`, producing literal `****RD1**...**` instead of bold
+    // text.
+    const labeled = song(0, 'alice');
+    labeled.chart = { ...labeled.chart, poolLabel: 'RD1' };
+    const message = buildResultAnnouncement('WINNERS', 2, outcome, { alice: 3, bob: 1 }, participantIds, nameOf, 't1', 'm1', 'T', [labeled]);
+    const description = message.embeds![0]!.data.description!;
+    expect(description).toContain('1. **RD1** Song 1 SX 12: 🏆 Alice');
+    expect(description).not.toMatch(/\*{3,}/);
   });
 
   it('omits the song list entirely when no songs were played', () => {

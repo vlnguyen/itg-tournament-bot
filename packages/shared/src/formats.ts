@@ -69,6 +69,21 @@ function numberedLabels(category: Exclude<PoolCategory, 'TB'>, count: number): s
 }
 
 /**
+ * Orders pool labels by category first — always RD, FT, FN, TB, per
+ * `POOL_CATEGORY` — then numerically within a category (RD1, RD2, ...).
+ * The canonical order for anywhere a static-pool format's songs are
+ * listed: the Song Pool embed, and the Draw-status lines a veto/pick
+ * prompt shows underneath it, both read top-to-bottom in this order
+ * rather than draw-position order, since a label is already the unique
+ * identifier and a position number would only be noise.
+ */
+export function comparePoolLabels(a: string, b: string): number {
+  const categoryRank = POOL_CATEGORY.indexOf(poolCategoryOf(a)) - POOL_CATEGORY.indexOf(poolCategoryOf(b));
+  if (categoryRank !== 0) return categoryRank;
+  return (Number(a.replace(/^\D+/, '')) || 0) - (Number(b.replace(/^\D+/, '')) || 0);
+}
+
+/**
  * The exact label set a static-pool format's song pool must fill, one of
  * each, before it's well-formed. Single source of truth for both the web
  * pack view and the server's Save/Start-Tournament validation.

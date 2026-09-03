@@ -36,6 +36,37 @@ export function canImportPack(state: TournamentState): boolean {
 }
 
 /**
+ * A static-pool tab's labels can be edited, and the tab itself deleted,
+ * only before the tournament starts — matches `song-pool-service.ts`'s
+ * `SONG_POOL_EDITABLE_STATES`. Once `RUNNING`, every match's `formatKey`
+ * (and the Draw it draws from) is already generated and live, so a label
+ * change or a deleted tab afterward couldn't do anything but silently
+ * disagree with matches already underway. Shared so the client can hide
+ * Save and the tab's "×" exactly where the server would reject them, same
+ * reasoning as `canImportPack`. Tab *creation* isn't gated the same way —
+ * an empty new tab, unpopulated, can't affect a running bracket at all.
+ */
+export function canEditSongPool(state: TournamentState): boolean {
+  return state !== 'RUNNING' && state !== 'COMPLETE' && state !== 'CANCELLED';
+}
+
+/**
+ * A match's format override can be set (or changed) only before the
+ * tournament starts — matches `tournament-service.ts`'s
+ * `MATCH_FORMAT_EDITABLE_STATES`. Once `RUNNING`, a match already has real
+ * players and a Draw drawing from whatever pool its format implies;
+ * once `COMPLETE`/`CANCELLED`, there's nothing left to reformat. This
+ * holds regardless of whether the individual match itself is still
+ * `PENDING` — a still-untouched future match's format is still locked the
+ * moment the tournament as a whole has started. Shared so the client can
+ * hide the format `Select` exactly where the server would reject it, same
+ * reasoning as `canImportPack`.
+ */
+export function canEditMatchFormat(state: TournamentState): boolean {
+  return state !== 'RUNNING' && state !== 'COMPLETE' && state !== 'CANCELLED';
+}
+
+/**
  * Whether an entrant has been removed from the tournament, and nothing else.
  * Attendance lives on `checkedIn`; "dropped for not checking in" is derived,
  * never stored. See DESIGN.md, "Who is on the roster".

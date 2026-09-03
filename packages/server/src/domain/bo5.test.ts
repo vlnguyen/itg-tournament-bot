@@ -375,14 +375,21 @@ describe('referee interventions', () => {
     expect(F.outcome(d.state)!.placements.find((p) => p.entrantId === A)!.place).toBe(1);
   });
 
-  it('a reset clears the sequence but keeps the Draw', () => {
+  it('a reset clears the sequence but keeps the Draw — including the song 1 the bot already auto-started', () => {
     const d = opened();
+    // `runProtectVeto()` auto-settles through ABBAAB, so the bot has
+    // already picked and started song 1 by here — this reset is undoing
+    // that too, not just the Protect/Veto sequence.
+    expect(d.state.songs).toHaveLength(1);
     const drawBefore = d.state.draw.map((c) => c.chartId);
     d.apply({ actorId: 'ref', type: 'PROTECT_VETO_RESET', payload: { reason: 'misclick' } });
     expect(d.state.draw.map((c) => c.chartId)).toEqual(drawBefore);
     expect(d.state.protects).toEqual([]);
     expect(d.state.vetoes).toEqual([]);
     expect(d.state.deciderIndex).toBeUndefined();
+    // Not just the sequence — song 1's own started-but-uncommitted entry,
+    // or the redo's song 1 would land at index 1 instead of overwriting it.
+    expect(d.state.songs).toEqual([]);
     expect(d.pending).toEqual({ kind: 'SEED_CHOICE', actor: A });
   });
 });

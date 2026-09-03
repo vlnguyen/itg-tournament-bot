@@ -78,10 +78,13 @@ describe('buildDrawStatusLines', () => {
     expect(lines.split('\n')[0]).toContain('Vetoed');
   });
 
-  it('leads with the shorthand pool label when set (Hubert formats), never the spelled-out category', () => {
+  it('leads with the shorthand pool label when set (Hubert formats), never the spelled-out category, and drops the position number', () => {
     const labeled = [{ ...chart(1), poolLabel: 'RD1' }, chart(2)];
     const lines = buildDrawStatusLines({ draw: labeled, protects: [], vetoes: [], deciderIndex: undefined }, nameOf);
-    expect(lines.split('\n')[0]).toBe('1. **RD1** Song 1 SX 12');
+    // No "1. " prefix — the label is already a unique identifier.
+    expect(lines.split('\n')[0]).toBe('**RD1** Song 1 SX 12');
+    // The second (unlabeled) chart still gets its position number.
+    expect(lines.split('\n')[1]).toBe('2. Song 2 SX 12');
   });
 
   it('marks a picked chart (Hubert formats\' SELECT_SONG, not Protect/Veto)', () => {
@@ -95,6 +98,6 @@ describe('buildDrawStatusLines', () => {
   it('marks the reserved Tiebreaker song as such until it is picked', () => {
     const labeled = [chart(1), { ...chart(2), poolLabel: 'TB' }];
     const lines = buildDrawStatusLines({ draw: labeled, protects: [], vetoes: [], deciderIndex: undefined }, nameOf);
-    expect(lines.split('\n')[1]).toBe('2. **TB** Song 2 SX 12 🔒 Reserved for the Tiebreaker');
+    expect(lines.split('\n')[1]).toBe('**TB** Song 2 SX 12 🔒 Reserved for the Tiebreaker');
   });
 });

@@ -68,9 +68,11 @@ describe('opening a match', () => {
     }
   });
 
-  it('a referee reset clears vetoes and the coin flip, but the Draw stands', () => {
+  it('a referee reset clears vetoes but leaves the coin flip and the Draw standing', () => {
     const d = opened11();
     const drawBefore = d.state.draw;
+    const aBefore = d.state.a;
+    const bBefore = d.state.b;
     const firstVeto = d.pending;
     if (firstVeto.kind !== 'VETO') throw new Error('expected VETO');
     d.apply({ actorId: firstVeto.actor, type: 'CHART_VETOED', payload: { by: firstVeto.actor, drawIndex: firstVeto.choices[0]! } });
@@ -80,13 +82,31 @@ describe('opening a match', () => {
 
     expect(d.state.vetoes).toEqual([]);
     expect(d.state.picks).toEqual([]);
-    // apply() auto-settles AWAITING_BOT directives, so by the time control
-    // returns, RANDOM_SIDE_ASSIGN has already re-run — a fresh coin flip,
-    // not the stale sides from before the reset (both are defined again,
-    // not necessarily the same assignment).
-    expect(d.state.a).toBeDefined();
-    expect(d.state.b).toBeDefined();
+    // The coin flip is a one-time identity, not part of the veto sequence
+    // being cleared — a reset must not re-flip who's Player A/B.
+    expect(d.state.a).toBe(aBefore);
+    expect(d.state.b).toBe(bBefore);
     expect(d.state.draw).toEqual(drawBefore); // same Draw, not re-fetched (state is immutable, so not the same array reference)
+    expect(d.pending.kind).toBe('VETO');
+  });
+
+  it('a referee reset after song 1 has started drops its uncommitted entry, not just the pick', () => {
+    const d = opened11();
+    while (d.pending.kind === 'VETO') {
+      const p = d.pending;
+      d.apply({ actorId: p.actor, type: 'CHART_VETOED', payload: { by: p.actor, drawIndex: p.choices[0]! } });
+    }
+    d.pickSong(); // settles through START_SONG — song 1 now live, uncommitted
+    expect(d.state.songs).toHaveLength(1);
+
+    d.apply({ actorId: 'referee', type: 'PROTECT_VETO_RESET', payload: { reason: 'wrong pick' } });
+
+    expect(d.state.picks).toEqual([]);
+    // Not just the pick — the started-but-uncommitted song entry itself,
+    // or the redo's own song 1 would land at index 1 instead of
+    // overwriting it. Vetoes clear too, same as any other reset — back to
+    // the very start of the sequence.
+    expect(d.state.songs).toEqual([]);
     expect(d.pending.kind).toBe('VETO');
   });
 });

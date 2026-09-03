@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import type { MatchState } from '../domain/types.js';
+import { bracketShapeOf } from '../services/bracket-service.js';
 import { requireFormat } from '../services/engine.js';
 import type { MatchChannelPort, PlayerNotificationPort, ThreadRef } from './ports.js';
 import { buildDrawEmbed } from './render/draw.js';
@@ -47,6 +48,11 @@ export async function provisionReadyThreads(
     where: { tournamentId, status: 'IN_PROGRESS', threadId: null },
     include: { participants: { include: { entrant: true } } },
   });
+  if (ready.length === 0) return [];
+
+  // One query for the whole batch — every ready match in a round shares
+  // the same bracket shape, so there's no reason to ask per match.
+  const shape = await bracketShapeOf(prisma, tournamentId);
 
   const provisioned: ThreadRef[] = [];
   for (const match of ready) {
@@ -61,6 +67,7 @@ export async function provisionReadyThreads(
         p0!.entrant.displayName ?? p0!.entrant.discordUserId,
         p1!.entrant.displayName ?? p1!.entrant.discordUserId,
         tournamentName,
+        shape,
       );
     const matchPlayers = [
       { discordUserId: p0!.entrant.discordUserId, displayName: p0!.entrant.displayName ?? p0!.entrant.discordUserId },

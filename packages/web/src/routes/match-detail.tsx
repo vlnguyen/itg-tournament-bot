@@ -1,5 +1,5 @@
 import type { PublicMatch } from '@itg/shared';
-import { displayStepartistLine, displayTitle, FORMAT_LABEL, FormatKey, playstylePrefix, sectionLabel } from '@itg/shared';
+import { canEditMatchFormat, displayStepartistLine, displayTitle, FORMAT_LABEL, FormatKey, generateBracket, playstylePrefix, sectionLabel } from '@itg/shared';
 import { Alert, Badge, Center, Divider, Group, Loader, Select, Stack, Table, Text, Title } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
@@ -9,13 +9,20 @@ import { useCurrentUser } from '../hooks/use-current-user.js';
 import { useLifecycleStatus } from '../hooks/use-lifecycle-status.js';
 import { useMatch } from '../hooks/use-match.js';
 import { useRealtimeTournament } from '../hooks/use-realtime-tournament.js';
+import { useTournament } from '../hooks/use-tournament.js';
 import { ApiError, submitMatchFormats } from '../lib/api.js';
 
 function nameOf(pub: PublicMatch, entrantId: string | undefined): string {
   return pub.participants.find((p) => p.entrantId === entrantId)?.displayName ?? '-';
 }
 
-function SongRow({ pub, song }: { pub: PublicMatch; song: PublicMatch['songs'][number] }): JSX.Element {
+/** Who picked this song, Hubert's formats only — `undefined` for a forced Tiebreaker (never a player pick) or any Bo3/Bo5 song (`pub.picks` is always `[]` there). */
+export function pickedBy(pub: PublicMatch, song: PublicMatch['songs'][number]): string | undefined {
+  if (song.drawIndex === undefined) return undefined;
+  return pub.picks.find((p) => p.drawIndex === song.drawIndex)?.by;
+}
+
+function SongRow({ pub, song, showPickedBy }: { pub: PublicMatch; song: PublicMatch['songs'][number]; showPickedBy: boolean }): JSX.Element {
   const winnerText = !song.result
     ? '-'
     : song.result.winner === 'TIE'
@@ -26,14 +33,15 @@ function SongRow({ pub, song }: { pub: PublicMatch; song: PublicMatch['songs'][n
 
   return (
     <Table.Tr>
-      <Table.Td>{song.index + 1}</Table.Td>
+      <Table.Td>{song.chart.poolLabel ?? song.index + 1}</Table.Td>
       <Table.Td>
         {song.chart.title} [{song.chart.meter}]
       </Table.Td>
+      {showPickedBy && <Table.Td>{nameOf(pub, pickedBy(pub, song))}</Table.Td>}
       <Table.Td>
         {pub.participants.map((p) => (
           <Text key={p.entrantId} size="sm">
-            {p.displayName}: {song.ex[p.entrantId] ?? '-'}
+            {p.displayName}: {song.ex[p.entrantId] !== undefined ? `${song.ex[p.entrantId]!.toFixed(2)}%` : '-'}
           </Text>
         ))}
       </Table.Td>
@@ -52,11 +60,17 @@ function drawStatus(pub: PublicMatch, drawIndex: number): string | null {
   return null;
 }
 
+/** A static-pool format (Hubert's formats) labels every chart in the Draw — the label is a unique identifier, so it replaces the position number everywhere this match's charts are shown. Bo3/Bo5 never set `poolLabel`, so this is `false` for them, same check `buildDrawEmbed` makes server-side. */
+export function isStaticPool(draw: PublicMatch['draw']): boolean {
+  return draw.length > 0 && draw.every((c) => c.poolLabel !== null);
+}
+
 function DrawSection({ pub }: { pub: PublicMatch }): JSX.Element {
+  const labeled = isStaticPool(pub.draw);
   return (
     <div>
       <Title order={2} size="h4">
-        Draw
+        {labeled ? 'Song Pool' : 'Draw'}
       </Title>
       <Table>
         <Table.Thead>
@@ -74,7 +88,7 @@ function DrawSection({ pub }: { pub: PublicMatch }): JSX.Element {
             const status = played ? 'Played' : drawStatus(pub, i);
             return (
               <Table.Tr key={chart.chartId}>
-                <Table.Td>{i + 1}</Table.Td>
+                <Table.Td>{chart.poolLabel ?? i + 1}</Table.Td>
                 <Table.Td>{displayTitle(chart)}</Table.Td>
                 <Table.Td>
                   {playstylePrefix(chart.playStyle, chart.difficulty)}
@@ -159,6 +173,8 @@ function pendingDescription(pub: PublicMatch): string {
       return `Waiting on ${nameOf(pub, p.actor)} to Protect.`;
     case 'VETO':
       return `Waiting on ${nameOf(pub, p.actor)} to Veto.`;
+    case 'SELECT_SONG':
+      return `Waiting on ${nameOf(pub, p.actor)} to pick the next song.`;
     case 'SUBMIT_SCORE':
       return `Waiting on ${p.actors.map((a) => nameOf(pub, a)).join(' and ')} to submit EX%.`;
     case 'SELECT_WINNER':
@@ -184,6 +200,15 @@ export default function MatchDetail(): JSX.Element {
   const isOrganizer = lifecycleStatus !== undefined;
   const queryClient = useQueryClient();
   useRealtimeTournament(tournamentId!);
+
+  // Upgrades `sectionLabel`'s plain "Winners Round 1" to "Winners
+  // Semifinals" etc., same as the bracket page's own round headings —
+  // requires the bracket's shape, not just this one match's own
+  // bracket/round. A match page is only ever reached once a bracket
+  // exists, so `entrantCount >= 2` always holds here; guarded anyway to
+  // match `tournament-bracket.tsx`'s own precedent for `generateBracket`.
+  const { data: snapshot } = useTournament(tournamentId!);
+  const shape = snapshot && snapshot.entrantCount >= 2 ? generateBracket(snapshot.entrantCount) : undefined;
 
   // `pub.seq === 0` is the same "nothing has happened yet" test
   // `deriveMatchStatus` uses server-side for `PENDING` — `setMatchFormats`
@@ -218,6 +243,7 @@ export default function MatchDetail(): JSX.Element {
     // for a bye, so "vs TBD" would be misleading here the same way it
     // would be on the bracket cell.
     const isBye = pub.participants.length < 2 && pub.outcome?.by === 'WALKOVER';
+    const labeled = isStaticPool(pub.draw);
 
     content = (
       <>
@@ -226,9 +252,9 @@ export default function MatchDetail(): JSX.Element {
             {isBye ? `${p0?.displayName ?? p1?.displayName ?? 'TBD'} (BYE)` : `${p0?.displayName ?? 'TBD'} vs ${p1?.displayName ?? 'TBD'}`}
           </Title>
           <Group gap="xs" align="center">
-            <Text c="dimmed">{sectionLabel(pub.bracket, pub.round)}</Text>
+            <Text c="dimmed">{sectionLabel(pub.bracket, pub.round, shape)}</Text>
             <Text c="dimmed">&middot;</Text>
-            {isOrganizer && pub.seq === 0 ? (
+            {isOrganizer && pub.seq === 0 && snapshot && canEditMatchFormat(snapshot.state) ? (
               <Select
                 size="xs"
                 w={210}
@@ -277,11 +303,15 @@ export default function MatchDetail(): JSX.Element {
             <Stack gap={4}>
               {[...pub.protects.map((a) => ({ ...a, kind: 'Protect' as const })), ...pub.vetoes.map((a) => ({ ...a, kind: 'Veto' as const }))]
                 .sort((a, b) => pub.draw.findIndex((c) => c === pub.draw[a.drawIndex]) - pub.draw.findIndex((c) => c === pub.draw[b.drawIndex]))
-                .map((a, i) => (
-                  <Text key={i} size="sm">
-                    {nameOf(pub, a.by)} {a.kind === 'Protect' ? 'protected' : 'vetoed'} {pub.draw[a.drawIndex]?.title}
-                  </Text>
-                ))}
+                .map((a, i) => {
+                  const chart = pub.draw[a.drawIndex];
+                  const chartLabel = chart?.poolLabel ? `${chart.poolLabel}: ${chart.title}` : chart?.title;
+                  return (
+                    <Text key={i} size="sm">
+                      {nameOf(pub, a.by)} {a.kind === 'Protect' ? 'protected' : 'vetoed'} {chartLabel}
+                    </Text>
+                  );
+                })}
             </Stack>
           </div>
         )}
@@ -296,13 +326,14 @@ export default function MatchDetail(): JSX.Element {
                 <Table.Tr>
                   <Table.Th style={{ width: '1%', whiteSpace: 'nowrap' }}>#</Table.Th>
                   <Table.Th>Chart</Table.Th>
+                  {labeled && <Table.Th>Picked by</Table.Th>}
                   <Table.Th>EX%</Table.Th>
                   <Table.Th>Result</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
                 {pub.songs.map((song) => (
-                  <SongRow key={song.index} pub={pub} song={song} />
+                  <SongRow key={song.index} pub={pub} song={song} showPickedBy={labeled} />
                 ))}
               </Table.Tbody>
             </Table>

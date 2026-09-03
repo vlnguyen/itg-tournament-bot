@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import type { ChartSnapshot } from '@itg/shared';
+import { comparePoolLabels } from '@itg/shared';
 import { draw } from '../domain/draw.js';
 import { makeRng } from '../domain/rng.js';
 import { formatRegistry } from '../domain/golden/registry.js';
@@ -178,18 +179,21 @@ async function loadChartPack(tx: Tx, tournamentId: string): Promise<ChartSnapsho
 
 /**
  * A static-pool format's Draw: every `ChartLabel` row for this tournament
- * and format, joined to its `Chart`, ordered by label so the Draw's
- * position numbering is stable and reproducible — not random, unlike
- * `loadChartPack` + `draw()`. Only ever returns labeled charts; an
- * unlabeled chart in the same pack is never part of the pool. See
+ * and format, joined to its `Chart` — not random, unlike `loadChartPack` +
+ * `draw()`. Only ever returns labeled charts; an unlabeled chart in the
+ * same pack is never part of the pool. Ordered by `comparePoolLabels`
+ * (category first — RD, FT, FN, TB — then numerically within one) rather
+ * than a plain string sort, which is the canonical order every render of
+ * this Draw (the "Song Pool" embed, veto/pick status lines) reads
+ * top-to-bottom, position-in-the-array, no separate sort of its own. See
  * `hubert.ts`'s `DRAW_STATIC` directive.
  */
 async function loadStaticPool(tx: Tx, tournamentId: string, formatKey: string): Promise<ChartSnapshot[]> {
   const labels = await tx.chartLabel.findMany({
     where: { tournamentId, formatKey },
     include: { chart: true },
-    orderBy: { label: 'asc' },
   });
+  labels.sort((a, b) => comparePoolLabels(a.label, b.label));
   return labels.map((l) => toChartSnapshot(l.chart, l.label));
 }
 

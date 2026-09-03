@@ -197,6 +197,18 @@ export function makeProtectVetoFormat(config: ProtectVetoConfig): MatchFormat {
         s.deciderIndex = undefined;
         s.a = undefined;
         s.b = undefined;
+        // `isLegal` now also allows this once song 1 has started (picked,
+        // scored, even winner-selected) but not yet committed — exactly one
+        // song is ever live without a `result` at a time, so dropping it
+        // here is what actually undoes that far, not just the sequence.
+        // Leaving it in `s.songs` would have the redo's own song 1 land at
+        // index 1 instead of overwriting it, corrupting every index-based
+        // read of the songs array from there on. Frees its chart's
+        // `drawIndex` for `nextDrawSong` too, same as any other undo.
+        if (s.songs.length > 0 && !s.songs[s.songs.length - 1]!.result) {
+          s.songs = s.songs.slice(0, -1);
+          s.escalation = undefined;
+        }
         break;
 
       case 'SONG_STARTED':

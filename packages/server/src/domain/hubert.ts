@@ -264,18 +264,25 @@ export function makeHubertFormat(config: HubertConfig): MatchFormat {
         if (!s.terminal) s.terminal = { winnerId: event.payload.winnerId, by: 'WALKOVER' };
         break;
 
-      // `isLegal` allows this whenever a VETO is pending — format-agnostic,
-      // same as every other pending kind it checks — so a Hubert match can
-      // reach this case even though NEW_FORMAT.md never mentions it. Same
-      // semantics as protect-veto.ts's own reset: "the Draw stands; the
-      // sequence is cleared, including the seed choice" — here, the coin
-      // flip. Only ever reachable before song 1 starts (VETO is only ever
-      // pending then), so `s.songs` is already empty; nothing there to undo.
+      // `isLegal` allows this through vetoes, the song 1 pick, and song 1's
+      // play (score, winner select) — anything up to song 1 actually
+      // committing — so a Hubert match can reach this case even though
+      // NEW_FORMAT.md never mentions it. Unlike protect-veto.ts's own
+      // reset, the coin flip stands: Player A/B is a fixed identity once
+      // assigned, not part of the sequence being cleared, so a TO reset
+      // must not re-flip it. `songOneUncommitted` bounds every reachable
+      // case to at most one song, uncommitted, so `s.picks = []` already
+      // drops the one pick that started it — but that song's own entry in
+      // `s.songs` needs dropping too, or the redo's song 1 lands at index 1
+      // instead of overwriting it. Same reasoning as protect-veto.ts's own
+      // reset.
       case 'PROTECT_VETO_RESET':
         s.vetoes = [];
         s.picks = [];
-        s.a = undefined;
-        s.b = undefined;
+        if (s.songs.length > 0 && !s.songs[s.songs.length - 1]!.result) {
+          s.songs = s.songs.slice(0, -1);
+          s.escalation = undefined;
+        }
         break;
 
       // Not applicable to this format — never emitted or legal for a Hubert

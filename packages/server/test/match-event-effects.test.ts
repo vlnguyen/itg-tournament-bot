@@ -1,15 +1,64 @@
 import { PublicMatch as PublicMatchSchema } from '@itg/shared';
 import type { PublicMatch as DomainPublicMatch } from '../src/domain/projection.js';
 import { describe, expect, it } from 'vitest';
-import { applyAppendResult } from '../src/discord/match-event-effects.js';
+import { applyAppendResult, describeStale } from '../src/discord/match-event-effects.js';
 import { loadMatch } from '../src/discord/match-lookup.js';
 import type { AlertPort, MatchChannelPort, PlayerNotificationPort, RenderedMessage } from '../src/discord/ports.js';
+import type { PlayerDirectory } from '../src/discord/state-message.js';
 import { requireFormat } from '../src/services/engine.js';
-import { appendMatchEvent } from '../src/services/match-service.js';
+import { appendMatchEvent, IllegalActionError } from '../src/services/match-service.js';
 import { materializeBracket } from '../src/services/bracket-service.js';
 import type { RealtimeBroadcastPort } from '../src/services/ports.js';
 import { sequentialRandomPort } from '../src/services/ports.js';
 import { cleanupTournament, isReachable, makeTournament, prisma, type TestTournament } from './support.js';
+
+/**
+ * `describeStale` names what the match is actually waiting on — "Waiting
+ * for Hubert to pick a song" — rather than the raw pending kind
+ * ("it's waiting on select song"). Pure, no DB needed.
+ */
+describe('describeStale', () => {
+  const players: PlayerDirectory = new Map([
+    ['alice', { discordUserId: 'd-alice', displayName: 'VincentITG' }],
+    ['bob', { discordUserId: 'd-bob', displayName: 'Hubert' }],
+  ]);
+
+  it("names the actor for an out-of-turn action (Hubert's SELECT_SONG)", () => {
+    const err = new IllegalActionError('m1', { kind: 'SELECT_SONG', actor: 'bob', choices: [0] }, {
+      actorId: 'd-alice',
+      type: 'CHART_SELECTED',
+      payload: { by: 'alice', drawIndex: 0 },
+    });
+    expect(describeStale(err, players)).toBe('Waiting for Hubert to pick a song.');
+  });
+
+  it('joins two actors with "and" for SUBMIT_SCORE/SELECT_WINNER/CONFIRM_RESULT', () => {
+    const submitScore = new IllegalActionError('m1', { kind: 'SUBMIT_SCORE', actors: ['alice', 'bob'], songIndex: 0 }, {
+      actorId: 'd-alice',
+      type: 'SONG_WINNER_SELECTED',
+      payload: { songIndex: 0, by: 'alice', choice: 'alice' },
+    });
+    expect(describeStale(submitScore, players)).toBe('Waiting for VincentITG and Hubert to submit EX%.');
+  });
+
+  it('never names who for a hidden TIEBREAK_PICK', () => {
+    const err = new IllegalActionError('m1', { kind: 'TIEBREAK_PICK', actors: ['alice'], round: 1, choices: [0] }, {
+      actorId: 'd-bob',
+      type: 'CHART_VETOED',
+      payload: { by: 'bob', drawIndex: 0 },
+    });
+    expect(describeStale(err, players)).toBe('Waiting for a tiebreak pick.');
+  });
+
+  it('reports a decided match plainly', () => {
+    const err = new IllegalActionError('m1', { kind: 'DONE' }, {
+      actorId: 'd-alice',
+      type: 'CHART_VETOED',
+      payload: { by: 'alice', drawIndex: 0 },
+    });
+    expect(describeStale(err, players)).toBe('The match is already decided.');
+  });
+});
 
 /**
  * Regression test for a real bug: `toPublicMatch` never sets

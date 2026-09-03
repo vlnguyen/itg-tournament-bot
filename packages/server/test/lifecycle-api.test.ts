@@ -192,7 +192,7 @@ describe.skipIf(!(await isReachable()))('GET/POST /api/tournaments/:id/lifecycle
       // Reopening registration this deep preserves both check-ins.
       status = await controller.postAction(tournamentId, { action: 'OPEN_REGISTRATION' }, TO);
       expect(status.state).toBe('REGISTRATION_OPEN');
-      const roster = await getRoster(prisma, guildId);
+      const roster = await getRoster(prisma, tournamentId);
       expect(roster.filter((e) => e.checkedIn)).toHaveLength(2);
 
       status = await controller.postAction(tournamentId, { action: 'CANCEL' }, TO);

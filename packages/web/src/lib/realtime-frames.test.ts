@@ -29,6 +29,7 @@ function emptyPublicMatch(seq: number): PublicMatch {
     draw: [],
     protects: [],
     vetoes: [],
+    picks: [],
     songs: [],
     points: {},
     tiebreaks: [],

@@ -332,18 +332,24 @@ export async function rosterRemove(
 export type RosterEntry = Pick<Entrant, 'id' | 'discordUserId' | 'displayName' | 'checkedIn' | 'seed' | 'joinedAt'>;
 
 /**
- * The whole active roster, one ordered list by seed — every entrant has one
- * from the moment they join (see `joinOrReactivate`), so check-in status is
- * just its own column, not a grouping split. `nulls: 'last'` is a fallback
- * for data predating that guarantee, not a state this produces going
- * forward.
+ * The whole active roster for one specific tournament, one ordered list by
+ * seed — every entrant has one from the moment they join (see
+ * `joinOrReactivate`), so check-in status is just its own column, not a
+ * grouping split. `nulls: 'last'` is a fallback for data predating that
+ * guarantee, not a state this produces going forward.
+ *
+ * Takes `tournamentId` directly rather than resolving it via
+ * `findActiveTournament(guildId)`, unlike every other function in this
+ * file — that resolution excludes `COMPLETE`/`CANCELLED` by design (the
+ * guild's slot has already freed for a new tournament by then), which is
+ * exactly wrong here: an organizer still needs `GET /roster` to work for
+ * the tournament actually named in the URL, including after it's
+ * finished — reviewing final seeding order shouldn't stop being possible
+ * just because the guild has moved on.
  */
-export async function getRoster(prisma: PrismaClient, guildId: string): Promise<RosterEntry[]> {
-  const tournament = await findActiveTournament(prisma, guildId);
-  if (!tournament) return [];
-
+export async function getRoster(prisma: PrismaClient, tournamentId: string): Promise<RosterEntry[]> {
   return prisma.entrant.findMany({
-    where: { tournamentId: tournament.id, status: 'ACTIVE' },
+    where: { tournamentId, status: 'ACTIVE' },
     orderBy: [{ seed: { sort: 'asc', nulls: 'last' } }, { joinedAt: 'asc' }],
   });
 }

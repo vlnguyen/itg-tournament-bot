@@ -117,6 +117,9 @@ export const PendingAction = z.union([
   z.object({ kind: z.literal('SEED_CHOICE'), actor: EntrantId }),
   z.object({ kind: z.literal('PROTECT'), actor: EntrantId, choices: z.array(z.number().int()) }),
   z.object({ kind: z.literal('VETO'), actor: EntrantId, choices: z.array(z.number().int()) }),
+  // Hubert's formats only — the player-driven song pick between vetoes
+  // finishing and a song actually starting. Same shape as PROTECT/VETO.
+  z.object({ kind: z.literal('SELECT_SONG'), actor: EntrantId, choices: z.array(z.number().int()) }),
   z.object({
     kind: z.literal('SUBMIT_SCORE'),
     actors: z.array(EntrantId),
@@ -177,6 +180,8 @@ export const PublicMatch = z.object({
   draw: z.array(ChartSnapshot),
   protects: z.array(z.object({ drawIndex: z.number().int().nonnegative(), by: EntrantId })),
   vetoes: z.array(z.object({ drawIndex: z.number().int().nonnegative(), by: EntrantId })),
+  /** Hubert's formats only — a player-driven song pick. Always `[]` for Bo3/Bo5. */
+  picks: z.array(z.object({ drawIndex: z.number().int().nonnegative(), by: EntrantId })),
   deciderIndex: z.number().int().nonnegative().optional(),
   songs: z.array(PublicSong),
   points: z.record(EntrantId, z.number().int()),

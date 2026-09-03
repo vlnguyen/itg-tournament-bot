@@ -1,5 +1,6 @@
 import { EmbedBuilder } from 'discord.js';
 import type { ChartSnapshot } from '@itg/shared';
+import { comparePoolLabels } from '@itg/shared';
 import { fullChartDescription } from './chart.js';
 
 /**
@@ -53,11 +54,30 @@ export const LOG_COLOR = {
  * "The Draw posts as an embed — seven charts in full form, numbered."
  * Posted once as a log message; never edited. See DESIGN.md, "The Draw
  * and Protect/Veto".
+ *
+ * A static-pool format's charts (Hubert's formats — every chart carries a
+ * `poolLabel`) render differently: titled "Song Pool," not "The Draw" —
+ * there's nothing random to call a draw — grouped by category in the
+ * fixed RD/FT/FN/TB order (`comparePoolLabels`) with the label itself as
+ * each field's name, not a position number, since the label is already
+ * the pool's unique identifier. `fullChartDescription`'s own
+ * `showPoolLabel: false` keeps that identifier from repeating a second
+ * time inside the field's value.
  */
 export function buildDrawEmbed(charts: ChartSnapshot[]): EmbedBuilder {
-  const embed = new EmbedBuilder().setTitle('The Draw').setColor(LOG_COLOR.DRAW);
-  charts.forEach((chart, i) => {
-    embed.addFields({ name: `${i + 1}`, value: fullChartDescription(chart) });
-  });
+  const isStaticPool = charts.length > 0 && charts.every((c) => c.poolLabel !== null);
+  const embed = new EmbedBuilder().setTitle(isStaticPool ? 'Song Pool' : 'The Draw').setColor(LOG_COLOR.DRAW);
+
+  if (isStaticPool) {
+    const ordered = [...charts].sort((a, b) => comparePoolLabels(a.poolLabel!, b.poolLabel!));
+    ordered.forEach((chart) => {
+      embed.addFields({ name: chart.poolLabel!, value: fullChartDescription(chart, { showPoolLabel: false }) });
+    });
+  } else {
+    charts.forEach((chart, i) => {
+      embed.addFields({ name: `${i + 1}`, value: fullChartDescription(chart) });
+    });
+  }
+
   return embed;
 }

@@ -7,6 +7,7 @@ import {
   StringSelectMenuOptionBuilder,
 } from 'discord.js';
 import type { EntrantId, EscalationReason, MatchState, PendingAction } from '../domain/types.js';
+import { songOneUncommitted } from '../domain/validate.js';
 import { Action } from './actions.js';
 import { encodeCustomId } from './custom-id.js';
 import type { RenderedMessage } from './ports.js';
@@ -138,12 +139,15 @@ function renderProtectVeto(
 ): RenderedMessage {
   const verb = kind === 'PROTECT' ? 'Protect' : 'Veto';
   const icon = kind === 'PROTECT' ? '🛡️' : '🚫';
+  // A static-pool format (Hubert's formats) calls this "the Song Pool," not
+  // "the Draw" — see `buildDrawEmbed`.
+  const poolName = state.draw[0]?.poolLabel ? 'Song Pool' : 'Draw';
   const embed = new EmbedBuilder()
     .setTitle(`${icon} ${verb}`)
     .setColor(kind === 'PROTECT' ? LOG_COLOR.PROTECT : LOG_COLOR.VETO)
-    .setDescription(`${mention(players, actorId)}, choose a chart to ${verb.toLowerCase()} from the Draw above.`)
+    .setDescription(`${mention(players, actorId)}, choose a chart to ${verb.toLowerCase()} from the ${poolName} above.`)
     .addFields({
-      name: 'Draw status',
+      name: `${poolName} status`,
       value: buildDrawStatusLines(state, (id) => displayName(players, id)),
     });
 
@@ -169,9 +173,10 @@ function renderProtectVeto(
  * there," NEW_FORMAT.md. Reuses `Action.PROTECT_VETO`'s custom id: it's
  * already a generic "pick a Draw position from a select menu" action,
  * disambiguated on receipt by `pendingAction.kind` — see
- * `interactions.ts`'s `buildEvent`. No reset button: a referee's
- * Protect/Veto reset is legal only before song 1 starts, well before any
- * pick is ever offered.
+ * `interactions.ts`'s `buildEvent`. The reset button only shows while song 1
+ * is still uncommitted (`isLegal`'s `PROTECT_VETO_RESET` window agrees
+ * independently) — this recurs for every later song's pick too, where a
+ * reset is no longer legal.
  */
 function renderSelectSong(
   matchId: string,
@@ -183,9 +188,9 @@ function renderSelectSong(
   const embed = new EmbedBuilder()
     .setTitle('🎵 Pick a song')
     .setColor(LOG_COLOR.PROTECT)
-    .setDescription(`${mention(players, actorId)}, choose the next song to play from the Draw above.`)
+    .setDescription(`${mention(players, actorId)}, select a song to play.`)
     .addFields({
-      name: 'Draw status',
+      name: 'Song Pool status',
       value: buildDrawStatusLines(state, (id) => displayName(players, id)),
     });
 
@@ -202,7 +207,8 @@ function renderSelectSong(
     );
 
   const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
-  return { embeds: [embed], components: [row] };
+  const rows = songOneUncommitted(state) ? [row, resetButtonRow(matchId)] : [row];
+  return { embeds: [embed], components: rows };
 }
 
 function renderSubmitScore(
@@ -229,7 +235,10 @@ function renderSubmitScore(
       .setStyle(ButtonStyle.Primary),
   );
 
-  return { embeds: [embed], components: [row] };
+  // Legal until song 1's result actually commits — see `isLegal`'s
+  // `PROTECT_VETO_RESET` case and `songOneUncommitted`.
+  const rows = songOneUncommitted(state) ? [row, resetButtonRow(matchId)] : [row];
+  return { embeds: [embed], components: rows };
 }
 
 function renderSelectWinner(
@@ -240,15 +249,23 @@ function renderSelectWinner(
 ): RenderedMessage {
   const song = state.songs[songIndex]!;
   const [a, b] = state.participants;
-  return buildWinnerSelectMessage(matchId, songIndex, song, [a!.entrantId, b!.entrantId], (id) =>
+  const message = buildWinnerSelectMessage(matchId, songIndex, song, [a!.entrantId, b!.entrantId], (id) =>
     displayName(players, id),
   );
+  // Legal until song 1's result actually commits — see `isLegal`'s
+  // `PROTECT_VETO_RESET` case and `songOneUncommitted`.
+  if (!songOneUncommitted(state)) return message;
+  return { ...message, components: [...(message.components ?? []), resetButtonRow(matchId)] };
 }
 
 function renderConfirmResult(matchId: string, state: MatchState, players: PlayerDirectory): RenderedMessage {
   const [a, b] = state.participants;
-  return buildConfirmResultMessage(matchId, state.points, [a!.entrantId, b!.entrantId], (id) =>
-    displayName(players, id),
+  return buildConfirmResultMessage(
+    matchId,
+    state.points,
+    [a!.entrantId, b!.entrantId],
+    (id) => displayName(players, id),
+    state.songs,
   );
 }
 

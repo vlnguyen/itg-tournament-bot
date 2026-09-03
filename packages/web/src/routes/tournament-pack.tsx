@@ -1,5 +1,6 @@
 import type { ChartInput, ChartSnapshot, FormatKey, PoolCategory, SongPoolIssues, TournamentSnapshot } from '@itg/shared';
 import {
+  canEditSongPool,
   canImportPack,
   displayStepartistLine,
   displaySubtitle,
@@ -11,7 +12,7 @@ import {
   poolCategoryOf,
   POOL_CATEGORY_LABEL,
 } from '@itg/shared';
-import type { DifficultySlot, PlayStyle } from '@itg/shared';
+import type { DifficultySlot, PlayStyle, TournamentState } from '@itg/shared';
 import {
   ActionIcon,
   Alert,
@@ -39,6 +40,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { PackImport } from '../components/pack-import.js';
 import { TournamentHeader } from '../components/tournament-header.js';
+import { useLifecycleStatus } from '../hooks/use-lifecycle-status.js';
 import { useTournament } from '../hooks/use-tournament.js';
 import {
   ApiError,
@@ -252,10 +254,12 @@ function AllSongsTab({
   tournamentId,
   charts,
   snapshot,
+  isOrganizer,
 }: {
   tournamentId: string;
   charts: ChartSnapshot[];
   snapshot: TournamentSnapshot | undefined;
+  isOrganizer: boolean;
 }): JSX.Element {
   const queryClient = useQueryClient();
 
@@ -356,14 +360,18 @@ function AllSongsTab({
       </Modal>
 
       {/*
-        No client-side tier check — the server is the only real gate for
-        *who* can import (Tournament Organizer, checked on POST). *When*
-        import is legal at all is different: once the tournament starts,
-        the control is absent rather than present-but-erroring, same as
-        every other frozen action in this app (DESIGN.md: "controls for
-        frozen actions are not disabled-but-present; they are absent").
+        Deliberate exception to this app's usual "no client-side tier
+        check" convention (see e.g. `referee-overrides.tsx`) — pack
+        editing controls are hidden for a non-organizer, not just
+        server-rejected. `isOrganizer` is still only a UX nicety, not the
+        real gate: the POST/PATCH endpoints enforce Tournament Organizer
+        tier regardless. *When* import is legal at all is separate: once
+        the tournament starts, the control is absent rather than
+        present-but-erroring, same as every other frozen action in this
+        app (DESIGN.md: "controls for frozen actions are not
+        disabled-but-present; they are absent").
       */}
-      {!isEditing && snapshot && canImportPack(snapshot.state) && (
+      {!isEditing && isOrganizer && snapshot && canImportPack(snapshot.state) && (
         <>
           <Button variant="subtle" size="xs" onClick={toggleImport} style={{ alignSelf: 'flex-start' }}>
             {importOpen ? 'Hide import' : 'Import pack'}
@@ -437,9 +445,11 @@ function AllSongsTab({
           {isEditing ? `${rows.length} chart${rows.length === 1 ? '' : 's'}` : `${filtered.length} of ${charts.length} charts`}
         </Text>
         {!isEditing ? (
-          <Button variant="default" size="xs" onClick={startEditing}>
-            Edit
-          </Button>
+          isOrganizer && (
+            <Button variant="default" size="xs" onClick={startEditing}>
+              Edit
+            </Button>
+          )
         ) : (
           <Group gap="xs">
             <Button variant="default" size="xs" onClick={handleCancelClick}>
@@ -547,11 +557,32 @@ function summarizeIssues(issues: SongPoolIssues, chartTitle: (chartId: string) =
  *
  * No Edit-mode toggle, unlike "All Songs": labeling never touches a
  * `Chart` row, so there's no freeze concern to buffer against — every
- * row's `Select` is always live, and "Save" persists whatever's currently
- * selected. Never blocked by an incomplete or conflicting pool — only
- * Start Tournament is; Save always commits and shows what's still wrong.
+ * row's `Select` is always live for an organizer (while the tournament
+ * hasn't started — see `canEditSongPool`), and "Save" persists whatever's
+ * currently selected. Never blocked by an incomplete or conflicting pool
+ * — only Start Tournament is; Save always commits and shows what's still
+ * wrong.
+ *
+ * `isOrganizer` hides the `Select`/Save entirely for anyone else, in
+ * place of the plain assigned label — a deliberate exception to this
+ * app's usual "controls stay present, the server's rejection is the only
+ * gate" convention (see `AllSongsTab`'s Import button comment).
+ * `canEditSongPool(state)` hides them the same way once the tournament
+ * has started — the server rejects a Save from then on regardless.
  */
-function StaticPoolTab({ tournamentId, formatKey, charts }: { tournamentId: string; formatKey: FormatKey; charts: ChartSnapshot[] }): JSX.Element {
+function StaticPoolTab({
+  tournamentId,
+  formatKey,
+  charts,
+  isOrganizer,
+  state,
+}: {
+  tournamentId: string;
+  formatKey: FormatKey;
+  charts: ChartSnapshot[];
+  isOrganizer: boolean;
+  state: TournamentState | undefined;
+}): JSX.Element {
   const queryClient = useQueryClient();
   const requiredLabels = FORMAT_SONG_LABELS[formatKey] ?? [];
   const labelOptions = requiredLabels.map((label) => ({ value: label, label }));
@@ -585,6 +616,7 @@ function StaticPoolTab({ tournamentId, formatKey, charts }: { tournamentId: stri
 
   const dirty = tab ? JSON.stringify(assignments) !== JSON.stringify(tab.assignments) : false;
   const chartTitle = (chartId: string) => charts.find((c) => c.chartId === chartId)?.title ?? chartId;
+  const canEdit = isOrganizer && state !== undefined && canEditSongPool(state);
 
   if (isPending) {
     return (
@@ -624,9 +656,11 @@ function StaticPoolTab({ tournamentId, formatKey, charts }: { tournamentId: stri
         <Text size="sm" c="dimmed">
           {Object.keys(assignments).length} of {requiredLabels.length} labels assigned
         </Text>
-        <Button size="xs" onClick={() => saveMutation.mutate()} loading={saveMutation.isPending} disabled={!dirty}>
-          Save
-        </Button>
+        {canEdit && (
+          <Button size="xs" onClick={() => saveMutation.mutate()} loading={saveMutation.isPending} disabled={!dirty}>
+            Save
+          </Button>
+        )}
       </Group>
 
       <Table>
@@ -649,21 +683,25 @@ function StaticPoolTab({ tournamentId, formatKey, charts }: { tournamentId: stri
                 {c.meter}
               </Table.Td>
               <Table.Td>
-                <Select
-                  placeholder="—"
-                  data={labelOptions}
-                  value={assignments[c.chartId] ?? null}
-                  onChange={(value) =>
-                    setAssignments((prev) => {
-                      const next = { ...prev };
-                      if (value) next[c.chartId] = value;
-                      else delete next[c.chartId];
-                      return next;
-                    })
-                  }
-                  clearable
-                  w={120}
-                />
+                {canEdit ? (
+                  <Select
+                    placeholder="—"
+                    data={labelOptions}
+                    value={assignments[c.chartId] ?? null}
+                    onChange={(value) =>
+                      setAssignments((prev) => {
+                        const next = { ...prev };
+                        if (value) next[c.chartId] = value;
+                        else delete next[c.chartId];
+                        return next;
+                      })
+                    }
+                    clearable
+                    w={120}
+                  />
+                ) : (
+                  (assignments[c.chartId] ?? '—')
+                )}
               </Table.Td>
             </Table.Tr>
           ))}
@@ -674,7 +712,15 @@ function StaticPoolTab({ tournamentId, formatKey, charts }: { tournamentId: stri
 }
 
 /** The "+" tab — opens a modal to pick which static-pool format to create a tab for, filtered to ones this tournament doesn't already have. */
-function CreatePoolTabButton({ tournamentId, existingFormats }: { tournamentId: string; existingFormats: FormatKey[] }): JSX.Element {
+function CreatePoolTabButton({
+  tournamentId,
+  existingFormats,
+  isOrganizer,
+}: {
+  tournamentId: string;
+  existingFormats: FormatKey[];
+  isOrganizer: boolean;
+}): JSX.Element | null {
   const [opened, { open, close }] = useDisclosure(false);
   const [formatKey, setFormatKey] = useState<FormatKey | null>(null);
   const queryClient = useQueryClient();
@@ -696,6 +742,10 @@ function CreatePoolTabButton({ tournamentId, existingFormats }: { tournamentId: 
     setFormatKey(null);
     mutation.reset();
   }
+
+  // Not an organizer, or nothing left to add — every static-pool format
+  // already has a tab.
+  if (!isOrganizer || staticFormats.length === 0) return null;
 
   return (
     <>
@@ -731,8 +781,23 @@ function CreatePoolTabButton({ tournamentId, existingFormats }: { tournamentId: 
   );
 }
 
-/** A tab's own "×" — confirms before deleting, same discard-confirm shape `AllSongsTab` uses. */
-function DeletePoolTabButton({ tournamentId, formatKey }: { tournamentId: string; formatKey: FormatKey }): JSX.Element {
+/**
+ * A tab's own "×" — confirms before deleting, same discard-confirm shape
+ * `AllSongsTab` uses. Absent entirely for anyone but an organizer, and
+ * once the tournament has started (`canEditSongPool`) — the server
+ * rejects the delete from then on regardless.
+ */
+function DeletePoolTabButton({
+  tournamentId,
+  formatKey,
+  isOrganizer,
+  state,
+}: {
+  tournamentId: string;
+  formatKey: FormatKey;
+  isOrganizer: boolean;
+  state: TournamentState | undefined;
+}): JSX.Element | null {
   const [opened, { open, close }] = useDisclosure(false);
   const queryClient = useQueryClient();
 
@@ -743,6 +808,8 @@ function DeletePoolTabButton({ tournamentId, formatKey }: { tournamentId: string
       close();
     },
   });
+
+  if (!isOrganizer || state === undefined || !canEditSongPool(state)) return null;
 
   return (
     <>
@@ -791,7 +858,28 @@ export default function TournamentPack(): JSX.Element {
     queryKey: ['song-pools', tournamentId],
     queryFn: () => fetchSongPools(tournamentId!),
   });
+  // Pack editing (Edit, Import, and every song-pool control) is
+  // Tournament-Organizer-only — a deliberate exception to this app's usual
+  // "controls stay present, the server's rejection is the only real gate"
+  // convention. `lifecycleStatus` is organizer-only data (403s otherwise),
+  // so whether the fetch succeeded doubles as the client's best-effort
+  // organizer signal — same inferred pattern `tournament-bracket.tsx` and
+  // `match-detail.tsx` already use. It's still only a UX nicety: the
+  // POST/PATCH/DELETE endpoints enforce the real tier check regardless.
+  const { data: lifecycleStatus } = useLifecycleStatus(tournamentId!);
+  const isOrganizer = lifecycleStatus !== undefined;
+  const poolTabs = songPools?.tabs ?? [];
   const [activeTab, setActiveTab] = useState<string>('all');
+
+  // Deleting the tab you're currently viewing (or, just as well, its
+  // format's static pool going away from under you some other way) drops
+  // you back to "All Songs" instead of leaving the view stranded on a tab
+  // that no longer has a panel to render.
+  useEffect(() => {
+    if (activeTab !== 'all' && !poolTabs.some((t) => t.formatKey === activeTab)) {
+      setActiveTab('all');
+    }
+  }, [activeTab, poolTabs]);
 
   let content: JSX.Element;
 
@@ -810,7 +898,6 @@ export default function TournamentPack(): JSX.Element {
       </Center>
     );
   } else {
-    const poolTabs = songPools?.tabs ?? [];
     content = (
       <Tabs value={activeTab} onChange={(v) => v && setActiveTab(v)}>
         <Tabs.List>
@@ -819,23 +906,31 @@ export default function TournamentPack(): JSX.Element {
             <Tabs.Tab
               key={t.formatKey}
               value={t.formatKey}
-              rightSection={<DeletePoolTabButton tournamentId={tournamentId!} formatKey={t.formatKey} />}
+              rightSection={
+                <DeletePoolTabButton tournamentId={tournamentId!} formatKey={t.formatKey} isOrganizer={isOrganizer} state={snapshot?.state} />
+              }
             >
               {FORMAT_SHORT_LABEL[t.formatKey]}
             </Tabs.Tab>
           ))}
-          <CreatePoolTabButton tournamentId={tournamentId!} existingFormats={poolTabs.map((t) => t.formatKey)} />
+          <CreatePoolTabButton tournamentId={tournamentId!} existingFormats={poolTabs.map((t) => t.formatKey)} isOrganizer={isOrganizer} />
         </Tabs.List>
 
         <Tabs.Panel value="all" pt="md">
           <Stack gap="lg">
-            <AllSongsTab tournamentId={tournamentId!} charts={charts} snapshot={snapshot} />
+            <AllSongsTab tournamentId={tournamentId!} charts={charts} snapshot={snapshot} isOrganizer={isOrganizer} />
           </Stack>
         </Tabs.Panel>
         {poolTabs.map((t) => (
           <Tabs.Panel key={t.formatKey} value={t.formatKey} pt="md">
             <Stack gap="lg">
-              <StaticPoolTab tournamentId={tournamentId!} formatKey={t.formatKey} charts={charts} />
+              <StaticPoolTab
+                tournamentId={tournamentId!}
+                formatKey={t.formatKey}
+                charts={charts}
+                isOrganizer={isOrganizer}
+                state={snapshot?.state}
+              />
             </Stack>
           </Tabs.Panel>
         ))}

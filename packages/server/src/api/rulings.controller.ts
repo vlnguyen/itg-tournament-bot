@@ -87,7 +87,7 @@ export class RulingsController {
         participants: pub.participants.map((p) => ({ ...p, displayName: names.get(p.entrantId) ?? p.entrantId })),
       });
     } catch (err) {
-      if (err instanceof IllegalActionError) throw new BadRequestException(`Can't rule on that: ${describeStale(err)}.`);
+      if (err instanceof IllegalActionError) throw new BadRequestException(`Can't rule on that. ${describeStale(err, players)}`);
       throw err;
     }
   }
@@ -152,6 +152,12 @@ export class RulingsController {
       );
     } else {
       await this.matchChannel.postLogMessage(ref, renderDqLog(ruling.playerId as EntrantId, 'MATCH', refName, players));
+      await logToOrganizers(
+        this.alert,
+        match.tournament.guildId,
+        `**${refName}** disqualified **${displayName(players, ruling.playerId as EntrantId)}** from a match.\n\n${matchLinksBlock(match.tournament.guildId, ref, match.tournamentId)}`,
+        { title: '⛔ Disqualification', color: LOG_COLOR.RULING },
+      );
     }
   }
 

@@ -1,4 +1,16 @@
-import type { MatchEvent, PendingAction } from './types.js';
+import type { MatchEvent, MatchState, PendingAction } from './types.js';
+
+/**
+ * Whether song 1 is still uncommitted — no song has a `result` yet. Every
+ * format plays its songs strictly in order with exactly one live at a time,
+ * so this is equivalent to "song 1 specifically hasn't committed," without
+ * needing to name it by index. Shared by `isLegal`'s `PROTECT_VETO_RESET`
+ * window and by `state-message.ts`, so the reset button only ever appears
+ * where pressing it would actually be accepted.
+ */
+export function songOneUncommitted(state: MatchState): boolean {
+  return state.songs.every((s) => s.result === undefined);
+}
 
 /**
  * "An action is legal iff its actor and value appear in the current
@@ -6,11 +18,15 @@ import type { MatchEvent, PendingAction } from './types.js';
  * freeze boundary is enforced by the reducer" — this is the transport-side
  * half of that two-layer check; the reducer's own guards are the second.
  *
- * Pure and format-agnostic: it reads only the shape `PendingAction` already
- * exposes, never a format's internal `MatchState`. A format that changes
- * what it waits on needs no change here.
+ * Format-agnostic: it reads only the shape `PendingAction` already exposes,
+ * never a format's internal `MatchState` — with one exception,
+ * `PROTECT_VETO_RESET`, which needs `state` to tell "song 1, not yet
+ * committed" apart from every later occurrence of the same pending kinds.
+ * `state` is optional and that one case fails closed without it, so every
+ * other call site (and the 40-odd existing tests that construct a bare
+ * `PendingAction` by hand) is unaffected.
  */
-export function isLegal(pending: PendingAction, event: MatchEvent): boolean {
+export function isLegal(pending: PendingAction, event: MatchEvent, state?: MatchState): boolean {
   switch (event.type) {
     case 'SEED_CHOICE_MADE':
       return pending.kind === 'SEED_CHOICE' && pending.actor === event.payload.by;
@@ -103,15 +119,23 @@ export function isLegal(pending: PendingAction, event: MatchEvent): boolean {
     case 'SET_RESULT_RULED':
       return pending.kind !== 'DONE';
 
-    // "A referee may reset the sequence until song 1 has been played." A
-    // person only ever observes `pendingAction` once the bot has settled, so
-    // "song 1 not yet played" is exactly these three kinds — by the time
-    // anything else is pending, `SONG_STARTED` for song 1 has already been
-    // auto-appended. See DESIGN.md, "Resetting Protect/Veto".
+    // "A referee may reset the sequence until song 1 has been played." Before
+    // any pick lands, that's exactly these three kinds. Once a pick or a
+    // song exists, "song 1 not yet played" means "song 1 hasn't committed a
+    // result" — a wrong veto or pick is just as catchable after song 1 has
+    // been picked, started, scored, or even selection-disagreed-on, right up
+    // until both players' agreement (or a ruling) locks it in. `SELECT_SONG`
+    // (Hubert's formats only), `SUBMIT_SCORE`, and `SELECT_WINNER` all recur
+    // for every later song too, which is exactly why this needs `state`
+    // rather than pending kind alone — `songOneUncommitted` is false again
+    // the moment song 1 actually commits. See DESIGN.md, "Resetting
+    // Protect/Veto".
     case 'PROTECT_VETO_RESET':
-      return (
-        pending.kind === 'SEED_CHOICE' || pending.kind === 'PROTECT' || pending.kind === 'VETO'
-      );
+      if (pending.kind === 'SEED_CHOICE' || pending.kind === 'PROTECT' || pending.kind === 'VETO') return true;
+      if (pending.kind === 'SELECT_SONG' || pending.kind === 'SUBMIT_SCORE' || pending.kind === 'SELECT_WINNER') {
+        return !!state && songOneUncommitted(state);
+      }
+      return false;
 
     // Terminal referee rulings: legal any time the match isn't already done.
     // "Nothing rewinds" is the reducer's guard (the first terminal event

@@ -13,6 +13,7 @@ function base(overrides: Partial<BracketMatch> = {}): BracketMatch {
     status: 'IN_PROGRESS',
     awaitingTo: false,
     outcomeBy: null,
+    outcomeWinCondition: null,
     points: { a: 0, b: 0 },
     currentChartId: null,
     winnerId: null,

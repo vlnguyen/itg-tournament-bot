@@ -1,11 +1,12 @@
-import type { ChartSnapshot as ChartSnapshotWire } from '@itg/shared';
-import { canImportPack, ChartImport, ChartSnapshot as ChartSnapshotSchema, CommitPackChangesRequest } from '@itg/shared';
+import type { ChartSnapshot as ChartSnapshotWire, ImportCandidatesResponse, ImportFromTournamentResult } from '@itg/shared';
+import { canImportPack, ChartImport, ChartSnapshot as ChartSnapshotSchema, CommitPackChangesRequest, ImportFromTournamentRequest } from '@itg/shared';
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post } from '@nestjs/common';
 import { ZodError } from 'zod';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { TierService } from '../auth/tier.service.js';
 import { Tier } from '../discord/tier.js';
 import { logAction } from '../services/audit-log.js';
+import { importFromPreviousTournament, listImportCandidates, PreviousEventImportError } from '../services/song-pool-service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 /**
@@ -68,6 +69,58 @@ export class ChartsController {
       data: charts.map((c) => ({ tournamentId: id, ...c })),
     });
     return { imported: charts.length };
+  }
+
+  /**
+   * `GET /api/tournaments/:id/charts/import-candidates` — the "Previous
+   * event" picker's step 1 list, public like `GET :id/charts` itself.
+   */
+  @Get(':id/charts/import-candidates')
+  async getImportCandidates(@Param('id') id: string): Promise<ImportCandidatesResponse> {
+    const tournament = await this.prisma.tournament.findUnique({ where: { id } });
+    if (!tournament) throw new NotFoundException(`no tournament ${id}`);
+
+    const candidates = await listImportCandidates(this.prisma, tournament.guildId, id);
+    return { tournaments: candidates.map((c) => ({ ...c, createdAt: c.createdAt.toISOString() })) };
+  }
+
+  /**
+   * `POST /api/tournaments/:id/charts/import-previous` — "Previous event":
+   * copy a finished tournament's whole pack into this one, and recreate
+   * the label assignments for whichever of its song-pool tabs the request
+   * names. Same organizer gate and `canImportPack` state gate as a plain
+   * import; everything else (same guild, source actually finished, which
+   * of the requested tabs the source actually has) is
+   * `importFromPreviousTournament`'s own job.
+   */
+  @Post(':id/charts/import-previous')
+  async importPreviousEvent(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() discordUserId: string | null,
+  ): Promise<ImportFromTournamentResult> {
+    const tournament = await this.prisma.tournament.findUnique({ where: { id } });
+    if (!tournament) throw new NotFoundException(`no tournament ${id}`);
+
+    if (!discordUserId || !(await this.tierService.hasTier(tournament.guildId, discordUserId, Tier.TOURNAMENT_ORGANIZER))) {
+      throw new ForbiddenException('You need Tournament Organizer tier to import charts.');
+    }
+
+    let request: ImportFromTournamentRequest;
+    try {
+      request = ImportFromTournamentRequest.parse(body);
+    } catch (err) {
+      if (err instanceof ZodError) throw new BadRequestException(err.issues);
+      throw err;
+    }
+
+    try {
+      const result = await importFromPreviousTournament(this.prisma, id, request.sourceTournamentId, request.formatKeys, discordUserId!);
+      return { ...result, importedFormatKeys: result.importedFormatKeys as ImportFromTournamentResult['importedFormatKeys'] };
+    } catch (err) {
+      if (err instanceof PreviousEventImportError) throw new BadRequestException(err.message);
+      throw err;
+    }
   }
 
   /**

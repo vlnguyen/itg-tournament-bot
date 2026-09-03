@@ -1,5 +1,5 @@
 import type { LifecycleAction, SetTournamentFormatMode } from '@itg/shared';
-import { FORMAT_LABEL, FormatKey } from '@itg/shared';
+import { FORMAT_LABEL, FormatKey, SELECTABLE_FORMAT_KEYS } from '@itg/shared';
 import { Alert, Button, Center, Group, List, Loader, Modal, Select, Stack, Text, TextInput, Title } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -177,7 +177,7 @@ export default function TournamentLifecycle(): JSX.Element {
           )}
           <Select
             maw={320}
-            data={FormatKey.options.map((key) => ({ value: key, label: FORMAT_LABEL[key] }))}
+            data={SELECTABLE_FORMAT_KEYS.map((key) => ({ value: key, label: FORMAT_LABEL[key] }))}
             value={status.defaultFormatKey}
             disabled={!status.formatEditable || formatMutation.isPending}
             allowDeselect={false}

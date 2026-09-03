@@ -1,4 +1,4 @@
-import { canEditMatchFormat, FORMAT_LABEL, FORMAT_SHORT_LABEL, FormatKey, matchKey, sectionLabel } from '@itg/shared';
+import { canEditMatchFormat, FORMAT_LABEL, FORMAT_SHORT_LABEL, FormatKey, matchKey, sectionLabel, SELECTABLE_FORMAT_KEYS } from '@itg/shared';
 import type { BracketShape, BracketSide, MatchRef, Standings } from '@itg/shared';
 import { Alert, Button, Center, Group, Loader, Select, Stack, Table, Text, Title, VisuallyHidden } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -47,7 +47,7 @@ function StandingsTable({ standings }: { standings: Standings }): JSX.Element {
   );
 }
 
-const FORMAT_SELECT_DATA = FormatKey.options.map((k) => ({ value: k, label: FORMAT_SHORT_LABEL[k] }));
+const FORMAT_SELECT_DATA = SELECTABLE_FORMAT_KEYS.map((k) => ({ value: k, label: FORMAT_SHORT_LABEL[k] }));
 
 /**
  * One side of the tree (winners or losers): a heading, then "an ordered
@@ -249,7 +249,7 @@ export default function TournamentBracket(): JSX.Element {
               size="xs"
               w={220}
               placeholder="Set selected to…"
-              data={FormatKey.options.map((k) => ({ value: k, label: FORMAT_LABEL[k] }))}
+              data={SELECTABLE_FORMAT_KEYS.map((k) => ({ value: k, label: FORMAT_LABEL[k] }))}
               disabled={assignMutation.isPending}
               onChange={(v) => v && assignMutation.mutate({ refs: [...selected.values()], formatKey: v as FormatKey })}
             />

@@ -229,24 +229,24 @@ describe.skipIf(!(await isReachable()))('GET/POST /api/tournaments/:id/lifecycle
         expect(generated.bracketEntrantCount).toBe(4);
         const matches = await prisma.match.findMany({ where: { tournamentId: t.id } });
         expect(matches.length).toBeGreaterThan(0);
-        expect(matches.every((m) => m.status === 'PENDING' && m.formatKey === 'bo5-protect-veto')).toBe(true);
+        expect(matches.every((m) => m.status === 'PENDING' && m.formatKey === 'bo5-protect-veto-v2')).toBe(true);
 
         const wr1 = matches.find((m) => m.bracket === 'WINNERS' && m.round === 1)!;
-        await controller.postMatchFormats(t.id, { refs: [{ bracket: 'WINNERS', round: 1, slot: wr1.slot }], formatKey: 'bo3-protect-veto' }, TO);
+        await controller.postMatchFormats(t.id, { refs: [{ bracket: 'WINNERS', round: 1, slot: wr1.slot }], formatKey: 'bo3-protect-veto-v2' }, TO);
         const reassigned = await prisma.match.findUniqueOrThrow({ where: { id: wr1.id } });
-        expect(reassigned.formatKey).toBe('bo3-protect-veto');
+        expect(reassigned.formatKey).toBe('bo3-protect-veto-v2');
 
         // The default now disagrees with that one override — a plain
         // SET_FORMAT with no mode must surface the conflict, not silently pick a side.
-        await expect(controller.postAction(t.id, { action: 'SET_FORMAT', formatKey: 'bo3-protect-veto' }, TO)).rejects.toBeInstanceOf(
+        await expect(controller.postAction(t.id, { action: 'SET_FORMAT', formatKey: 'bo3-protect-veto-v2' }, TO)).rejects.toBeInstanceOf(
           ConflictException,
         );
 
         // UPDATE_ALL resolves it: every match follows, override cleared.
-        const resolved = await controller.postAction(t.id, { action: 'SET_FORMAT', formatKey: 'bo3-protect-veto', mode: 'UPDATE_ALL' }, TO);
-        expect(resolved.defaultFormatKey).toBe('bo3-protect-veto');
+        const resolved = await controller.postAction(t.id, { action: 'SET_FORMAT', formatKey: 'bo3-protect-veto-v2', mode: 'UPDATE_ALL' }, TO);
+        expect(resolved.defaultFormatKey).toBe('bo3-protect-veto-v2');
         const uniform = await prisma.match.findMany({ where: { tournamentId: t.id } });
-        expect(uniform.every((m) => m.formatKey === 'bo3-protect-veto')).toBe(true);
+        expect(uniform.every((m) => m.formatKey === 'bo3-protect-veto-v2')).toBe(true);
       } finally {
         await prisma.guild.delete({ where: { id: gid } }).catch(() => undefined);
       }

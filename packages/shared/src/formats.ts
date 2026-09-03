@@ -14,14 +14,33 @@ import { z } from 'zod';
 export const FormatKey = z.enum([
   'bo5-protect-veto',
   'bo3-protect-veto',
+  'bo5-protect-veto-v2',
+  'bo3-protect-veto-v2',
   'hb11-static-pool',
   'hb13-static-pool',
 ]);
 export type FormatKey = z.infer<typeof FormatKey>;
 
+/**
+ * The subset of `FormatKey` a TO can choose for a new tournament/round/match
+ * (the `/tournament format` picker). `bo5-protect-veto`/`bo3-protect-veto`
+ * (v1) stay out of this list once their `-v2` replaces them — real matches
+ * were already played under them, so they stay in `FormatKey` and the
+ * registry purely so those matches keep resolving and replaying correctly,
+ * but nothing new should start under the superseded manual-confirm rules.
+ */
+export const SELECTABLE_FORMAT_KEYS: readonly FormatKey[] = [
+  'bo5-protect-veto-v2',
+  'bo3-protect-veto-v2',
+  'hb11-static-pool',
+  'hb13-static-pool',
+];
+
 export const FORMAT_LABEL: Record<FormatKey, string> = {
-  'bo5-protect-veto': 'Best of 5, 7 songs (Storm 2026)',
-  'bo3-protect-veto': 'Best of 3, 5 songs',
+  'bo5-protect-veto': 'Best of 5, 7 songs (Storm 2026) [legacy]',
+  'bo3-protect-veto': 'Best of 3, 5 songs [legacy]',
+  'bo5-protect-veto-v2': 'Best of 5, 7 songs (Storm 2026)',
+  'bo3-protect-veto-v2': 'Best of 3, 5 songs',
   'hb11-static-pool': "Hubert's format (11 songs)",
   'hb13-static-pool': "Hubert's format (13 songs)",
 };
@@ -30,6 +49,8 @@ export const FORMAT_LABEL: Record<FormatKey, string> = {
 export const FORMAT_SHORT_LABEL: Record<FormatKey, string> = {
   'bo5-protect-veto': 'BO5',
   'bo3-protect-veto': 'BO3',
+  'bo5-protect-veto-v2': 'BO5',
+  'bo3-protect-veto-v2': 'BO3',
   'hb11-static-pool': 'HB-11',
   'hb13-static-pool': 'HB-13',
 };
@@ -42,6 +63,8 @@ export const FORMAT_SHORT_LABEL: Record<FormatKey, string> = {
 export const FORMAT_STATIC_SONG_POOL: Record<FormatKey, boolean> = {
   'bo5-protect-veto': false,
   'bo3-protect-veto': false,
+  'bo5-protect-veto-v2': false,
+  'bo3-protect-veto-v2': false,
   'hb11-static-pool': true,
   'hb13-static-pool': true,
 };

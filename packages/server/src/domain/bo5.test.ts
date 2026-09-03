@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Bo5ProtectVetoFormat as F, POINTS_TO_WIN } from './bo5.js';
+import { Bo5ProtectVetoFormat as F, Bo5ProtectVetoFormatV2 as F2, POINTS_TO_WIN } from './bo5.js';
 import { MatchDriver, makePack } from './testkit.js';
 
 const A = 'alice';
@@ -301,6 +301,47 @@ describe('deciding the set', () => {
     d.confirmResult({ [A]: B, [B]: B });
     expect(d.pending).toEqual({ kind: 'DONE' });
     expect(F.outcome(d.state)!.placements.find((p) => p.place === 1)!.entrantId).toBe(A);
+  });
+});
+
+describe('bo5-protect-veto-v2: deciding the set without a confirm step', () => {
+  const openedV2 = (higherSeedTakes: 'FIRST' | 'SECOND' = 'FIRST') =>
+    new MatchDriver(makePack(20), F2).create(A, B).chooseSeed(higherSeedTakes).runProtectVeto();
+
+  it('is done the instant the third point lands — no CONFIRM_RESULT step', () => {
+    const d = openedV2().playSong(A).playSong(A).playSong(A);
+    expect(d.state.points[A]).toBe(POINTS_TO_WIN);
+    expect(d.pending).toEqual({ kind: 'DONE' });
+    const out = F2.outcome(d.state)!;
+    expect(out.by).toBe('AGREEMENT');
+    expect(out.winCondition).toBe('POINTS');
+    expect(out.placements).toEqual([
+      { entrantId: A, place: 1, points: 3 },
+      { entrantId: B, place: 2, points: 0 },
+    ]);
+  });
+
+  it('records a ruling in the outcome when one decided a song, still with no confirm step', () => {
+    const d = openedV2();
+    for (const id of [A, B]) {
+      d.apply({ actorId: id, type: 'SCORE_SUBMITTED', payload: { songIndex: 0, by: id, ex: 90 } });
+      d.apply({ actorId: null, type: 'PHOTO_OBSERVED', payload: { songIndex: 0, by: id, messageId: 'm' } });
+    }
+    d.apply({ actorId: 'ref', type: 'SONG_RULED', payload: { songIndex: 0, result: A } });
+    d.playSong(A).playSong(A);
+    expect(d.pending).toEqual({ kind: 'DONE' });
+    const out = F2.outcome(d.state)!;
+    expect(out.by).toBe('RULING');
+    expect(out.winCondition).toBeUndefined();
+  });
+
+  it('a referee can still rule the set directly at any point before it is done', () => {
+    const d = openedV2().playSong(A).playSong(B);
+    d.apply({ actorId: 'ref', type: 'SET_RESULT_RULED', payload: { result: B } });
+    expect(d.pending).toEqual({ kind: 'DONE' });
+    const out = F2.outcome(d.state)!;
+    expect(out.by).toBe('RULING');
+    expect(out.placements.find((p) => p.place === 1)!.entrantId).toBe(B);
   });
 });
 

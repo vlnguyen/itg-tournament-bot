@@ -1,5 +1,5 @@
-import { Bo3ProtectVetoFormat } from '../bo3.js';
-import { Bo5ProtectVetoFormat } from '../bo5.js';
+import { Bo3ProtectVetoFormat, Bo3ProtectVetoFormatV2 } from '../bo3.js';
+import { Bo5ProtectVetoFormat, Bo5ProtectVetoFormatV2 } from '../bo5.js';
 import { Hb11StaticPoolFormat, Hb13StaticPoolFormat } from '../hubert.js';
 import type { MatchFormat } from '../types.js';
 
@@ -21,6 +21,8 @@ import type { MatchFormat } from '../types.js';
 export const formatRegistry: Record<string, MatchFormat | undefined> = {
   [Bo5ProtectVetoFormat.key]: Bo5ProtectVetoFormat,
   [Bo3ProtectVetoFormat.key]: Bo3ProtectVetoFormat,
+  [Bo5ProtectVetoFormatV2.key]: Bo5ProtectVetoFormatV2,
+  [Bo3ProtectVetoFormatV2.key]: Bo3ProtectVetoFormatV2,
   [Hb11StaticPoolFormat.key]: Hb11StaticPoolFormat,
   [Hb13StaticPoolFormat.key]: Hb13StaticPoolFormat,
 };

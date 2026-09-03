@@ -1,7 +1,7 @@
 import { EmbedBuilder } from 'discord.js';
 import type { BracketShape, BracketSide } from '@itg/shared';
 import { sectionLabel } from '@itg/shared';
-import type { EntrantId, MatchOutcome } from '../../domain/types.js';
+import type { EntrantId, MatchOutcome, WinCondition } from '../../domain/types.js';
 import type { PublicMatch } from '../../domain/projection.js';
 import { isAbsoluteWebUrl, matchUrl, tournamentUrl } from '../../web-url.js';
 import type { RenderedMessage } from '../ports.js';
@@ -21,6 +21,25 @@ const DECIDED_BY: Record<MatchOutcome['by'], string> = {
   WALKOVER: 'by walkover',
 };
 
+/**
+ * Which agreement-level win condition actually settled it — `POINTS` reads
+ * as the ordinary case (the score already says it) and gets no callout,
+ * same as `DECIDED_BY.AGREEMENT`. `TIEBREAKER`/`AVG_EX` are the cases a
+ * reader can't infer from the score alone, so those get named. See
+ * `WinCondition`.
+ */
+const WIN_CONDITION_LABEL: Record<WinCondition, string> = {
+  POINTS: '',
+  TIEBREAKER: 'won by points, song pool exhausted',
+  AVG_EX: 'won on average EX%',
+};
+
+/** `outcome.winCondition` is only ever set alongside `by === 'AGREEMENT'` — see `place()` in `protect-veto.ts`/`hubert.ts`. */
+function decidedByText(outcome: MatchOutcome): string {
+  if (outcome.winCondition) return WIN_CONDITION_LABEL[outcome.winCondition];
+  return DECIDED_BY[outcome.by];
+}
+
 function songLabel(song: PublicMatch['songs'][number]): string {
   return song.tiebreakRound !== undefined ? `Tiebreak ${song.tiebreakRound}` : `Song ${song.index + 1}`;
 }
@@ -31,6 +50,17 @@ function songOutcomeText(song: PublicMatch['songs'][number], nameOf: NameLookup)
   if (result.winner === 'TIE') return 'tied';
   if (result.winner === 'VOID') return 'voided';
   return `${nameOf(result.winner)} wins`;
+}
+
+/** Mirrors `hubert.ts`'s own `averageEx` exactly — mean of every submitted EX% for `id`, across every song played — just computed from the wire-shape `songs` a Discord render has in hand, instead of `MatchState`. */
+function averageEx(songs: PublicMatch['songs'], id: EntrantId): number {
+  const values = songs.map((s) => s.ex[id]).filter((v): v is number => v !== undefined);
+  return values.length === 0 ? 0 : values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+/** Only meaningful once `winCondition === 'AVG_EX'` names it as what actually decided the set — everywhere else, the score already tells the story average EX% would just repeat. */
+function averageExLine(songs: PublicMatch['songs'], participantIds: readonly EntrantId[], nameOf: NameLookup): string {
+  return `Average EX%: ${participantIds.map((id) => `${nameOf(id)} ${averageEx(songs, id).toFixed(2)}%`).join(', ')}`;
 }
 
 function songLine(song: PublicMatch['songs'][number], participantIds: readonly EntrantId[], nameOf: NameLookup): string {
@@ -90,14 +120,20 @@ export function buildResultSummaryEmbed(
 ): EmbedBuilder {
   const winner = outcome.placements.find((p) => p.place === 1)!;
   const [a, b] = participantIds;
-  const decidedBy = DECIDED_BY[outcome.by];
+  const decidedBy = decidedByText(outcome);
 
   // A forfeit or DQ is legal at any point before the match is DONE,
   // including before a single song has entered play — Protect/Veto still
   // in progress, or not even that far. `songs` is then empty, and
   // `EmbedBuilder.setDescription` rejects an empty string outright, so a
   // description is only ever built from a non-empty list.
-  const description = songs.length > 0 ? songs.map((s) => songLine(s, participantIds, nameOf)).join('\n') : 'No songs played.';
+  const description =
+    songs.length > 0
+      ? [
+          songs.map((s) => songLine(s, participantIds, nameOf)).join('\n'),
+          ...(outcome.winCondition === 'AVG_EX' ? ['', averageExLine(songs, participantIds, nameOf)] : []),
+        ].join('\n')
+      : 'No songs played.';
 
   return new EmbedBuilder()
     .setTitle(`Match complete: ${nameOf(winner.entrantId)} wins ${points[a] ?? 0}–${points[b] ?? 0}${decidedBy ? ` (${decidedBy})` : ''}`)
@@ -108,13 +144,22 @@ export function buildResultSummaryEmbed(
 /**
  * One embed per finished match, outside any thread. See DESIGN.md's
  * `PlayerNotificationPort`/`MatchChannelPort` design and the Phase 4
- * plan's "byes excluded, forfeits/DQs worded as advancement" — byes never
- * reach this (no thread, no confirmation to trigger it). Worded as
- * advancement uniformly, whether the set was actually played out or ended
- * by ruling, forfeit, DQ or walkover: the score in parentheses is whatever
+ * plan's "byes excluded" — byes never reach this (no thread, no
+ * confirmation to trigger it). The score in parentheses is whatever
  * `points` holds either way — 0–0 for a match that never saw a song — so
  * the description never claims a scoreline that didn't happen while still
- * always naming who's through.
+ * always naming who won.
+ *
+ * **Wording branches on two things:**
+ * - `tournamentComplete` — "advances" has nowhere left to point once this
+ *   was the match that decided the whole tournament (the Grand Final's
+ *   actual last game, whichever round that turned out to be — see the
+ *   caller's own `grandFinalNeedsReset`-driven check). That match instead
+ *   reads "wins", plain.
+ * - How the set was actually decided — `decidedByText(outcome)`, the same
+ *   helper `buildResultSummaryEmbed`'s title uses, so a ruling/forfeit/DQ/
+ *   walkover (or a Hubert-format tiebreaker/avg-EX% finish) is called out
+ *   here too, not just in the match's own thread.
  *
  * The title is the whole embed's link target (`setURL`) — Discord embed
  * titles render as plain text with no inline markdown, so "round label,
@@ -133,11 +178,14 @@ export function buildResultAnnouncement(
   tournamentName: string,
   songs: PublicMatch['songs'],
   shape?: BracketShape,
+  tournamentComplete = false,
 ): RenderedMessage {
   const winner = outcome.placements.find((p) => p.place === 1)!;
   const [a, b] = participantIds;
   const loserId = a === winner.entrantId ? b : a;
   const label = sectionLabel(bracket, round, shape);
+  const decidedBy = decidedByText(outcome);
+  const verb = tournamentComplete ? 'wins' : 'advances';
 
   // Same wording either way a set can end: songs actually played (there
   // may be none — a forfeit/DQ before any song entered play).
@@ -149,7 +197,7 @@ export function buildResultAnnouncement(
     .setColor(LOG_COLOR.RESULT_ANNOUNCEMENT)
     .setDescription(
       [
-        `${nameOf(winner.entrantId)} advances (${points[winner.entrantId] ?? 0}-${points[loserId] ?? 0})`,
+        `${nameOf(winner.entrantId)} ${verb} (${points[winner.entrantId] ?? 0}-${points[loserId] ?? 0})${decidedBy ? ` — ${decidedBy}` : ''}`,
         ...(songLines ? ['', songLines] : []),
         '',
         `[${tournamentName}](${tournamentUrl(tournamentId)})`,

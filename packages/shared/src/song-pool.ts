@@ -46,6 +46,43 @@ export type SongPoolTabWire = z.infer<typeof SongPoolTabWire>;
 export const SongPoolTabsResponse = z.object({ tabs: z.array(SongPoolTabWire) });
 export type SongPoolTabsResponse = z.infer<typeof SongPoolTabsResponse>;
 
+/**
+ * `GET /api/tournaments/:id/charts/import-candidates` — the "Previous
+ * event" picker's step 1: every other tournament in this one's guild that
+ * has finished, newest first, with enough of a pack summary to gray out
+ * one with nothing worth importing before the organizer ever clicks it.
+ */
+export const ImportCandidate = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  createdAt: z.string(),
+  chartCount: z.number().int().nonnegative(),
+});
+export type ImportCandidate = z.infer<typeof ImportCandidate>;
+
+export const ImportCandidatesResponse = z.object({ tournaments: z.array(ImportCandidate) });
+export type ImportCandidatesResponse = z.infer<typeof ImportCandidatesResponse>;
+
+/**
+ * `POST /api/tournaments/:id/charts/import-previous` — the "Previous
+ * event" import: copy a finished tournament's entire pack into this one,
+ * and recreate the label assignments for whichever of its song-pool tabs
+ * `formatKeys` names. `formatKeys` a caller doesn't actually have a tab
+ * for on the source are silently ignored, not an error — see
+ * `importedFormatKeys` on the response for what actually happened.
+ */
+export const ImportFromTournamentRequest = z.object({
+  sourceTournamentId: z.string().min(1),
+  formatKeys: z.array(FormatKey),
+});
+export type ImportFromTournamentRequest = z.infer<typeof ImportFromTournamentRequest>;
+
+export const ImportFromTournamentResult = z.object({
+  importedCharts: z.number().int().nonnegative(),
+  importedFormatKeys: z.array(FormatKey),
+});
+export type ImportFromTournamentResult = z.infer<typeof ImportFromTournamentResult>;
+
 /** `true` only when `issues` is `null` — every required label used exactly once. */
 export function isWellFormedPool(issues: SongPoolIssues | null): issues is null {
   return issues === null;

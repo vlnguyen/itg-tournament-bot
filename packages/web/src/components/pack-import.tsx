@@ -7,7 +7,7 @@ import { buildPreview } from '../lib/pack-import/dedupe.js';
 import { parseDirectory } from '../lib/pack-import/parse-directory.js';
 import { parseZipFile } from '../lib/pack-import/parse-zip-file.js';
 
-/** Chromium/Firefox only as of writing — Safari has no File System Access API. The `.zip` input is always available as DESIGN.md's own documented fallback. */
+/** Chromium only as of writing — neither Firefox nor Safari implements the File System Access API. The `.zip` input is always available as DESIGN.md's own documented fallback; there is no folder-picking fallback for those browsers. */
 const supportsDirectoryPicker = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 
 const PLAYSTYLE_LABEL: Record<ChartInput['playStyle'], string> = { SINGLE: 'Single', DOUBLE: 'Double' };
@@ -122,7 +122,7 @@ export function PackImport({ tournamentId, existingCharts }: { tournamentId: str
     <Stack gap="sm">
       <Group align="flex-end">
         <FileInput
-          label={supportsDirectoryPicker ? 'Import a pack (.zip)' : 'Import a pack (.zip or a folder)'}
+          label="Import a pack (.zip)"
           placeholder="Choose a file"
           accept=".zip"
           onChange={handleFile}
@@ -135,6 +135,15 @@ export function PackImport({ tournamentId, existingCharts }: { tournamentId: str
           </Button>
         )}
       </Group>
+      {supportsDirectoryPicker ? (
+        <Text size="xs" c="dimmed">
+          In the folder dialog, clicking a folder opens it — once you're inside the pack folder itself, use the dialog's own "Select Folder"/"Open" button to choose it.
+        </Text>
+      ) : (
+        <Text size="xs" c="dimmed">
+          This browser can't import a folder directly — zip the pack up first.
+        </Text>
+      )}
 
       {isParsing && (
         <Group gap="xs">

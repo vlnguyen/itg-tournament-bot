@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Bo3ProtectVetoFormat as F, POINTS_TO_WIN } from './bo3.js';
+import { Bo3ProtectVetoFormat as F, Bo3ProtectVetoFormatV2 as F2, POINTS_TO_WIN } from './bo3.js';
 import { MatchDriver, makePack } from './testkit.js';
 
 const A = 'alice';
@@ -137,6 +137,24 @@ describe('deciding the set', () => {
     expect(d.state.songs).toHaveLength(3);
     expect(d.pending).toMatchObject({ kind: 'TIEBREAK_PICK', round: 1 });
     expect((d.pending as { choices: number[] }).choices).toHaveLength(3);
+  });
+});
+
+describe('bo3-protect-veto-v2: deciding the set without a confirm step', () => {
+  const openedV2 = (higherSeedTakes: 'FIRST' | 'SECOND' = 'FIRST') =>
+    new MatchDriver(makePack(20), F2).create(A, B).chooseSeed(higherSeedTakes).runProtectVeto();
+
+  it('is done the instant the second point lands — no CONFIRM_RESULT step', () => {
+    const d = openedV2().playSong(A).playSong(A);
+    expect(d.state.points[A]).toBe(POINTS_TO_WIN);
+    expect(d.pending).toEqual({ kind: 'DONE' });
+    const out = F2.outcome(d.state)!;
+    expect(out.by).toBe('AGREEMENT');
+    expect(out.winCondition).toBe('POINTS');
+    expect(out.placements).toEqual([
+      { entrantId: A, place: 1, points: 2 },
+      { entrantId: B, place: 2, points: 0 },
+    ]);
   });
 });
 

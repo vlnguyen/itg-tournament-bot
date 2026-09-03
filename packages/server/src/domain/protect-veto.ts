@@ -9,6 +9,7 @@ import type {
   MatchState,
   PendingAction,
   SongRecord,
+  WinCondition,
 } from './types.js';
 
 /**
@@ -32,6 +33,15 @@ export interface ProtectVetoConfig {
   readonly tiebreakSize: number;
   readonly pointsToWin: number;
   readonly sequence: readonly { action: 'PROTECT' | 'VETO'; who: SequenceActor }[];
+  /**
+   * `-v2` keys set this: once `setWinner` resolves, the set is done — no
+   * `CONFIRM_RESULT` step, and `SET_RESULT_CONFIRMED` picks are never
+   * requested. Mirrors, one level up, the same "no commit events" rule a
+   * song's `SONG_WINNER_SELECTED` already follows. Undefined/false keeps a
+   * v1 key's exact existing behavior, since real matches were played under
+   * it and its golden fixtures assert the confirm step happens.
+   */
+  readonly autoComplete?: boolean;
   /**
    * What song starts next, once any active song has committed and nobody
    * has reached `pointsToWin`. Pure, same contract as the rest of the
@@ -382,6 +392,7 @@ export function makeProtectVetoFormat(config: ProtectVetoConfig): MatchFormat {
     }
 
     if (setWinner(state)) {
+      if (config.autoComplete) return { kind: 'DONE' };
       // A disagreement between the two picks is caught by `escalationOf`
       // above, before this is ever reached — reaching here with both picks in
       // means they agree, so there is nothing left to do but finish.
@@ -431,30 +442,45 @@ export function makeProtectVetoFormat(config: ProtectVetoConfig): MatchFormat {
   }
 
   function outcome(state: MatchState): MatchOutcome | null {
-    const place = (winner: EntrantId, by: MatchOutcome['by']): MatchOutcome => ({
+    const place = (
+      winner: EntrantId,
+      by: MatchOutcome['by'],
+      winCondition?: WinCondition,
+    ): MatchOutcome => ({
       placements: idsOf(state).map((entrantId) => ({
         entrantId,
         place: entrantId === winner ? 1 : 2,
         points: state.points[entrantId] ?? 0,
       })),
       by,
+      ...(winCondition ? { winCondition } : {}),
     });
 
     if (state.terminal) return place(state.terminal.winnerId, state.terminal.by);
 
     const winner = setWinner(state);
     if (!winner) return null;
-    // Both players must pick a set winner before it commits, and their picks
-    // must actually agree — `outcome()` is read independently of
-    // `pendingAction()`/`escalationOf`, so it has to make this check itself
-    // rather than relying on the escalation having already fired elsewhere.
-    // A disagreement resolves only through `SET_RESULT_RULED`, which sets
-    // `state.terminal` and is handled above.
-    const picks = idsOf(state).map((id) => state.setWinnerSelections[id]);
-    if (picks.some((p) => p === undefined) || new Set(picks).size > 1) return null;
+
+    if (!config.autoComplete) {
+      // Both players must pick a set winner before it commits, and their
+      // picks must actually agree — `outcome()` is read independently of
+      // `pendingAction()`/`escalationOf`, so it has to make this check
+      // itself rather than relying on the escalation having already fired
+      // elsewhere. A disagreement resolves only through `SET_RESULT_RULED`,
+      // which sets `state.terminal` and is handled above.
+      const picks = idsOf(state).map((id) => state.setWinnerSelections[id]);
+      if (picks.some((p) => p === undefined) || new Set(picks).size > 1) return null;
+    }
 
     const decidedByRuling = state.songs.some((x) => x.result?.by === 'RULING');
-    return place(winner, decidedByRuling ? 'RULING' : 'AGREEMENT');
+    // `winCondition` is new, `-v2`-only surface — a v1 key's `outcome()` must
+    // return exactly what it always has, unchanged in shape as well as
+    // value, since real matches were played under it and the golden corpus
+    // pins its exact output. Bo3/Bo5 never fall through to a forced
+    // tiebreaker song or an average-EX% break either way — reaching
+    // `pointsToWin` is the only way `setWinner` resolves.
+    const winCondition = config.autoComplete && !decidedByRuling ? 'POINTS' : undefined;
+    return place(winner, decidedByRuling ? 'RULING' : 'AGREEMENT', winCondition);
   }
 
   function effects(before: MatchState, after: MatchState): DomainEffect[] {

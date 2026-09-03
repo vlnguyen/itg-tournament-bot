@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { FORMAT_SONG_LABELS } from '@itg/shared';
-import { Bo3ProtectVetoFormat } from '../src/domain/bo3.js';
-import { Bo5ProtectVetoFormat } from '../src/domain/bo5.js';
+import { Bo3ProtectVetoFormatV2 } from '../src/domain/bo3.js';
+import { Bo5ProtectVetoFormatV2 } from '../src/domain/bo5.js';
 import { matchKey, type MatchRef } from '../src/domain/bracket.js';
 import { createSongPoolTab, saveSongPoolLabels } from '../src/services/song-pool-service.js';
 import {
@@ -93,12 +93,12 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
   describe('createTournament', () => {
     const guildId = `ts-create-${Date.now()}`;
 
-    it('starts in DRAFT, stamped with the one shipped format', async () => {
+    it('starts in DRAFT, stamped with the default shipped format', async () => {
       await makeGuild(guildId, true);
       try {
         const t = await createTournament(prisma, guildId, 'Winter Cup', ACTOR);
         expect(t.state).toBe('DRAFT');
-        expect(t.defaultFormatKey).toBe('bo5-protect-veto');
+        expect(t.defaultFormatKey).toBe(Bo5ProtectVetoFormatV2.key);
       } finally {
         await dropGuild(guildId);
       }
@@ -377,17 +377,17 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
       await makeGuild(guildId, true);
       try {
         const t = await createTournament(prisma, guildId, 'T', ACTOR);
-        expect(t.defaultFormatKey).toBe(Bo5ProtectVetoFormat.key);
+        expect(t.defaultFormatKey).toBe(Bo5ProtectVetoFormatV2.key);
 
-        const toBo3 = await setTournamentFormat(prisma, t.id, Bo3ProtectVetoFormat.key, ACTOR);
-        expect(toBo3.defaultFormatKey).toBe(Bo3ProtectVetoFormat.key);
+        const toBo3 = await setTournamentFormat(prisma, t.id, Bo3ProtectVetoFormatV2.key, ACTOR);
+        expect(toBo3.defaultFormatKey).toBe(Bo3ProtectVetoFormatV2.key);
         expect(toBo3.state).toBe('DRAFT'); // setting the format doesn't move the state machine
 
         await openRegistration(prisma, t.id, ACTOR);
         await closeRegistration(prisma, t.id, ACTOR);
         await openCheckin(prisma, t.id, ACTOR);
-        const stillEditable = await setTournamentFormat(prisma, t.id, Bo5ProtectVetoFormat.key, ACTOR);
-        expect(stillEditable.defaultFormatKey).toBe(Bo5ProtectVetoFormat.key);
+        const stillEditable = await setTournamentFormat(prisma, t.id, Bo5ProtectVetoFormatV2.key, ACTOR);
+        expect(stillEditable.defaultFormatKey).toBe(Bo5ProtectVetoFormatV2.key);
       } finally {
         await dropGuild(guildId);
       }
@@ -399,6 +399,20 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
       try {
         const t = await createTournament(prisma, guildId, 'T', ACTOR);
         await expect(setTournamentFormat(prisma, t.id, 'not-a-real-format', ACTOR)).rejects.toThrow(/unknown match format/);
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('rejects a legacy v1 format key — resolvable for replay, but no longer selectable', async () => {
+      const guildId = `ts-format-legacy-${Date.now()}`;
+      await makeGuild(guildId, true);
+      try {
+        const t = await createTournament(prisma, guildId, 'T', ACTOR);
+        await expect(setTournamentFormat(prisma, t.id, 'bo5-protect-veto', ACTOR)).rejects.toThrow(/legacy format/);
+        // Untouched: the rejected call never got far enough to change anything.
+        const unchanged = await getLifecycleStatus(prisma, t.id);
+        expect(unchanged.defaultFormatKey).toBe(Bo5ProtectVetoFormatV2.key);
       } finally {
         await dropGuild(guildId);
       }
@@ -422,7 +436,7 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
         }
         await startTournament(prisma, sequentialRandomPort(guildId), t.id, new Map(), ACTOR);
 
-        await expect(setTournamentFormat(prisma, t.id, Bo3ProtectVetoFormat.key, ACTOR)).rejects.toThrow(
+        await expect(setTournamentFormat(prisma, t.id, Bo3ProtectVetoFormatV2.key, ACTOR)).rejects.toThrow(
           TournamentTransitionError,
         );
       } finally {
@@ -436,7 +450,7 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
       try {
         const t = await createTournament(prisma, guildId, 'T', ACTOR);
         await cancelTournament(prisma, t.id, ACTOR);
-        await expect(setTournamentFormat(prisma, t.id, Bo3ProtectVetoFormat.key, ACTOR)).rejects.toThrow(
+        await expect(setTournamentFormat(prisma, t.id, Bo3ProtectVetoFormatV2.key, ACTOR)).rejects.toThrow(
           TournamentTransitionError,
         );
       } finally {
@@ -448,29 +462,29 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
       const guildId = `ts-format-mixed-${Date.now()}`;
       const { tournamentId } = await bringToCheckinClosed(guildId, 4);
       try {
-        await regenerateBracket(prisma, tournamentId, ACTOR); // 7 matches, all Bo5 (the default)
-        await setMatchFormats(prisma, tournamentId, [{ bracket: 'WINNERS', round: 1, slot: 0 }], Bo3ProtectVetoFormat.key, ACTOR);
+        await regenerateBracket(prisma, tournamentId, ACTOR); // 7 matches, all Bo5 v2 (the default)
+        await setMatchFormats(prisma, tournamentId, [{ bracket: 'WINNERS', round: 1, slot: 0 }], Bo3ProtectVetoFormatV2.key, ACTOR);
 
-        const err = await setTournamentFormat(prisma, tournamentId, Bo5ProtectVetoFormat.key, ACTOR).catch((e: unknown) => e);
+        const err = await setTournamentFormat(prisma, tournamentId, Bo5ProtectVetoFormatV2.key, ACTOR).catch((e: unknown) => e);
         expect(err).toBeInstanceOf(MixedFormatConflictError);
         expect((err as MixedFormatConflictError).breakdown).toEqual({
-          [Bo5ProtectVetoFormat.key]: 6,
-          [Bo3ProtectVetoFormat.key]: 1,
+          [Bo5ProtectVetoFormatV2.key]: 6,
+          [Bo3ProtectVetoFormatV2.key]: 1,
         });
 
         // DEFAULT_ONLY: changes the default, leaves the mix exactly as it was.
-        const defaultOnly = await setTournamentFormat(prisma, tournamentId, Bo5ProtectVetoFormat.key, ACTOR, 'DEFAULT_ONLY');
-        expect(defaultOnly.defaultFormatKey).toBe(Bo5ProtectVetoFormat.key);
+        const defaultOnly = await setTournamentFormat(prisma, tournamentId, Bo5ProtectVetoFormatV2.key, ACTOR, 'DEFAULT_ONLY');
+        expect(defaultOnly.defaultFormatKey).toBe(Bo5ProtectVetoFormatV2.key);
         const stillMixed = await prisma.match.findMany({ where: { tournamentId } });
         expect(new Set(stillMixed.map((m) => m.formatKey)).size).toBe(2);
 
         // UPDATE_ALL: every PENDING match follows, and the override that
         // caused the mix is cleared so it can't re-diverge on a later regenerate.
-        const updateAll = await setTournamentFormat(prisma, tournamentId, Bo3ProtectVetoFormat.key, ACTOR, 'UPDATE_ALL');
-        expect(updateAll.defaultFormatKey).toBe(Bo3ProtectVetoFormat.key);
+        const updateAll = await setTournamentFormat(prisma, tournamentId, Bo3ProtectVetoFormatV2.key, ACTOR, 'UPDATE_ALL');
+        expect(updateAll.defaultFormatKey).toBe(Bo3ProtectVetoFormatV2.key);
         expect(updateAll.formatOverrides).toEqual({});
         const uniform = await prisma.match.findMany({ where: { tournamentId } });
-        expect(uniform.every((m) => m.formatKey === Bo3ProtectVetoFormat.key)).toBe(true);
+        expect(uniform.every((m) => m.formatKey === Bo3ProtectVetoFormatV2.key)).toBe(true);
       } finally {
         await dropGuild(guildId);
       }
@@ -481,8 +495,8 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
       const { tournamentId } = await bringToCheckinClosed(guildId, 4);
       try {
         await regenerateBracket(prisma, tournamentId, ACTOR);
-        const updated = await setTournamentFormat(prisma, tournamentId, Bo3ProtectVetoFormat.key, ACTOR);
-        expect(updated.defaultFormatKey).toBe(Bo3ProtectVetoFormat.key);
+        const updated = await setTournamentFormat(prisma, tournamentId, Bo3ProtectVetoFormatV2.key, ACTOR);
+        expect(updated.defaultFormatKey).toBe(Bo3ProtectVetoFormatV2.key);
       } finally {
         await dropGuild(guildId);
       }
@@ -503,11 +517,27 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
         const matches = await prisma.match.findMany({ where: { tournamentId } });
         expect(matches).toHaveLength(7);
         for (const m of matches) {
-          expect(m.formatKey).toBe(Bo5ProtectVetoFormat.key);
+          expect(m.formatKey).toBe(Bo5ProtectVetoFormatV2.key);
           expect(m.status).toBe('PENDING');
         }
         const t = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
         expect(t.bracketEntrantCount).toBe(4);
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('rejects a legacy v1 format key, leaving the match untouched', async () => {
+      const guildId = `ts-bracket-legacy-${Date.now()}`;
+      const { tournamentId } = await bringToCheckinClosed(guildId, 4);
+      try {
+        await regenerateBracket(prisma, tournamentId, ACTOR);
+        const before = await prisma.match.findFirstOrThrow({ where: { tournamentId, bracket: 'WINNERS', round: 1, slot: 0 } });
+        await expect(
+          setMatchFormats(prisma, tournamentId, [{ bracket: 'WINNERS', round: 1, slot: 0 }], 'bo3-protect-veto', ACTOR),
+        ).rejects.toThrow(/legacy format/);
+        const after = await prisma.match.findUniqueOrThrow({ where: { id: before.id } });
+        expect(after.formatKey).toBe(before.formatKey);
       } finally {
         await dropGuild(guildId);
       }
@@ -523,9 +553,9 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
           { bracket: 'GRAND_FINAL', round: 1, slot: 0 },
           { bracket: 'GRAND_FINAL', round: 2, slot: 0 },
         ];
-        await setMatchFormats(prisma, tournamentId, grandFinalRefs, Bo3ProtectVetoFormat.key, ACTOR);
+        await setMatchFormats(prisma, tournamentId, grandFinalRefs, Bo3ProtectVetoFormatV2.key, ACTOR);
         const gfBefore = await prisma.match.findMany({ where: { tournamentId, bracket: 'GRAND_FINAL' } });
-        expect(gfBefore.every((m) => m.formatKey === Bo3ProtectVetoFormat.key)).toBe(true);
+        expect(gfBefore.every((m) => m.formatKey === Bo3ProtectVetoFormatV2.key)).toBe(true);
 
         // 4 -> 3 checked in stays within the same (4-slot) power-of-two band —
         // the ref set is identical, so both assignments must carry untouched.
@@ -538,7 +568,7 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
         expect(result.assignmentsKept).toBe(2);
 
         const gfAfter = await prisma.match.findMany({ where: { tournamentId, bracket: 'GRAND_FINAL' } });
-        expect(gfAfter.every((m) => m.formatKey === Bo3ProtectVetoFormat.key)).toBe(true);
+        expect(gfAfter.every((m) => m.formatKey === Bo3ProtectVetoFormatV2.key)).toBe(true);
       } finally {
         await dropGuild(guildId);
       }
@@ -549,7 +579,7 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
       const { tournamentId } = await bringToCheckinClosed(guildId, 5); // size 8
       try {
         await regenerateBracket(prisma, tournamentId, ACTOR);
-        await setMatchFormats(prisma, tournamentId, [{ bracket: 'WINNERS', round: 1, slot: 0 }], Bo3ProtectVetoFormat.key, ACTOR);
+        await setMatchFormats(prisma, tournamentId, [{ bracket: 'WINNERS', round: 1, slot: 0 }], Bo3ProtectVetoFormatV2.key, ACTOR);
 
         // 5 -> 4 checked in crosses from an 8-slot bracket to a 4-slot one.
         const fifth = await prisma.entrant.findFirstOrThrow({ where: { tournamentId, seed: 5 } });
@@ -561,7 +591,7 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
         expect(result.assignmentsKept).toBe(0);
 
         const matches = await prisma.match.findMany({ where: { tournamentId } });
-        expect(matches.every((m) => m.formatKey === Bo5ProtectVetoFormat.key)).toBe(true);
+        expect(matches.every((m) => m.formatKey === Bo5ProtectVetoFormatV2.key)).toBe(true);
         const t = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
         expect(t.formatOverrides).toEqual({});
       } finally {
@@ -589,7 +619,7 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
         await startTournament(prisma, sequentialRandomPort(guildId), tournamentId, new Map(), ACTOR);
 
         await expect(
-          setMatchFormats(prisma, tournamentId, [{ bracket: 'WINNERS', round: 1, slot: 0 }], Bo3ProtectVetoFormat.key, ACTOR),
+          setMatchFormats(prisma, tournamentId, [{ bracket: 'WINNERS', round: 1, slot: 0 }], Bo3ProtectVetoFormatV2.key, ACTOR),
         ).rejects.toThrow(TournamentTransitionError);
       } finally {
         await dropGuild(guildId);
@@ -606,14 +636,14 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
         // The Grand Final is real, PENDING match rows the moment the bracket
         // exists — round 1 starting doesn't touch it — but the tournament
         // itself has started, so this is refused regardless.
-        const err = await setMatchFormats(prisma, tournamentId, [{ bracket: 'GRAND_FINAL', round: 1, slot: 0 }], Bo3ProtectVetoFormat.key, ACTOR).catch(
+        const err = await setMatchFormats(prisma, tournamentId, [{ bracket: 'GRAND_FINAL', round: 1, slot: 0 }], Bo3ProtectVetoFormatV2.key, ACTOR).catch(
           (e: unknown) => e,
         );
         expect(err).toBeInstanceOf(TournamentTransitionError);
         const gf = await prisma.match.findUniqueOrThrow({
           where: { tournamentId_bracket_round_slot: { tournamentId, bracket: 'GRAND_FINAL', round: 1, slot: 0 } },
         });
-        expect(gf.formatKey).toBe(Bo5ProtectVetoFormat.key); // untouched — the default, never Bo3
+        expect(gf.formatKey).toBe(Bo5ProtectVetoFormatV2.key); // untouched — the default, never Bo3
       } finally {
         await dropGuild(guildId);
       }

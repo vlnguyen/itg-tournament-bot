@@ -154,6 +154,8 @@ export interface BracketMatch {
   awaitingTo: boolean;
   /** The sixth state, "walkover" — `outcome.by`, so a cell can tell a walkover apart from an ordinary agreed finish once `status` is `COMPLETE`. */
   outcomeBy: MatchOutcome['by'] | null;
+  /** Mirrors `outcome.winCondition` — null whenever that field is absent (see `WinCondition`'s own comment: `outcomeBy` isn't `'AGREEMENT'`, or it is but the match ran under a v1 Bo3/Bo5 key), same as `outcomeBy` itself is null before `COMPLETE`. */
+  outcomeWinCondition: MatchOutcome['winCondition'] | null;
   points: Record<EntrantId, number>;
   currentChartId: string | null;
   winnerId: EntrantId | null;
@@ -186,6 +188,7 @@ export function toBracketMatch(format: MatchFormat, state: MatchState): BracketM
     status: deriveMatchStatus(format, state),
     awaitingTo: format.pendingAction(state).kind === 'AWAITING_TO',
     outcomeBy: outcome?.by ?? null,
+    outcomeWinCondition: outcome?.winCondition ?? null,
     points: state.points,
     currentChartId: active?.chart.chartId ?? null,
     winnerId: outcome?.placements.find((p) => p.place === 1)?.entrantId ?? null,

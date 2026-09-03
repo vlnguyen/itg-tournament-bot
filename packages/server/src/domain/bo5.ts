@@ -79,4 +79,15 @@ export const Bo5ProtectVetoFormat: MatchFormat = makeProtectVetoFormat({
   nextDrawSong,
 });
 
+/** Same ruleset, minus the separate `CONFIRM_RESULT` step — see `protect-veto.ts`'s `autoComplete`. */
+export const Bo5ProtectVetoFormatV2: MatchFormat = makeProtectVetoFormat({
+  key: 'bo5-protect-veto-v2',
+  drawSize: DRAW_SIZE,
+  tiebreakSize: TIEBREAK_SIZE,
+  pointsToWin: POINTS_TO_WIN,
+  sequence: SEQUENCE,
+  nextDrawSong,
+  autoComplete: true,
+});
+
 export { emptyState };

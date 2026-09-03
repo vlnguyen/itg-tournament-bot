@@ -7,6 +7,8 @@ import {
   FirstRunStatus,
   GuildOverview,
   GuildSummary,
+  ImportCandidatesResponse,
+  ImportFromTournamentResult,
   LifecycleRequest,
   LifecycleStatus,
   PlayerPage,
@@ -268,6 +270,28 @@ export async function commitPackChanges(
   });
   if (!res.ok) throw new ApiError(res.status, await describeError(res, `PATCH /api/tournaments/${tournamentId}/charts -> ${res.status}`));
   return CommitPackChangesResult.parse(await res.json());
+}
+
+/** "Previous event" picker's step 1 — every other finished tournament in this one's guild, with a chart count to gray out a pack-less one before it's picked. */
+export async function fetchImportCandidates(tournamentId: string): Promise<ImportCandidatesResponse> {
+  const res = await fetch(`/api/tournaments/${tournamentId}/charts/import-candidates`);
+  if (!res.ok) throw new ApiError(res.status, `GET /api/tournaments/${tournamentId}/charts/import-candidates -> ${res.status}`);
+  return ImportCandidatesResponse.parse(await res.json());
+}
+
+/** "Previous event" — copies a finished tournament's whole pack into this one, plus the label assignments for whichever of its song-pool tabs `formatKeys` names. */
+export async function importFromPreviousTournament(
+  tournamentId: string,
+  sourceTournamentId: string,
+  formatKeys: FormatKey[],
+): Promise<ImportFromTournamentResult> {
+  const res = await fetch(`/api/tournaments/${tournamentId}/charts/import-previous`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourceTournamentId, formatKeys }),
+  });
+  if (!res.ok) throw new ApiError(res.status, await describeError(res, `POST /api/tournaments/${tournamentId}/charts/import-previous -> ${res.status}`));
+  return ImportFromTournamentResult.parse(await res.json());
 }
 
 /** Static-pool format tabs (HB-11/HB-13) — the pack view's per-format tabs, alongside "All Songs". */

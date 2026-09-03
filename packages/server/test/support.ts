@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
-import { Bo5ProtectVetoFormat as F } from '../src/domain/bo5.js';
 import type { MatchState } from '../src/domain/types.js';
 import { appendMatchEvent } from '../src/services/match-service.js';
+import { requireFormat } from '../src/services/engine.js';
 import type { RandomPort } from '../src/services/ports.js';
 
 /**
@@ -83,7 +83,7 @@ export async function playMatchToChampion(
 ): Promise<void> {
   const currentPending = async () => {
     const m = await prisma.match.findUniqueOrThrow({ where: { id: matchId } });
-    return F.pendingAction(m.state as unknown as MatchState);
+    return requireFormat(m.formatKey).pendingAction(m.state as unknown as MatchState);
   };
 
   for (;;) {

@@ -15,17 +15,37 @@
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Bo3ProtectVetoFormat } from '../bo3.js';
-import { Bo5ProtectVetoFormat as F } from '../bo5.js';
-import { MatchDriver, makePack } from '../testkit.js';
-import type { MatchFormat } from '../types.js';
+import { FORMAT_SONG_LABELS } from '@itg/shared';
+import { Bo3ProtectVetoFormat, Bo3ProtectVetoFormatV2 } from '../bo3.js';
+import { Bo5ProtectVetoFormat as F, Bo5ProtectVetoFormatV2 } from '../bo5.js';
+import { Hb11StaticPoolFormat, Hb13StaticPoolFormat } from '../hubert.js';
+import { MatchDriver, makePack, makeStaticPool } from '../testkit.js';
+import type { EntrantId, MatchFormat } from '../types.js';
 import type { GoldenFixture } from './types.js';
 
 const A = 'alice';
 const B = 'bob';
 const REF = 'referee-casey';
 const B3 = Bo3ProtectVetoFormat;
+const F2 = Bo5ProtectVetoFormatV2;
+const B3V2 = Bo3ProtectVetoFormatV2;
 const FIXTURES_DIR = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
+
+/** Submits distinct EX values per player for the live song, then agrees the given winner (or a tie) — same idiom as `hubert.test.ts`'s `playCustom`. */
+function playCustom(d: MatchDriver, x: EntrantId, y: EntrantId, exX: number, exY: number, winner: EntrantId | 'TIE') {
+  let p = d.pending;
+  if (p.kind !== 'SUBMIT_SCORE') throw new Error(`expected SUBMIT_SCORE, got ${p.kind}`);
+  const songIndex = p.songIndex;
+  for (const [id, ex] of [[x, exX], [y, exY]] as const) {
+    d.apply({ actorId: id, type: 'SCORE_SUBMITTED', payload: { songIndex, by: id, ex } });
+    d.apply({ actorId: null, type: 'PHOTO_OBSERVED', payload: { songIndex, by: id, messageId: `m-${songIndex}-${id}` } });
+  }
+  p = d.pending;
+  if (p.kind !== 'SELECT_WINNER') throw new Error(`expected SELECT_WINNER, got ${p.kind}`);
+  for (const id of [x, y]) {
+    d.apply({ actorId: id, type: 'SONG_WINNER_SELECTED', payload: { songIndex, by: id, choice: winner } });
+  }
+}
 
 function toFixture(name: string, driver: MatchDriver, format: MatchFormat): GoldenFixture {
   return {
@@ -179,6 +199,103 @@ const fixtures: GoldenFixture[] = [];
   d.tiebreakPick(0).playSong(A);
   d.confirmResult();
   fixtures.push(toFixture('bo3-tiebreak-round', d, B3));
+}
+
+// --- bo5-protect-veto-v2 / bo3-protect-veto-v2 ------------------------------
+// Same two representative scenarios as the v1 corpus above, minus the
+// trailing `confirmResult()` — `-v2` decides the set the instant `setWinner`
+// resolves, with no separate confirmation step. See `protect-veto.ts`'s
+// `autoComplete`.
+
+// A straightforward 3-0 sweep, auto-completing on the last song's agreement.
+{
+  const d = new MatchDriver(makePack(20), F2).create(A, B).chooseSeed('FIRST').runProtectVeto();
+  d.playSong(A).playSong(A).playSong(A);
+  fixtures.push(toFixture('v2-straight-sweep', d, F2));
+}
+
+// A 2-2 split forces the Decider, which auto-completes the set on landing.
+{
+  const d = new MatchDriver(makePack(20), F2).create(A, B).chooseSeed('FIRST').runProtectVeto();
+  d.playSong(A).playSong(B).playSong(A).playSong(B).playSong(A);
+  fixtures.push(toFixture('v2-decider-used', d, F2));
+}
+
+// Bo3: a clean 2-0 sweep, auto-completing on the last song's agreement.
+{
+  const d = new MatchDriver(makePack(20), B3V2).create(A, B).chooseSeed('FIRST').runProtectVeto();
+  d.playSong(A).playSong(A);
+  fixtures.push(toFixture('bo3-v2-straight-sweep', d, B3V2));
+}
+
+// --- hb11-static-pool / hb13-static-pool ------------------------------------
+// Hubert's formats aren't deployed yet, so this rules change (and its
+// win-condition tracking) ships in place under the existing keys — no `-v2`,
+// no fixtures to preserve from before. See DESIGN.md, "Format versioning and
+// golden replay", and the plan that shipped this change.
+
+const hb11Pool = () => makeStaticPool(FORMAT_SONG_LABELS['hb11-static-pool']!);
+const hb13Pool = () => makeStaticPool(FORMAT_SONG_LABELS['hb13-static-pool']!);
+
+// HB-11: A wins three straight picks — decided outright on points, no forced
+// Tiebreaker song touched.
+{
+  const d = new MatchDriver(hb11Pool(), Hb11StaticPoolFormat).create(A, B).runProtectVeto();
+  d.pickSong().playSong(A).pickSong().playSong(A).pickSong().playSong(A);
+  fixtures.push(toFixture('hb11-race-to-3', d, Hb11StaticPoolFormat));
+}
+
+// HB-11: A takes one pick, the rest of the non-TB pool ties out, and the
+// forced Tiebreaker song also ties — the 1-0 record from the one decisive
+// song settles it once nothing is left to play.
+{
+  const d = new MatchDriver(hb11Pool(), Hb11StaticPoolFormat).create(A, B).runProtectVeto();
+  d.pickSong().playSong(A);
+  for (let i = 0; i < 7; i++) d.pickSong().playSong('TIE');
+  d.playSong('TIE'); // the forced TB song
+  fixtures.push(toFixture('hb11-tiebreaker-points', d, Hb11StaticPoolFormat));
+}
+
+// HB-11: points reach 2-2 and stay tied through the forced Tiebreaker song —
+// average EX% across every song played breaks it.
+{
+  const d = new MatchDriver(hb11Pool(), Hb11StaticPoolFormat).create(A, B).runProtectVeto();
+  d.pickSong();
+  playCustom(d, A, B, 95, 80, A); // 1-0
+  d.pickSong();
+  playCustom(d, A, B, 85, 95, B); // 1-1
+  d.pickSong();
+  playCustom(d, A, B, 96, 82, A); // 2-1
+  d.pickSong();
+  playCustom(d, A, B, 84, 96, B); // 2-2 -> TB forced
+  playCustom(d, A, B, 90, 90, 'TIE'); // TB ties; avg(A)=90, avg(B)=88.6
+  fixtures.push(toFixture('hb11-avg-ex-tiebreak', d, Hb11StaticPoolFormat));
+}
+
+// HB-11: points and average EX both come out fully tied — no rule left to
+// apply short of a referee, who names the winner directly.
+{
+  const d = new MatchDriver(hb11Pool(), Hb11StaticPoolFormat).create(A, B).runProtectVeto();
+  d.pickSong();
+  playCustom(d, A, B, 90, 90, A); // 1-0
+  d.pickSong();
+  playCustom(d, A, B, 90, 90, B); // 1-1
+  d.pickSong();
+  playCustom(d, A, B, 90, 90, A); // 2-1
+  d.pickSong();
+  playCustom(d, A, B, 90, 90, B); // 2-2 -> TB forced
+  playCustom(d, A, B, 90, 90, 'TIE'); // TB ties; EX identical throughout
+  d.apply({ actorId: REF, type: 'SET_RESULT_RULED', payload: { result: A } });
+  fixtures.push(toFixture('hb11-fully-tied-ruling', d, Hb11StaticPoolFormat));
+}
+
+// HB-13: the same race-to-3 shape, over the category-restricted veto
+// sequence — confirms the rules change applies identically regardless of
+// `vetoSequence`/`drawSize`.
+{
+  const d = new MatchDriver(hb13Pool(), Hb13StaticPoolFormat).create(A, B).runProtectVeto();
+  d.pickSong().playSong(A).pickSong().playSong(A).pickSong().playSong(A);
+  fixtures.push(toFixture('hb13-race-to-3', d, Hb13StaticPoolFormat));
 }
 
 for (const fixture of fixtures) {

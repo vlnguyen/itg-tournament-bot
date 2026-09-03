@@ -1,5 +1,5 @@
 import type { PublicMatch } from '@itg/shared';
-import { canEditMatchFormat, displayStepartistLine, displayTitle, FORMAT_LABEL, FormatKey, generateBracket, playstylePrefix, sectionLabel } from '@itg/shared';
+import { canEditMatchFormat, displayStepartistLine, displayTitle, FORMAT_LABEL, FormatKey, generateBracket, playstylePrefix, sectionLabel, SELECTABLE_FORMAT_KEYS } from '@itg/shared';
 import { Alert, Badge, Center, Divider, Group, Loader, Select, Stack, Table, Text, Title } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
@@ -164,6 +164,19 @@ function TiebreakRoundSection({ t, pub }: { t: PublicMatch['tiebreaks'][number];
   );
 }
 
+/** `POINTS` reads as the ordinary case (the score already says it) and gets no callout — mirrors `result-summary.ts`'s `WIN_CONDITION_LABEL` on the Discord side. */
+const WIN_CONDITION_LABEL: Record<'POINTS' | 'TIEBREAKER' | 'AVG_EX', string> = {
+  POINTS: '',
+  TIEBREAKER: 'won by points, song pool exhausted',
+  AVG_EX: 'won on average EX%',
+};
+
+/** `outcome.winCondition` is only ever set alongside `by === 'AGREEMENT'`. */
+function decidedByText(outcome: NonNullable<PublicMatch['outcome']>): string {
+  if (outcome.winCondition) return WIN_CONDITION_LABEL[outcome.winCondition];
+  return outcome.by === 'AGREEMENT' ? '' : outcome.by.toLowerCase();
+}
+
 function pendingDescription(pub: PublicMatch): string {
   const p = pub.pending;
   switch (p.kind) {
@@ -258,7 +271,7 @@ export default function MatchDetail(): JSX.Element {
               <Select
                 size="xs"
                 w={210}
-                data={FormatKey.options.map((k) => ({ value: k, label: FORMAT_LABEL[k] }))}
+                data={SELECTABLE_FORMAT_KEYS.map((k) => ({ value: k, label: FORMAT_LABEL[k] }))}
                 value={pub.formatKey}
                 allowDeselect={false}
                 disabled={formatMutation.isPending}
@@ -359,7 +372,7 @@ export default function MatchDetail(): JSX.Element {
               .sort((a, b) => a.place - b.place)
               .map((pl) => `${nameOf(pub, pl.entrantId)} (${pl.place === 1 ? 'winner' : 'runner-up'})`)
               .join(', ')}
-            {pub.outcome.by !== 'AGREEMENT' && ` (${pub.outcome.by.toLowerCase()})`}
+            {decidedByText(pub.outcome) && ` (${decidedByText(pub.outcome)})`}
           </Alert>
         )}
 

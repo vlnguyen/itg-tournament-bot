@@ -150,11 +150,16 @@ export type PendingAction = z.infer<typeof PendingAction>;
 export const MatchOutcomeBy = z.enum(['AGREEMENT', 'RULING', 'FORFEIT', 'DQ', 'WALKOVER']);
 export type MatchOutcomeBy = z.infer<typeof MatchOutcomeBy>;
 
+/** Which rule settled an `'AGREEMENT'`-decided set — see the domain `WinCondition` type this mirrors. Absent for every other `by`, and for Bo3/Bo5, absent even then unless the match ran under a `-v2` format key. */
+export const WinCondition = z.enum(['POINTS', 'TIEBREAKER', 'AVG_EX']);
+export type WinCondition = z.infer<typeof WinCondition>;
+
 export const MatchOutcome = z.object({
   placements: z.array(
     z.object({ entrantId: EntrantId, place: z.number().int().positive(), points: z.number().int().nonnegative() }),
   ),
   by: MatchOutcomeBy,
+  winCondition: WinCondition.optional(),
 });
 export type MatchOutcome = z.infer<typeof MatchOutcome>;
 
@@ -206,6 +211,8 @@ export const BracketMatch = z.object({
   awaitingTo: z.boolean(),
   /** The sixth — "walkover" apart from an ordinary agreed finish, once `status` is `COMPLETE`. */
   outcomeBy: MatchOutcomeBy.nullable(),
+  /** Mirrors `MatchOutcome.winCondition` — null whenever that field is absent (see its own comment: `outcomeBy` isn't `'AGREEMENT'`, or it is but the match ran under a v1 Bo3/Bo5 key), same as `outcomeBy` itself is null before `COMPLETE`. */
+  outcomeWinCondition: WinCondition.nullable(),
   points: z.record(EntrantId, z.number().int()),
   currentChartId: z.string().nullable(),
   winnerId: EntrantId.nullable(),
@@ -276,6 +283,7 @@ export function deriveBracketMatch(pub: PublicMatch): BracketMatch {
     status: pub.outcome ? 'COMPLETE' : 'IN_PROGRESS',
     awaitingTo: pub.pending.kind === 'AWAITING_TO',
     outcomeBy: pub.outcome?.by ?? null,
+    outcomeWinCondition: pub.outcome?.winCondition ?? null,
     points: pub.points,
     currentChartId: active?.chart.chartId ?? null,
     winnerId: pub.outcome?.placements.find((p) => p.place === 1)?.entrantId ?? null,

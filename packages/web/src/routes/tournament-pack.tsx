@@ -38,6 +38,7 @@ import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { ImportPreviousEventButton } from '../components/import-previous-event.js';
 import { PackImport } from '../components/pack-import.js';
 import { TournamentHeader } from '../components/tournament-header.js';
 import { useLifecycleStatus } from '../hooks/use-lifecycle-status.js';
@@ -373,9 +374,12 @@ function AllSongsTab({
       */}
       {!isEditing && isOrganizer && snapshot && canImportPack(snapshot.state) && (
         <>
-          <Button variant="subtle" size="xs" onClick={toggleImport} style={{ alignSelf: 'flex-start' }}>
-            {importOpen ? 'Hide import' : 'Import pack'}
-          </Button>
+          <Group gap="xs" style={{ alignSelf: 'flex-start' }}>
+            <Button variant="subtle" size="xs" onClick={toggleImport}>
+              {importOpen ? 'Hide import' : 'Import pack'}
+            </Button>
+            <ImportPreviousEventButton tournamentId={tournamentId} />
+          </Group>
           <Collapse in={importOpen}>
             <PackImport tournamentId={tournamentId} existingCharts={charts} />
           </Collapse>

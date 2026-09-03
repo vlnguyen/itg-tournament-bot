@@ -122,7 +122,9 @@ Tiebreak songs are ordinary scoring songs — the set is always decided by a pla
 
 ### 6. Set result
 
-- The final winner of the set must be **confirmed by both players**.
+- **The set is decided automatically once a win condition is reached — no separate confirmation step.** A player who has agreed on every song's outcome has, by construction, already agreed on the set: the score is nothing but the tally of already-agreed songs, so once the win condition itself resolves there is nothing left to independently confirm.
+- **The thread and the match page record which win condition decided it:** reaching the target point count outright, most points once the forced Tiebreaker/Decider song was played without reaching the target, or — Hubert's formats only — higher average EX% once points stayed level through that song too. The ordinary case (reaching the target outright) isn't called out; the other two are, since a reader can't infer them from the score alone.
+- A referee may still rule the set directly at any point, exactly as before.
 - **No-shows and disqualifications are never automated.** If a player is absent or unresponsive, the bot alerts the organizer alert channel; a **referee** decides the outcome and applies it.
 - If a competitor **leaves the Discord server** mid-tournament, the bot alerts the organizer alert channel. A **referee** applies the **disqualification**.
 - A **disqualification** asks the referee to choose its scope:
@@ -280,7 +282,7 @@ Unlike Bo3/Bo5, where every song tying can in principle generate tiebreak rounds
 
 ## Automation Boundary
 
-**The only outcomes the bot commits on its own are ones both players have signed off on** — an agreed song winner, an agreed set result. Everything else is a referee decision.
+**The only outcomes the bot commits on its own are ones both players have signed off on** — an agreed song winner, and a set result the players have thereby already agreed to, whether or not a win condition was reached before the last song they agreed on. Everything else is a referee decision.
 
 Specifically, the bot **never**:
 
@@ -323,7 +325,7 @@ Once a tournament has started:
 | Song 2 onward, currently in progress | Yes — correct a score, force a winner on an escalation |
 | Song whose winner both players have agreed | **No** — frozen |
 | Protect/Veto, once song 1's result has committed | **No** — frozen |
-| Set whose result both players have confirmed | **No** — frozen |
+| Set whose win condition has been reached | **No** — frozen |
 
 A committed song result is permanent, whether it was reached by mutual player agreement or by a referee ruling. Nothing rewinds.
 
@@ -371,7 +373,7 @@ Tiers are cumulative, so each action below lists the **minimum** tier required. 
 
 | Action | Minimum |
 | --- | --- |
-| Protect, Veto, submit a score, post a result photo, select a song winner, choose a tiebreak chart, confirm the set result | Being one of the two players |
+| Protect, Veto, submit a score, post a result photo, select a song winner, choose a tiebreak chart | Being one of the two players |
 | Report a settings problem on a flagged chart | Being one of the two players |
 | Award an escalated song to a player | Referee |
 | Void a song | Referee |
@@ -546,7 +548,6 @@ Match play itself uses **components, not commands** — Protect, Veto, score sub
 | Submit score | Button, opening a modal |
 | Select the song winner | Three buttons — each player, or tie |
 | Tiebreak selection | Select menu over the three drawn charts |
-| Confirm the set result | Button |
 | Report a settings problem | Button |
 
 The one thing players post as an ordinary message is the **result-screen photo**.

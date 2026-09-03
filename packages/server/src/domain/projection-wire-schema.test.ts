@@ -1,9 +1,9 @@
 import { FORMAT_SONG_LABELS, PublicMatch as PublicMatchSchema, BracketMatch as BracketMatchSchema, deriveBracketMatch } from '@itg/shared';
 import { describe, expect, it } from 'vitest';
-import { Bo5ProtectVetoFormat as F } from './bo5.js';
+import { Bo5ProtectVetoFormat as F, Bo5ProtectVetoFormatV2 as F2 } from './bo5.js';
 import { Hb11StaticPoolFormat as HB11 } from './hubert.js';
 import { toBracketMatch, toPublicMatch } from './projection.js';
-import { MatchDriver, makeStaticPool } from './testkit.js';
+import { MatchDriver, makePack, makeStaticPool } from './testkit.js';
 import { emptyState } from './types.js';
 
 /**
@@ -111,6 +111,20 @@ describe('PublicMatch / BracketMatch wire schemas', () => {
     expect(() => PublicMatchSchema.parse(wireRoundTrip(withNames(withRef(toPublicMatch(F, emptyState())))))).not.toThrow();
     expect(() => BracketMatchSchema.parse(wireRoundTrip(withNames(toBracketMatch(F, emptyState()))))).not.toThrow();
   });
+
+  it('a v2 match auto-completes with no CONFIRM_RESULT step, and winCondition survives the wire round trip', () => {
+    const d = new MatchDriver(makePack(20), F2).create(A, B).chooseSeed('FIRST').runProtectVeto();
+    while (F2.outcome(d.state) === null) {
+      const p = d.pending;
+      if (p.kind === 'SUBMIT_SCORE') d.playSong(A);
+      else throw new Error(`unexpected ${p.kind}`);
+    }
+    const pub = PublicMatchSchema.parse(wireRoundTrip(withNames(withRef(toPublicMatch(F2, d.state)))));
+    expect(pub.pending.kind).toBe('DONE');
+    expect(pub.outcome?.winCondition).toBe('POINTS');
+    const bracket = BracketMatchSchema.parse(wireRoundTrip(withNames(toBracketMatch(F2, d.state))));
+    expect(bracket.outcomeWinCondition).toBe('POINTS');
+  });
 });
 
 /**
@@ -137,21 +151,37 @@ describe('PublicMatch / BracketMatch wire schemas — Hubert format', () => {
     expect(() => BracketMatchSchema.parse(wireRoundTrip(withNames(toBracketMatch(HB11, d.state))))).not.toThrow();
   });
 
-  it('accepts a completed HB-11 match, outcome and winnerId populated', () => {
+  it('accepts a completed HB-11 match, outcome and winnerId populated, auto-completed with no CONFIRM_RESULT step', () => {
     const d = openedHB();
     d.runProtectVeto();
     while (HB11.outcome(d.state) === null) {
       const p = d.pending;
       if (p.kind === 'SELECT_SONG') d.pickSong();
       else if (p.kind === 'SUBMIT_SCORE') d.playSong(A);
-      else if (p.kind === 'CONFIRM_RESULT') d.confirmResult();
       else throw new Error(`unexpected ${p.kind}`);
     }
     const pub = PublicMatchSchema.parse(wireRoundTrip(withNames(withRef(toPublicMatch(HB11, d.state)))));
+    expect(pub.pending.kind).toBe('DONE');
     expect(pub.outcome?.by).toBe('AGREEMENT');
+    expect(pub.outcome?.winCondition).toBe('POINTS');
     const bracket = BracketMatchSchema.parse(wireRoundTrip(withNames(toBracketMatch(HB11, d.state))));
     expect(bracket.status).toBe('COMPLETE');
     expect(bracket.winnerId).toBe(A);
+    expect(bracket.outcomeWinCondition).toBe('POINTS');
+  });
+
+  it('accepts an HB-11 match decided on the forced Tiebreaker song by points, winCondition survives the wire round trip', () => {
+    const d = openedHB();
+    d.runProtectVeto();
+    d.pickSong().playSong(A); // 1-0
+    while (d.pending.kind === 'SELECT_SONG') d.pickSong().playSong('TIE'); // tie out the rest of the non-TB pool
+    if (d.pending.kind !== 'SUBMIT_SCORE') throw new Error(`expected the forced TB song, got ${d.pending.kind}`);
+    d.playSong('TIE'); // TB ties too; the 1-0 record from before it settles the set
+    const pub = PublicMatchSchema.parse(wireRoundTrip(withNames(withRef(toPublicMatch(HB11, d.state)))));
+    expect(pub.pending.kind).toBe('DONE');
+    expect(pub.outcome?.winCondition).toBe('TIEBREAKER');
+    const bracket = BracketMatchSchema.parse(wireRoundTrip(withNames(toBracketMatch(HB11, d.state))));
+    expect(bracket.outcomeWinCondition).toBe('TIEBREAKER');
   });
 });
 

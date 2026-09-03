@@ -79,6 +79,37 @@ describe('buildResultSummaryEmbed', () => {
     expect(embed.data.title).toContain('(by referee ruling)');
   });
 
+  it('does not call out the default win condition — reaching the outright majority', () => {
+    const points: MatchOutcome = { ...outcome, winCondition: 'POINTS' };
+    const embed = buildResultSummaryEmbed([song(0, 'alice')], { alice: 3, bob: 1 }, points, participantIds, nameOf);
+    expect(embed.data.title).toBe('Match complete: Alice wins 3–1');
+  });
+
+  it('calls out a tiebreaker-decided win', () => {
+    const tiebreaker: MatchOutcome = { ...outcome, winCondition: 'TIEBREAKER' };
+    const embed = buildResultSummaryEmbed([song(0, 'alice')], { alice: 3, bob: 1 }, tiebreaker, participantIds, nameOf);
+    expect(embed.data.title).toContain('(won by points, song pool exhausted)');
+  });
+
+  it('calls out an average-EX%-decided win', () => {
+    const avgEx: MatchOutcome = { ...outcome, winCondition: 'AVG_EX' };
+    const embed = buildResultSummaryEmbed([song(0, 'alice')], { alice: 3, bob: 1 }, avgEx, participantIds, nameOf);
+    expect(embed.data.title).toContain('(won on average EX%)');
+  });
+
+  it('appends each player\'s average EX% after the song list, only when that is what decided it', () => {
+    const avgEx: MatchOutcome = { ...outcome, winCondition: 'AVG_EX' };
+    const embed = buildResultSummaryEmbed([song(0, 'alice'), song(1, 'bob')], { alice: 2, bob: 2 }, avgEx, participantIds, nameOf);
+    // `song()` gives every song the same 96.5%/94.2% split, so the average is that same value.
+    expect(embed.data.description).toContain('\n\nAverage EX%: Alice 96.50%, Bob 94.20%');
+  });
+
+  it('does not append an average-EX% line for any other win condition', () => {
+    const points: MatchOutcome = { ...outcome, winCondition: 'POINTS' };
+    const embed = buildResultSummaryEmbed([song(0, 'alice')], { alice: 3, bob: 1 }, points, participantIds, nameOf);
+    expect(embed.data.description).not.toContain('Average EX%');
+  });
+
   it('does not throw building an embed for a DQ/forfeit before any song was played', () => {
     // `EmbedBuilder.setDescription('')` throws — a DQ or forfeit is legal at
     // any point before the match is DONE, including mid Protect/Veto, when
@@ -116,10 +147,45 @@ describe('buildResultAnnouncement', () => {
     expect(message.embeds![0]!.data.color).toBe(0x2ecc71);
   });
 
-  it('uses the same "advances (score)" wording for a forfeit, not a defeats-scoreline', () => {
+  it('uses the same "advances (score)" scoreline for a forfeit, not a defeats-wording, but now names how it was decided', () => {
     const forfeited: MatchOutcome = { ...outcome, by: 'FORFEIT' };
     const message = buildResultAnnouncement('WINNERS', 2, forfeited, { alice: 0, bob: 0 }, participantIds, nameOf, 't1', 'm1', 'T', []);
-    expect(message.embeds![0]!.data.description).toContain('Alice advances (0-0)');
+    expect(message.embeds![0]!.data.description).toContain('Alice advances (0-0) — by forfeit');
+  });
+
+  it('names a ruling, a DQ, and a walkover the same way', () => {
+    for (const [by, text] of [
+      ['RULING', 'by referee ruling'],
+      ['DQ', 'by disqualification'],
+      ['WALKOVER', 'by walkover'],
+    ] as const) {
+      const decided: MatchOutcome = { ...outcome, by };
+      const message = buildResultAnnouncement('WINNERS', 2, decided, { alice: 3, bob: 1 }, participantIds, nameOf, 't1', 'm1', 'T', []);
+      expect(message.embeds![0]!.data.description).toContain(`Alice advances (3-1) — ${text}`);
+    }
+  });
+
+  it('names a tiebreaker or average-EX% finish the same way an "advances" line does', () => {
+    const tiebreaker: MatchOutcome = { ...outcome, winCondition: 'TIEBREAKER' };
+    const message = buildResultAnnouncement('WINNERS', 2, tiebreaker, { alice: 3, bob: 1 }, participantIds, nameOf, 't1', 'm1', 'T', []);
+    expect(message.embeds![0]!.data.description).toContain('Alice advances (3-1) — won by points, song pool exhausted');
+  });
+
+  it('says "wins", not "advances", once this match decided the whole tournament', () => {
+    const message = buildResultAnnouncement('GRAND_FINAL', 2, outcome, { alice: 3, bob: 2 }, participantIds, nameOf, 't1', 'm1', 'T', [], undefined, true);
+    expect(message.embeds![0]!.data.description).toContain('Alice wins (3-2)');
+    expect(message.embeds![0]!.data.description).not.toContain('advances');
+  });
+
+  it('still names the non-standard reason on the final, tournament-deciding match', () => {
+    const ruled: MatchOutcome = { ...outcome, by: 'RULING' };
+    const message = buildResultAnnouncement('GRAND_FINAL', 1, ruled, { alice: 3, bob: 1 }, participantIds, nameOf, 't1', 'm1', 'T', [], undefined, true);
+    expect(message.embeds![0]!.data.description).toContain('Alice wins (3-1) — by referee ruling');
+  });
+
+  it('defaults to "advances" when tournamentComplete is omitted', () => {
+    const message = buildResultAnnouncement('GRAND_FINAL', 1, outcome, { alice: 3, bob: 1 }, participantIds, nameOf, 't1', 'm1', 'T', []);
+    expect(message.embeds![0]!.data.description).toContain('Alice advances (3-1)');
   });
 
   it('names both players in seat order regardless of who won', () => {
@@ -187,6 +253,6 @@ describe('buildResultAnnouncement', () => {
   it('omits the song list entirely when no songs were played', () => {
     const dqBeforeAnySong: MatchOutcome = { ...outcome, by: 'DQ' };
     const message = buildResultAnnouncement('WINNERS', 2, dqBeforeAnySong, { alice: 0, bob: 0 }, participantIds, nameOf, 't1', 'm1', 'T', []);
-    expect(message.embeds![0]!.data.description).toBe('Alice advances (0-0)\n\n[T](/t/t1)');
+    expect(message.embeds![0]!.data.description).toBe('Alice advances (0-0) — by disqualification\n\n[T](/t/t1)');
   });
 });

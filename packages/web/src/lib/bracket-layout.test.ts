@@ -25,6 +25,7 @@ function fullSnapshot(entrantCount: number): TournamentSnapshot {
         status: 'PENDING',
         awaitingTo: false,
         outcomeBy: null,
+        outcomeWinCondition: null,
         points: {},
         currentChartId: null,
         winnerId: null,

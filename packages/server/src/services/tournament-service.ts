@@ -1,6 +1,6 @@
 import { Prisma, type Guild, type PrismaClient, type Tournament, type TournamentState } from '@prisma/client';
-import { DEFAULT_TOURNAMENT_CONFIG, type LifecycleAction, type LifecycleStatus } from '@itg/shared';
-import { Bo5ProtectVetoFormat } from '../domain/bo5.js';
+import { DEFAULT_TOURNAMENT_CONFIG, SELECTABLE_FORMAT_KEYS, type LifecycleAction, type LifecycleStatus } from '@itg/shared';
+import { Bo5ProtectVetoFormatV2 } from '../domain/bo5.js';
 import { matchKey, type MatchRef } from '../domain/bracket.js';
 import { logAction } from './audit-log.js';
 import { generateBracketGraph, materializeBracket } from './bracket-service.js';
@@ -32,8 +32,8 @@ export class TournamentSlotOccupiedError extends Error {
   }
 }
 
-/** Only one ruleset ships — see DESIGN.md, "Configurability". Every tournament is stamped with it; a picker offering a real choice is a later addition. */
-const DEFAULT_FORMAT_KEY = Bo5ProtectVetoFormat.key;
+/** What a new tournament is stamped with before a TO ever touches `/tournament format`. */
+const DEFAULT_FORMAT_KEY = Bo5ProtectVetoFormatV2.key;
 
 const UNIQUE_CONSTRAINT_VIOLATION = 'P2002';
 
@@ -267,6 +267,24 @@ export class MixedFormatConflictError extends Error {
 export type SetTournamentFormatMode = 'UPDATE_ALL' | 'DEFAULT_ONLY';
 
 /**
+ * Distinguishes "not a real ruleset" from "a real ruleset that's retired
+ * from new selection." A legacy Bo3/Bo5 key (`bo3-protect-veto`,
+ * `bo5-protect-veto`) still resolves fine through `requireFormat` — real
+ * matches were played under it and must keep replaying — but choosing it
+ * for a *new* default or match assignment is refused here, the same
+ * restriction the `/tournament format` picker and every web format
+ * `&lt;Select&gt;` already enforce by only offering `SELECTABLE_FORMAT_KEYS`.
+ * Checked server-side too, not just left to those pickers, since neither
+ * is the only way to reach this call.
+ */
+function requireSelectableFormat(formatKey: string): void {
+  requireFormat(formatKey); // throws first on a genuinely unregistered key
+  if (!(SELECTABLE_FORMAT_KEYS as readonly string[]).includes(formatKey)) {
+    throw new Error(`"${formatKey}" is a legacy format and can no longer be selected`);
+  }
+}
+
+/**
  * The picker DESIGN.md's "Configurability" section anticipates: which
  * ruleset gets stamped onto every match this tournament generates by
  * default. Modelled directly on `renameTournament` below, but gated to
@@ -297,7 +315,7 @@ export async function setTournamentFormat(
     if (!FORMAT_EDITABLE_STATES.includes(t.state)) {
       throw new TournamentTransitionError(tournamentId, `the bracket is already generated, so the format is locked (state is ${t.state})`);
     }
-    requireFormat(formatKey); // throws on an unregistered key before it ever reaches the column.
+    requireSelectableFormat(formatKey);
 
     if (!mode) {
       const matches = await tx.match.findMany({ where: { tournamentId }, select: { formatKey: true } });
@@ -364,8 +382,11 @@ export async function setMatchFormats(
   actorId: string,
 ): Promise<void> {
   await prisma.$transaction(async (tx) => {
-    requireFormat(formatKey);
+    // State first, same order `setTournamentFormat` uses above — once the
+    // tournament or the match itself is past the point of editing, that is
+    // the reason the request fails, whatever `formatKey` was asked for.
     const tournament = await requireStateIn(tx, tournamentId, MATCH_FORMAT_EDITABLE_STATES);
+    requireSelectableFormat(formatKey);
     const overrides: Record<string, string> = { ...(tournament.formatOverrides as Record<string, string>) };
 
     for (const ref of refs) {

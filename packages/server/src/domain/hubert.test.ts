@@ -112,7 +112,7 @@ describe('opening a match', () => {
 });
 
 describe('a normal race to 3', () => {
-  it('ends the moment either player reaches 3, without touching the reserved TB song', () => {
+  it('ends the moment either player reaches 3, without touching the reserved TB song or asking for confirmation', () => {
     const d = opened11();
     d.runProtectVeto(); // both vetoes
     // B, A, B, A, B — A wins every pick B loses and vice versa isn't needed;
@@ -124,11 +124,11 @@ describe('a normal race to 3', () => {
     d.pickSong();
     d.playSong(A);
     expect(d.state.points[A]).toBe(3);
-    expect(HB11.outcome(d.state)).toBeNull(); // still needs CONFIRM_RESULT
-    expect(d.pending.kind).toBe('CONFIRM_RESULT');
-    d.confirmResult();
+    // No separate CONFIRM_RESULT step — reaching 3 decides the set outright.
+    expect(d.pending.kind).toBe('DONE');
     const outcome = HB11.outcome(d.state);
     expect(outcome?.placements.find((p) => p.entrantId === A)?.place).toBe(1);
+    expect(outcome?.winCondition).toBe('POINTS');
     expect(d.state.songs.some((s) => s.chart.poolLabel === 'TB')).toBe(false);
   });
 });
@@ -177,9 +177,10 @@ describe('the forced Tiebreaker song', () => {
     d.playSong('TIE');
     expect(d.state.points[A]).toBe(1);
     expect(d.state.points[B]).toBe(0);
-    d.confirmResult();
+    expect(d.pending.kind).toBe('DONE'); // decided by points, no confirmation step
     const outcome = HB11.outcome(d.state);
     expect(outcome?.placements.find((p) => p.entrantId === A)?.place).toBe(1);
+    expect(outcome?.winCondition).toBe('TIEBREAKER');
   });
 
   it('resolves a TB tie by higher average EX% across every song played', () => {
@@ -198,10 +199,10 @@ describe('the forced Tiebreaker song', () => {
     expect(d.state.points[A]).toBe(2);
     expect(d.state.points[B]).toBe(2);
     // avg(A) = (95+85+96+84+90)/5 = 90, avg(B) = (80+95+82+96+90)/5 = 88.6
-    expect(d.pending.kind).toBe('CONFIRM_RESULT');
-    d.confirmResult();
+    expect(d.pending.kind).toBe('DONE'); // decided by average EX%, no confirmation step
     const outcome = HB11.outcome(d.state);
     expect(outcome?.placements.find((p) => p.entrantId === A)?.place).toBe(1);
+    expect(outcome?.winCondition).toBe('AVG_EX');
   });
 
   it('escalates to a referee when points and average EX are both fully tied', () => {

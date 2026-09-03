@@ -386,6 +386,16 @@ Two conditions make this sound, and both are settled elsewhere in this document.
 
 **Why the bot does not derive the song winner from the two EX% values.** It could — it has both numbers — and it does display the comparison. But the requirement is that both players select the winner and agree, and disagreement is an escalation with real evidentiary weight: the photos exist precisely because a self-reported EX% can be wrong. Deriving the result would collapse the disagreement path that the whole photo requirement is built around. The comparison is shown as a suggestion; the commit comes from agreement.
 
+### Ending the set without a separate confirmation
+
+The set originally needed one more step past its songs: once a win condition was reached, each player named who they believed won (`SET_RESULT_CONFIRMED`), and only once both picks landed and agreed did `outcome()` return non-null — the same shape as a song's `SONG_WINNER_SELECTED` pair, one level up. That extra step turned out to be pure redundancy. A player who has agreed on every song's outcome has, by construction, already agreed on the set: `points` is nothing but the tally of already-committed songs, so once a win condition is mathematically reached, there is nothing left to independently confirm — see "No commit events," above, for why a second record of an already-derivable fact is a liability, not a safeguard.
+
+**`outcome()` now returns as soon as the win condition itself resolves** — reaching the outright majority, a forced tiebreak song's points, or (Hubert's formats only) an average-EX% break — with no `CONFIRM_RESULT` pending action and no `SET_RESULT_CONFIRMED` event in between. A referee can still rule the set directly at any point (`SET_RESULT_RULED`), pre-empting the players' own agreement path exactly as before.
+
+**Which rule actually decided it is now recorded**, not just inferred from the score: `MatchOutcome.winCondition` — `'POINTS'` (reaching the target outright — the only case Bo3/Bo5 ever produce), `'TIEBREAKER'` (most points once the forced Tiebreaker song committed, without reaching the target), or `'AVG_EX'` (average EX% broke a tie the Tiebreaker song didn't). Absent whenever `by` isn't `'AGREEMENT'` — and, for Bo3/Bo5, absent even then for a match still running under a v1 key, since a v1 key's `outcome()` must keep returning exactly the shape it always has. The thread's result summary and the match detail page both call out `TIEBREAKER`/`AVG_EX` explicitly; `POINTS` stays unlabeled, the same as the ordinary case always read.
+
+**This shipped as a genuine rules change**, per "Format versioning and golden replay" below — it alters what `outcome()` returns for an existing event sequence. Bo3/Bo5 had real matches played under `bo3-protect-veto`/`bo5-protect-veto`, so the change shipped as new keys, `bo3-protect-veto-v2`/`bo5-protect-veto-v2` — the first real instance of the versioning scheme that section had, until then, only described in the abstract. The v1 keys stay registered, untouched, so any match already played under them keeps its exact original behavior on replay; the `/tournament format` picker now offers only the `-v2` keys for new tournaments. Hubert's formats (`hb11-static-pool`/`hb13-static-pool`) had no real matches yet, so that same change shipped in place under their existing keys instead, with the small number of leftover test tournaments purged rather than preserved.
+
 ## Match Format as a Plugin
 
 Requirements demand additional formats be addable without rework. Two ship: Bo5 (`bo5-protect-veto`) and Bo3 (`bo3-protect-veto`), a shorter 5-song/2-point ruleset with a fixed Protect/Protect/Veto/Veto sequence rather than Bo5's ABBAAB and loser-preference play order. A TO picks between them per tournament with `/tournament format` or the web config page. The two keys and their display labels live in `FormatKey`/`FORMAT_LABEL` (`formats.ts`, `@itg/shared`); the domain-side lookup a match actually resolves through is `formatRegistry` (`golden/registry.ts`) — see "Format versioning and golden replay" below for why those are two separate, hand-kept lists rather than one shared across the client/server boundary. The boundary:
@@ -453,6 +463,8 @@ interface MatchOutcome {
   /** Every participant, ordered by finish. Ties share a place, competition-style. */
   placements: { entrantId: EntrantId; place: number; points: number }[];
   by: 'AGREEMENT' | 'RULING' | 'FORFEIT' | 'DQ' | 'WALKOVER';
+  /** Which rule settled an `'AGREEMENT'`-decided set — absent otherwise. See "Ending the set without a separate confirmation," below. */
+  winCondition?: 'POINTS' | 'TIEBREAKER' | 'AVG_EX';
 }
 
 /** Match-scoped only. Bracket advancement is the service's reaction to outcome(). */
@@ -518,7 +530,7 @@ The consequence is larger than the rule: **every next-song decision in the set i
 | Loser holds none, Decider played | The one chart left (see below) |
 | Song tied — no loser | Next unplayed in protect order, falling through to the Decider |
 
-— so the bot advances the set on its own from the moment Protect/Veto ends until a tiebreak is needed or the set is decided. The only interactive steps left in a match are the seed choice, the six ABBAAB actions, score submission, winner selection, tiebreak picks, and the final confirmation.
+— so the bot advances the set on its own from the moment Protect/Veto ends until a tiebreak is needed or the set is decided. The only interactive steps left in a match are the seed choice, the six ABBAAB actions, score submission, winner selection, and tiebreak picks — plus, for a match still running under a `bo3-protect-veto`/`bo5-protect-veto` (v1) key, a final confirmation; a `-v2` match needs no such step, since the set is decided the moment `outcome()` says so (see "Ending the set without a separate confirmation," below).
 
 **The tie clause is still needed.** "Loser's earliest own protect" and "next unplayed in protect order" look the same but are not: if A loses song 1 (A1), the loser rule gives A2, while protect order would give B1. Both functions have to exist.
 

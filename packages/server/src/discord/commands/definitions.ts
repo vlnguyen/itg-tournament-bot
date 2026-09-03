@@ -1,5 +1,5 @@
 import { ChannelType, SlashCommandBuilder } from 'discord.js';
-import { FORMAT_LABEL, FormatKey } from '@itg/shared';
+import { FORMAT_LABEL, SELECTABLE_FORMAT_KEYS } from '@itg/shared';
 
 /**
  * Every slash command this bot registers, guild-scoped — matches this
@@ -74,7 +74,7 @@ const tournament = new SlashCommandBuilder()
           .setName('format')
           .setDescription('Ruleset to set')
           .setRequired(true)
-          .addChoices(...FormatKey.options.map((key) => ({ name: FORMAT_LABEL[key], value: key }))),
+          .addChoices(...SELECTABLE_FORMAT_KEYS.map((key) => ({ name: FORMAT_LABEL[key], value: key }))),
       )
       .addStringOption((o) =>
         o

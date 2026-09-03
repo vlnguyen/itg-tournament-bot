@@ -8,6 +8,7 @@ import type {
   MatchFormat,
   MatchOutcome,
   MatchState,
+  WinCondition,
 } from './types.js';
 
 /**
@@ -91,28 +92,34 @@ function needsForcedTiebreaker(s: MatchState): boolean {
 }
 
 /**
- * The unified endgame rule: first to {@link POINTS_TO_WIN} wins outright;
- * otherwise, once nothing is left to play (the forced TB song has
- * committed), most points wins, then higher average EX%, then no winner —
- * a fully tied match needs a referee. See NEW_FORMAT.md and the plan's
- * "Design inconsistencies" writeup for why this exists.
+ * The unified endgame rule: first to {@link POINTS_TO_WIN} wins outright
+ * (`POINTS`); otherwise, once nothing is left to play (the forced TB song
+ * has committed), most points wins (`TIEBREAKER`), then higher average EX%
+ * (`AVG_EX`), then no winner — a fully tied match needs a referee. See
+ * NEW_FORMAT.md and the plan's "Design inconsistencies" writeup for why
+ * this exists.
  */
-function decisiveWinner(s: MatchState): EntrantId | undefined {
+function resolveWinner(s: MatchState): { winnerId: EntrantId; condition: WinCondition } | undefined {
   const ids = idsOf(s);
   const reached = ids.find((id) => (s.points[id] ?? 0) >= POINTS_TO_WIN);
-  if (reached) return reached;
+  if (reached) return { winnerId: reached, condition: 'POINTS' };
   if (!matchOver(s)) return undefined;
 
   const [x, y] = ids;
   const px = s.points[x!] ?? 0;
   const py = s.points[y!] ?? 0;
-  if (px !== py) return px > py ? x : y;
+  if (px !== py) return { winnerId: px > py ? x! : y!, condition: 'TIEBREAKER' };
 
   const exX = averageEx(s, x!);
   const exY = averageEx(s, y!);
-  if (exX !== exY) return exX > exY ? x : y;
+  if (exX !== exY) return { winnerId: exX > exY ? x! : y!, condition: 'AVG_EX' };
 
   return undefined;
+}
+
+/** `escalationOf`/`pendingAction` only need the winner id, not which condition produced it. */
+function decisiveWinner(s: MatchState): EntrantId | undefined {
+  return resolveWinner(s)?.winnerId;
 }
 
 // ---------------------------------------------------------------------------
@@ -340,11 +347,10 @@ export function makeHubertFormat(config: HubertConfig): MatchFormat {
       return { kind: 'AWAITING_BOT', directive: { do: 'START_SONG', source: 'PICK', drawIndex } };
     }
 
-    const winner = decisiveWinner(state);
-    if (winner) {
-      const undecided = ids.filter((id) => state.setWinnerSelections[id] === undefined);
-      return undecided.length > 0 ? { kind: 'CONFIRM_RESULT', actors: undecided } : { kind: 'DONE' };
-    }
+    // Once a winner is decided, nothing is left to separately confirm — see
+    // `resolveWinner`/`outcome` below, and `protect-veto.ts`'s `autoComplete`
+    // for the same rule one level up from a committed song.
+    if (decisiveWinner(state)) return { kind: 'DONE' };
 
     if (needsForcedTiebreaker(state)) {
       return {
@@ -357,25 +363,31 @@ export function makeHubertFormat(config: HubertConfig): MatchFormat {
   }
 
   function outcome(state: MatchState): MatchOutcome | null {
-    const place = (winner: EntrantId, by: MatchOutcome['by']): MatchOutcome => ({
+    const place = (
+      winner: EntrantId,
+      by: MatchOutcome['by'],
+      winCondition?: WinCondition,
+    ): MatchOutcome => ({
       placements: idsOf(state).map((entrantId) => ({
         entrantId,
         place: entrantId === winner ? 1 : 2,
         points: state.points[entrantId] ?? 0,
       })),
       by,
+      ...(winCondition ? { winCondition } : {}),
     });
 
     if (state.terminal) return place(state.terminal.winnerId, state.terminal.by);
 
-    const winner = decisiveWinner(state);
-    if (!winner) return null;
-
-    const picks = idsOf(state).map((id) => state.setWinnerSelections[id]);
-    if (picks.some((p) => p === undefined) || new Set(picks).size > 1) return null;
+    const resolved = resolveWinner(state);
+    if (!resolved) return null;
 
     const decidedByRuling = state.songs.some((x) => x.result?.by === 'RULING');
-    return place(winner, decidedByRuling ? 'RULING' : 'AGREEMENT');
+    return place(
+      resolved.winnerId,
+      decidedByRuling ? 'RULING' : 'AGREEMENT',
+      decidedByRuling ? undefined : resolved.condition,
+    );
   }
 
   function effects(before: MatchState, after: MatchState): DomainEffect[] {

@@ -230,6 +230,10 @@ export async function applyAppendResult(
     await matchChannel.postLogMessage(ref, { embeds: [summary] });
 
     const shape = await bracketShapeOf(prisma, match.tournamentId);
+    // `result.tournamentCompleted` reflects the full advancement cascade,
+    // not just this one match — exactly the same signal the standings
+    // announcement below keys on — so "wins" vs. "advances" and "post
+    // standings too" never disagree about whether this was the last match.
     const announcement = buildResultAnnouncement(
       match.bracket,
       match.round,
@@ -242,6 +246,7 @@ export async function applyAppendResult(
       match.tournament.name,
       publicMatch.songs,
       shape,
+      result.tournamentCompleted,
     );
     await matchChannel.publishResult(ref, announcement);
 

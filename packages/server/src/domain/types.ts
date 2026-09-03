@@ -233,10 +233,22 @@ export function actorsOf(pending: PendingAction): EntrantId[] {
 // Outcome and effects.
 // ---------------------------------------------------------------------------
 
+/**
+ * Which rule actually settled an agreement-decided set. `POINTS` covers
+ * reaching the outright majority, whenever that happens — Bo3/Bo5 never
+ * produce anything else, since there is no forced-tiebreaker-song mechanic
+ * to fall through to. Absent when `by` isn't `'AGREEMENT'` — and, for
+ * Bo3/Bo5, absent even then unless the match ran under a `-v2` key: a v1
+ * key's `outcome()` never stamps this, since its shape has to stay exactly
+ * what it always was (see `protect-veto.ts`'s `autoComplete`).
+ */
+export type WinCondition = 'POINTS' | 'TIEBREAKER' | 'AVG_EX';
+
 export interface MatchOutcome {
   /** Every participant, ordered by finish. Ties share a place. */
   placements: { entrantId: EntrantId; place: number; points: number }[];
   by: 'AGREEMENT' | 'RULING' | 'FORFEIT' | 'DQ' | 'WALKOVER';
+  winCondition?: WinCondition;
 }
 
 /**

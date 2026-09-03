@@ -20,11 +20,12 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
+          command_timeout: 20m
           script: |
             set -e
             cd ${{ secrets.DEPLOY_PATH }}
             git fetch origin
             git checkout "${{ inputs.ref }}"
             git pull origin "${{ inputs.ref }}"
-            docker compose --profile production up -d --build
+            timeout 15m docker compose --progress plain --profile production up -d --build
             docker image prune -f

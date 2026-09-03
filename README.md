@@ -4,7 +4,7 @@ A Discord bot that runs In The Groove tournaments — double elimination bracket
 
 ## Status
 
-Implemented and live-tested: the match rules, bracket generation, concurrency model, Discord surface, web client, and organizer console. Remaining work is tracked in DESIGN.md's build order — timers and the reconciler (step 5) are designed but not yet built, and deployment (a container for the app process) hasn't started. One design question is deliberately left open, and it is marked as such.
+Implemented, deployed, and live-tested: the match rules, bracket generation, concurrency model, Discord surface, web client, and organizer console, running via the Docker Compose stack in this repo (an `app` container alongside Postgres, plus Caddy for production HTTPS). One design question is deliberately left open, and it is marked as such.
 
 ## Documents
 
@@ -29,33 +29,17 @@ TypeScript throughout. NestJS with discord.js in a single process, PostgreSQL vi
 
 ## TODO
 
-Everything through Phase 6 (the web client — public bracket, results/
-standings, and the organizer console) is built and live-tested. What
-remains, per DESIGN.md's "Build Order":
+Nothing tracked. Everything through Phase 6 (the web client — public
+bracket, results/standings, and the organizer console) and deployment
+(Docker Compose, the `app` container, Caddy) are built and live-tested.
 
-1. **Timers, alerts, the reconciler** (DESIGN.md "Timers", "The
-   reconciler"). `Timer` and `Alert` already exist as Prisma models,
-   and escalation/dispute alerts are wired up, but nothing creates,
-   sweeps, or fires a `Timer` row — the start-window and time-limit
-   thresholds specified in DESIGN.md don't exist yet. Nor does the
-   boot-time/per-minute reconciler that repairs drift between Discord
-   and the database (missed thread provisioning, stale state
-   messages, etc.). Build them together, per DESIGN.md: the sweeper
-   that fires timers is the same poller that runs the reconciler's
-   periodic pass.
-
-2. **Deployment.** `docker-compose.yml` only has `postgres`. Add a
-   `Dockerfile` and a single `app` container (NestJS serves API +
-   websockets + the static Vite build) alongside it. Confirm every
-   already-stubbed `.env.example` var is actually consumed.
+Timers, alerts, and the reconciler (DESIGN.md "Timers", "The
+reconciler") stay designed but unbuilt — no longer planned work, not a
+gap. `Timer` and `Alert` remain as Prisma models and escalation/dispute
+alerts are wired up; nothing creates, sweeps, or fires a `Timer` row.
 
 One design question remains explicitly open (DESIGN.md, "Role
 hierarchy is a different matter"): whether the bot can edit a channel
 overwrite targeting a Discord role above its own — unverified either
 way, and non-blocking since `/setup` repair already degrades to
 reporting what it can't fix.
-
-Close out each step per this project's usual order: service-layer
-logic + integration tests against real Postgres first, then the UI/
-route, then live-verify by actually running the app, before moving to
-the next step.

@@ -213,9 +213,11 @@ export default function GuildOverview(): JSX.Element {
       <Anchor component={Link} to={`/g/${guildId}/dashboard`} size="sm">
         Dashboard
       </Anchor>
-      <Anchor component={Link} to={`/g/${guildId}/setup`} size="sm">
-        Server Settings
-      </Anchor>
+      {firstRun?.hasManageGuild && (
+        <Anchor component={Link} to={`/g/${guildId}/setup`} size="sm">
+          Server Settings
+        </Anchor>
+      )}
     </Group>
   );
 

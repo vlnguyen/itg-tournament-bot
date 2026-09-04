@@ -53,14 +53,14 @@ describe.skipIf(!(await isReachable()))('GET /api/guilds/:guildId/first-run', ()
     hasManageGuildResult = true; // irrelevant — CurrentUser is null below
     hasTierResult = true;
     const body = await controller.getFirstRun(guildId, null);
-    expect(body).toEqual({ canManage: false, missingConfig: [], draftTournamentId: null, draftTournamentName: null });
+    expect(body).toEqual({ canManage: false, hasManageGuild: false, missingConfig: [], draftTournamentId: null, draftTournamentName: null });
   });
 
   it('reveals nothing to a signed-in viewer with neither Manage Guild nor Tournament Organizer tier here', async () => {
     hasManageGuildResult = false;
     hasTierResult = false;
     const body = await controller.getFirstRun(guildId, 'someone');
-    expect(body).toEqual({ canManage: false, missingConfig: [], draftTournamentId: null, draftTournamentName: null });
+    expect(body).toEqual({ canManage: false, hasManageGuild: false, missingConfig: [], draftTournamentId: null, draftTournamentName: null });
   });
 
   it('reports the missing-config checklist for a Manage Guild holder, even with no draft tournament', async () => {
@@ -68,12 +68,13 @@ describe.skipIf(!(await isReachable()))('GET /api/guilds/:guildId/first-run', ()
     hasTierResult = false;
     const body = await controller.getFirstRun(guildId, 'owner');
     expect(body.canManage).toBe(true);
+    expect(body.hasManageGuild).toBe(true);
     expect(body.draftTournamentId).toBeNull();
     expect(body.missingConfig).toContain('organizer alert channel');
     expect(body.missingConfig).not.toContain('matches channel');
   });
 
-  it("surfaces a DRAFT tournament's id to a Tournament Organizer", async () => {
+  it("surfaces a DRAFT tournament's id to a Tournament Organizer, with hasManageGuild false", async () => {
     hasManageGuildResult = false;
     hasTierResult = true;
     const draft = await prisma.tournament.create({
@@ -81,6 +82,7 @@ describe.skipIf(!(await isReachable()))('GET /api/guilds/:guildId/first-run', ()
     });
     const body = await controller.getFirstRun(guildId, 'a-to');
     expect(body.canManage).toBe(true);
+    expect(body.hasManageGuild).toBe(false);
     expect(body.draftTournamentId).toBe(draft.id);
     expect(body.draftTournamentName).toBe('draft');
   });

@@ -11,14 +11,18 @@ export const TournamentSummary = z.object({
 export type TournamentSummary = z.infer<typeof TournamentSummary>;
 
 /**
- * `GET /api/guilds` — the homepage's server list: every Discord server
- * this signed-in user holds Manage Guild (or ownership) in, from the
- * `guilds` OAuth2 scope's token pair — see `DiscordGuildsService`. Unlike
- * the bot's own gateway member cache, this includes servers the bot has
- * never been added to; `botPresent` is what tells the client whether a
- * card should link into `/g/:guildId` or offer `inviteUrl` instead.
- * `iconUrl` is `null` whenever the guild has no icon set; the client
- * supplies its own fallback.
+ * One server on the homepage's server list, however it got there — either
+ * every Discord server this signed-in user holds Manage Guild (or
+ * ownership) in, from the `guilds` OAuth2 scope's token pair (see
+ * `DiscordGuildsService.manageableGuildsFor`), or every server the bot's
+ * own gateway cache shows the user holding the Tournament Organizer role in
+ * (see `TierService.organizerOnlyGuildsFor`). The OAuth-sourced list can
+ * include servers the bot has never been added to; `botPresent` is what
+ * tells the client whether a card should link into `/g/:guildId` or offer
+ * `inviteUrl` instead — always `true`/`null` for the organizer-only list,
+ * since TO role membership can only ever be known for a server the bot is
+ * already in. `iconUrl` is `null` whenever the guild has no icon set; the
+ * client supplies its own fallback.
  */
 export const GuildSummary = z.object({
   id: z.string().min(1),
@@ -28,6 +32,19 @@ export const GuildSummary = z.object({
   inviteUrl: z.string().nullable(),
 });
 export type GuildSummary = z.infer<typeof GuildSummary>;
+
+/**
+ * `GET /api/guilds` — the homepage's two server lists. `managed` is every
+ * server this user holds Manage Guild (or ownership) in; `organizerOnly` is
+ * every server the bot can see this user holding the Tournament Organizer
+ * role in, excluding anything already in `managed` — a Manage Guild holder
+ * who is also a TO in the same server sees it once, in `managed`.
+ */
+export const MyGuilds = z.object({
+  managed: GuildSummary.array(),
+  organizerOnly: GuildSummary.array(),
+});
+export type MyGuilds = z.infer<typeof MyGuilds>;
 
 /**
  * `GET /api/guilds/:guildId/overview` — the `/g/:guildId` page itself, not
@@ -60,9 +77,16 @@ export type GuildOverview = z.infer<typeof GuildOverview>;
  * only ever populated alongside `canManage: true`; a `DRAFT` tournament is
  * exactly the thing `GuildOverview` must never surface, so gating it here
  * is what keeps that leak from happening a second way.
+ *
+ * `hasManageGuild` is the raw Manage Guild check on its own, separate from
+ * `canManage`'s union with Tournament Organizer tier — the client needs it
+ * to hide "Server Settings" from a TO-only viewer, since reconfiguring the
+ * server stays Manage-Guild-only even though the first-run wizard itself is
+ * open to either.
  */
 export const FirstRunStatus = z.object({
   canManage: z.boolean(),
+  hasManageGuild: z.boolean(),
   missingConfig: z.array(z.string()),
   draftTournamentId: z.string().min(1).nullable(),
   draftTournamentName: z.string().nullable(),

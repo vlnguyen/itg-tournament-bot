@@ -149,6 +149,42 @@ describe.skipIf(!(await isReachable()))('GET /api/guilds/:guildId/overview', () 
   });
 });
 
+/**
+ * `GET /api/guilds` — the homepage's two server lists, combined into one
+ * response. `listMine` just fans out to `DiscordGuildsService.
+ * manageableGuildsFor` and `TierService.organizerOnlyGuildsFor`; each
+ * method's own behavior is covered where it lives (`discord-guilds-
+ * service.test.ts`, `tier-service-organizer-guilds.test.ts`) — this only
+ * checks the fan-out and the signed-out shortcut.
+ */
+describe.skipIf(!(await isReachable()))('GET /api/guilds', () => {
+  let controller: GuildsController;
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({
+      controllers: [GuildsController],
+      providers: [
+        { provide: PrismaService, useValue: prisma },
+        { provide: TierService, useValue: { organizerOnlyGuildsFor: async () => [{ id: 'g-to', name: 'TO Server', iconUrl: null, botPresent: true, inviteUrl: null }] } },
+        { provide: DiscordGuildsService, useValue: { manageableGuildsFor: async () => [{ id: 'g-managed', name: 'Managed Server', iconUrl: null, botPresent: true, inviteUrl: null }] } },
+        { provide: DISCORD_CLIENT, useValue: { guilds: { cache: new Map(), fetch: async () => null } } },
+      ],
+    }).compile();
+    controller = moduleRef.get(GuildsController);
+  });
+
+  it('returns both lists empty for a signed-out request', async () => {
+    expect(await controller.listMine(null)).toEqual({ managed: [], organizerOnly: [] });
+  });
+
+  it('combines the manage list and the organizer-only list for a signed-in request', async () => {
+    expect(await controller.listMine('alice')).toEqual({
+      managed: [{ id: 'g-managed', name: 'Managed Server', iconUrl: null, botPresent: true, inviteUrl: null }],
+      organizerOnly: [{ id: 'g-to', name: 'TO Server', iconUrl: null, botPresent: true, inviteUrl: null }],
+    });
+  });
+});
+
 /** `POST /api/guilds/:guildId/tournaments` — the web equivalent of `/tournament create`. */
 describe.skipIf(!(await isReachable()))('POST /api/guilds/:guildId/tournaments', () => {
   let controller: GuildsController;

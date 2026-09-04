@@ -1,3 +1,4 @@
+import type { GuildSummary } from '@itg/shared';
 import { Inject, Injectable } from '@nestjs/common';
 import { Client, Guild, GuildMember, PermissionFlagsBits } from 'discord.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -58,6 +59,32 @@ export class TierService {
   async hasManageGuild(guildId: string, discordUserId: string): Promise<boolean> {
     const member = await this.memberOf(guildId, discordUserId);
     return member?.permissions.has(PermissionFlagsBits.ManageGuild) ?? false;
+  }
+
+  /**
+   * "Which servers does this user organize" — the Tournament Organizer
+   * counterpart to `DiscordGuildsService.manageableGuildsFor`, and
+   * necessarily a different shape: TO role membership isn't something
+   * Discord's OAuth `guilds` scope ever exposes (it returns a computed
+   * permissions bitfield, not per-guild role ids), so this can only answer
+   * for guilds the bot's own gateway cache already knows — the same
+   * `client.guilds.cache` enumeration `AdminController.getGuilds` uses.
+   * Excludes anywhere the user already holds Manage Guild, since that
+   * server belongs to the homepage's other list instead.
+   */
+  async organizerOnlyGuildsFor(discordUserId: string): Promise<GuildSummary[]> {
+    const guilds = [...this.client.guilds.cache.values()];
+    const results = await Promise.all(
+      guilds.map(async (guild): Promise<GuildSummary | null> => {
+        const [isOrganizer, isManager] = await Promise.all([
+          this.hasTier(guild.id, discordUserId, Tier.TOURNAMENT_ORGANIZER),
+          this.hasManageGuild(guild.id, discordUserId),
+        ]);
+        if (!isOrganizer || isManager) return null;
+        return { id: guild.id, name: guild.name, iconUrl: guild.iconURL({ size: 64 }), botPresent: true, inviteUrl: null };
+      }),
+    );
+    return results.filter((g): g is GuildSummary => g !== null).sort((a, b) => a.name.localeCompare(b.name));
   }
 
   /**

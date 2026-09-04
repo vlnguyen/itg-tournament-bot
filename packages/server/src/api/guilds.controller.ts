@@ -3,7 +3,7 @@ import type {
   CreateTournamentResult as CreateTournamentResultWire,
   FirstRunStatus as FirstRunStatusWire,
   GuildOverview as GuildOverviewWire,
-  GuildSummary as GuildSummaryWire,
+  MyGuilds as MyGuildsWire,
   TournamentSummary,
 } from '@itg/shared';
 import {
@@ -11,7 +11,7 @@ import {
   CreateTournamentResult as CreateTournamentResultSchema,
   FirstRunStatus as FirstRunStatusSchema,
   GuildOverview as GuildOverviewSchema,
-  GuildSummary as GuildSummarySchema,
+  MyGuilds as MyGuildsSchema,
 } from '@itg/shared';
 import type { Tournament } from '@prisma/client';
 import type { Client } from 'discord.js';
@@ -53,15 +53,20 @@ export class GuildsController {
   ) {}
 
   /**
-   * `GET /api/guilds` — the homepage's server list. Always the caller's
+   * `GET /api/guilds` — the homepage's server lists. Always the caller's
    * own guilds (`@CurrentUser()`), never a lookup by some other id; a
-   * signed-out request just gets `[]`, the same as anyone else asking
-   * "what are *my* guilds" with no identity to answer for.
+   * signed-out request just gets both lists empty, the same as anyone else
+   * asking "what are *my* guilds" with no identity to answer for.
    */
   @Get()
-  async listMine(@CurrentUser() discordUserId: string | null): Promise<GuildSummaryWire[]> {
-    const guilds = discordUserId ? await this.discordGuildsService.manageableGuildsFor(discordUserId) : [];
-    return GuildSummarySchema.array().parse(guilds);
+  async listMine(@CurrentUser() discordUserId: string | null): Promise<MyGuildsWire> {
+    const [managed, organizerOnly] = discordUserId
+      ? await Promise.all([
+          this.discordGuildsService.manageableGuildsFor(discordUserId),
+          this.tierService.organizerOnlyGuildsFor(discordUserId),
+        ])
+      : [[], []];
+    return MyGuildsSchema.parse({ managed, organizerOnly });
   }
 
   @Get(':guildId/overview')
@@ -90,13 +95,18 @@ export class GuildsController {
    */
   @Get(':guildId/first-run')
   async getFirstRun(@Param('guildId') guildId: string, @CurrentUser() discordUserId: string | null): Promise<FirstRunStatusWire> {
-    const canManage = discordUserId
-      ? (await this.tierService.hasManageGuild(guildId, discordUserId)) ||
-        (await this.tierService.hasTier(guildId, discordUserId, Tier.TOURNAMENT_ORGANIZER))
-      : false;
+    const hasManageGuild = discordUserId ? await this.tierService.hasManageGuild(guildId, discordUserId) : false;
+    const canManage =
+      hasManageGuild || (discordUserId ? await this.tierService.hasTier(guildId, discordUserId, Tier.TOURNAMENT_ORGANIZER) : false);
 
     if (!canManage) {
-      return FirstRunStatusSchema.parse({ canManage: false, missingConfig: [], draftTournamentId: null, draftTournamentName: null });
+      return FirstRunStatusSchema.parse({
+        canManage: false,
+        hasManageGuild: false,
+        missingConfig: [],
+        draftTournamentId: null,
+        draftTournamentName: null,
+      });
     }
 
     const [guild, draft] = await Promise.all([
@@ -105,6 +115,7 @@ export class GuildsController {
     ]);
     return FirstRunStatusSchema.parse({
       canManage: true,
+      hasManageGuild,
       missingConfig: missingGuildConfig(guild),
       draftTournamentId: draft?.id ?? null,
       draftTournamentName: draft?.name ?? null,

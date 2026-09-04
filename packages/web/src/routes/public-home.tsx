@@ -9,16 +9,54 @@ import { fetchMyGuilds } from '../lib/api.js';
 import styles from './public-home.module.css';
 
 /**
+ * One server card. Bot-present ones link straight to `/g/:guildId`; ones
+ * the bot hasn't joined open a confirmation before handing off to
+ * Discord's own invite/consent screen, since a click here is otherwise
+ * indistinguishable from any other server link on the page, and the
+ * target is a real, consequential grant on Discord's side, not a page
+ * within this app. Shared by both homepage lists — every organizer-only
+ * card is bot-present by construction, so only the manage list ever hits
+ * the invite branch.
+ */
+function GuildCard({ guild, onRequestInvite }: { guild: GuildSummary; onRequestInvite: (guild: GuildSummary) => void }): JSX.Element {
+  return guild.botPresent ? (
+    <Card component={Link} to={`/g/${guild.id}`} withBorder padding="lg" className={styles.card!}>
+      <Card.Section inheritPadding py="md">
+        <Stack align="center" gap="xs">
+          <Avatar src={guild.iconUrl} name={guild.name} color="initials" size="lg" />
+          <Text fw={600} ta="center">
+            {guild.name}
+          </Text>
+        </Stack>
+      </Card.Section>
+    </Card>
+  ) : (
+    <Card component="button" type="button" onClick={() => onRequestInvite(guild)} withBorder padding="lg" className={styles.card!}>
+      <Card.Section inheritPadding py="md">
+        <Stack align="center" gap="xs">
+          <Avatar src={guild.iconUrl} name={guild.name} color="initials" size="lg" />
+          <Text fw={600} ta="center">
+            {guild.name}
+          </Text>
+          <Badge variant="light">Add to server</Badge>
+        </Stack>
+      </Card.Section>
+    </Card>
+  );
+}
+
+/**
  * `/` — the public landing page. Signed out, it's just a welcome and a
- * sign-in link: nothing here requires an account. Signed in, it shows
- * every Discord server this user holds Manage Guild in — `fetchMyGuilds`,
- * resolved from the `guilds` OAuth2 scope (see `DiscordGuildsService`) —
- * including ones the bot has never been added to. A card for a server the
- * bot is already in links to `/g/:guildId`; one where it isn't opens a
- * confirmation before handing off to Discord's own invite/consent screen,
- * since a click here is otherwise indistinguishable from any other server
- * link on the page, and the target is a real, consequential grant on
- * Discord's side, not a page within this app.
+ * sign-in link: nothing here requires an account. Signed in, it shows two
+ * lists from `fetchMyGuilds`: "Servers You Manage" — every Discord server
+ * this user holds Manage Guild in, resolved from the `guilds` OAuth2 scope
+ * (see `DiscordGuildsService`), including ones the bot has never been
+ * added to — and "Servers You TO," every server the bot's own membership
+ * cache shows this user holding the Tournament Organizer role in, aside
+ * from ones already in the first list (see `TierService.
+ * organizerOnlyGuildsFor`). The second list can only ever include servers
+ * the bot has already joined, since TO role membership isn't visible any
+ * other way; it's hidden entirely when empty.
  */
 export default function PublicHome(): JSX.Element {
   const { data: discordUserId, isPending: userPending } = useCurrentUser();
@@ -41,6 +79,8 @@ export default function PublicHome(): JSX.Element {
   }
 
   let content: JSX.Element;
+  const managed = guilds?.managed ?? [];
+  const organizerOnly = guilds?.organizerOnly ?? [];
 
   if (userPending || (discordUserId && guildsPending)) {
     content = (
@@ -59,55 +99,38 @@ export default function PublicHome(): JSX.Element {
         </Stack>
       </Center>
     );
-  } else if (!guilds || guilds.length === 0) {
+  } else if (managed.length === 0 && organizerOnly.length === 0) {
     content = (
       <Center h="60vh">
         <Stack align="center" gap="xs">
           <Title order={1}>ITG Tournament Bot</Title>
-          <Text c="dimmed">You don't have Manage Server in any Discord server.</Text>
+          <Text c="dimmed">You don't manage or organize a tournament in any Discord server.</Text>
         </Stack>
       </Center>
     );
   } else {
     content = (
-      <Stack gap="lg">
-        <Title order={1}>Servers You Manage</Title>
-        <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }}>
-          {guilds.map((g) =>
-            g.botPresent ? (
-              <Card key={g.id} component={Link} to={`/g/${g.id}`} withBorder padding="lg" className={styles.card!}>
-                <Card.Section inheritPadding py="md">
-                  <Stack align="center" gap="xs">
-                    <Avatar src={g.iconUrl} name={g.name} color="initials" size="lg" />
-                    <Text fw={600} ta="center">
-                      {g.name}
-                    </Text>
-                  </Stack>
-                </Card.Section>
-              </Card>
-            ) : (
-              <Card
-                key={g.id}
-                component="button"
-                type="button"
-                onClick={() => requestInvite(g)}
-                withBorder
-                padding="lg"
-                className={styles.card!}
-              >
-                <Card.Section inheritPadding py="md">
-                  <Stack align="center" gap="xs">
-                    <Avatar src={g.iconUrl} name={g.name} color="initials" size="lg" />
-                    <Text fw={600} ta="center">
-                      {g.name}
-                    </Text>
-                    <Badge variant="light">Add to server</Badge>
-                  </Stack>
-                </Card.Section>
-              </Card>
-            ),
-          )}
-        </SimpleGrid>
+      <Stack gap="xl">
+        {managed.length > 0 && (
+          <Stack gap="lg">
+            <Title order={1}>Servers You Manage</Title>
+            <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }}>
+              {managed.map((g) => (
+                <GuildCard key={g.id} guild={g} onRequestInvite={requestInvite} />
+              ))}
+            </SimpleGrid>
+          </Stack>
+        )}
+        {organizerOnly.length > 0 && (
+          <Stack gap="lg">
+            <Title order={1}>Servers You TO</Title>
+            <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }}>
+              {organizerOnly.map((g) => (
+                <GuildCard key={g.id} guild={g} onRequestInvite={requestInvite} />
+              ))}
+            </SimpleGrid>
+          </Stack>
+        )}
       </Stack>
     );
   }

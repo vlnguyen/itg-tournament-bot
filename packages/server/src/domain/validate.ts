@@ -137,6 +137,16 @@ export function isLegal(pending: PendingAction, event: MatchEvent, state?: Match
       }
       return false;
 
+    // "Undo my last click" — narrower than `PROTECT_VETO_RESET` above: legal
+    // only while the current song's protect/veto/pick phase is still open,
+    // never once it's started (no `SUBMIT_SCORE`/`SELECT_WINNER` window like
+    // the reset gets). No `state` needed — unlike the reset, which has to
+    // tell song 1 apart from a later recurrence of the same pending kinds,
+    // these three kinds are only ever reachable pre-song-start by
+    // construction, so the pending kind alone is sufficient here.
+    case 'LAST_ACTION_UNDONE':
+      return pending.kind === 'PROTECT' || pending.kind === 'VETO' || pending.kind === 'SELECT_SONG';
+
     // Terminal referee rulings: legal any time the match isn't already done.
     // "Nothing rewinds" is the reducer's guard (the first terminal event
     // wins); this is only the coarse "is there still a match to end" check.

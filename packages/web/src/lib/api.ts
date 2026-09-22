@@ -22,6 +22,7 @@ import {
   SetupStatus,
   SongPoolTabsResponse,
   Standings,
+  TournamentAnalytics,
   TournamentSnapshot,
   type FormatKey,
   type MatchRef,
@@ -228,6 +229,12 @@ export async function fetchStandings(tournamentId: string): Promise<Standings> {
   const res = await fetch(`/api/tournaments/${tournamentId}/standings`);
   if (!res.ok) throw new ApiError(res.status, `GET /api/tournaments/${tournamentId}/standings -> ${res.status}`);
   return Standings.parse(await res.json());
+}
+
+export async function fetchTournamentAnalytics(tournamentId: string): Promise<TournamentAnalytics> {
+  const res = await fetch(`/api/tournaments/${tournamentId}/analytics`);
+  if (!res.ok) throw new ApiError(res.status, await describeError(res, `GET /api/tournaments/${tournamentId}/analytics -> ${res.status}`));
+  return TournamentAnalytics.parse(await res.json());
 }
 
 export async function fetchPlayerPage(guildId: string, discordUserId: string): Promise<PlayerPage> {

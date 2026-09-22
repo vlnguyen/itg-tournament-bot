@@ -29,6 +29,7 @@ import {
   renameTournament,
   setMatchFormats,
   setTournamentFormat,
+  setTournamentSettings,
   TournamentTransitionError,
 } from '../services/tournament-service.js';
 
@@ -210,6 +211,12 @@ export class LifecycleController {
         await this.log(guildId, actorName, linkifyTournamentName(`Renamed to **${t.name}**.`, t.name, t.id));
         return;
       }
+      case 'SET_SETTINGS': {
+        const { action: _action, ...input } = request;
+        const t = await setTournamentSettings(this.prisma, tournamentId, input, actorId);
+        await this.log(guildId, actorName, linkifyTournamentName(`Settings updated for **${t.name}**.`, t.name, t.id));
+        return;
+      }
       case 'SET_FORMAT': {
         const t = await setTournamentFormat(this.prisma, tournamentId, request.formatKey, actorId, request.mode);
         await this.log(guildId, actorName, linkifyTournamentName(`Format set to **${FORMAT_LABEL[request.formatKey]}** for **${t.name}**.`, t.name, t.id));
@@ -285,6 +292,9 @@ export class LifecycleController {
       await this.matchChannel.postMatchState(ref, {
         embeds: [new EmbedBuilder().setColor(LOG_COLOR.TOURNAMENT_CANCELLED).setDescription('⚠️ This match has been cancelled. No further action is possible.')],
       });
+      // Archive only, not lock — same reasoning as the Discord-side
+      // cancel path (`commands/tournament.ts`): a cancelled match may
+      // legitimately need reopening by an organizer.
       await this.matchChannel.archiveThread(ref);
     }
   }

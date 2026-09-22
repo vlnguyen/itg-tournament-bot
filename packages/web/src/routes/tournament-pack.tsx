@@ -38,6 +38,7 @@ import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { computeUsedChartIds, sortByLabelOrder } from '../lib/song-pool-filter.js';
 import { ImportPreviousEventButton } from '../components/import-previous-event.js';
 import { PackImport } from '../components/pack-import.js';
 import { TournamentHeader } from '../components/tournament-header.js';
@@ -622,6 +623,17 @@ function StaticPoolTab({
   const chartTitle = (chartId: string) => charts.find((c) => c.chartId === chartId)?.title ?? chartId;
   const canEdit = isOrganizer && state !== undefined && canEditSongPool(state);
 
+  // Read-only means this pool is locked in — show only what actually made
+  // the pool, in the order it gets drawn, rather than every chart that was
+  // ever a labeling candidate. Editing still needs every chart in view, so
+  // this filter/sort only applies once `canEdit` is false.
+  const visibleCharts = useMemo(() => {
+    if (canEdit || !tab) return charts;
+    const usedChartIds = computeUsedChartIds(tab);
+    const ordered = sortByLabelOrder([...usedChartIds], tab.assignments, requiredLabels);
+    return ordered.map((chartId) => charts.find((c) => c.chartId === chartId)).filter((c): c is ChartSnapshot => c !== undefined);
+  }, [canEdit, tab, charts, requiredLabels]);
+
   if (isPending) {
     return (
       <Center h="40vh">
@@ -676,7 +688,7 @@ function StaticPoolTab({
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {charts.map((c) => (
+          {visibleCharts.map((c) => (
             <Table.Tr key={c.chartId}>
               <Table.Td>
                 {displayTitle(c)}

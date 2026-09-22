@@ -153,6 +153,8 @@ const rule = new SlashCommandBuilder()
 
 const pack = new SlashCommandBuilder().setName('pack').setDescription('Summarize the tournament’s chart pack');
 
+const rules = new SlashCommandBuilder().setName('rules').setDescription('Show the tournament’s posted rules');
+
 const commands = new SlashCommandBuilder().setName('commands').setDescription('List every command, grouped by who can run it');
 
-export const commandDefinitions = [setup, tournament, roster, join, checkin, leave, dq, rule, pack, commands];
+export const commandDefinitions = [setup, tournament, roster, join, checkin, leave, dq, rule, pack, rules, commands];

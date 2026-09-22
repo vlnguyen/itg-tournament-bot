@@ -240,6 +240,19 @@ describe('referee events', () => {
     expect(isLegal(p, reset, d.state)).toBe(false);
   });
 
+  it('LAST_ACTION_UNDONE is legal only for PROTECT/VETO/SELECT_SONG — narrower than PROTECT_VETO_RESET, and needs no state', () => {
+    const undo: MatchEvent = { seq: 0, actorId: 'ref', type: 'LAST_ACTION_UNDONE', payload: { reason: 'misclick' } } as MatchEvent;
+    expect(isLegal({ kind: 'PROTECT', actor: A, choices: [0] }, undo)).toBe(true);
+    expect(isLegal({ kind: 'VETO', actor: A, choices: [0] }, undo)).toBe(true);
+    expect(isLegal({ kind: 'SELECT_SONG', actor: A, choices: [0] }, undo)).toBe(true);
+    // Unlike PROTECT_VETO_RESET, never legal once a song has started — no
+    // "still uncommitted" carve-out here, and so no `state` needed either.
+    expect(isLegal({ kind: 'SEED_CHOICE', actor: A }, undo)).toBe(false);
+    expect(isLegal({ kind: 'SUBMIT_SCORE', actors: [A, B], songIndex: 0 }, undo)).toBe(false);
+    expect(isLegal({ kind: 'SELECT_WINNER', actors: [A, B], songIndex: 0 }, undo)).toBe(false);
+    expect(isLegal({ kind: 'DONE' }, undo)).toBe(false);
+  });
+
   it('FORFEIT_APPLIED and DQ_APPLIED are legal any time the match is not DONE', () => {
     const forfeit: MatchEvent = { seq: 0, actorId: 'ref', type: 'FORFEIT_APPLIED', payload: { winnerId: A } } as MatchEvent;
     const dq: MatchEvent = { seq: 0, actorId: 'ref', type: 'DQ_APPLIED', payload: { playerId: B, scope: 'MATCH' } } as MatchEvent;

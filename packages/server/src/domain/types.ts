@@ -40,7 +40,7 @@ interface Envelope {
 export type MatchEvent =
   | (Envelope & {
       type: 'MATCH_CREATED';
-      payload: { participants: { entrantId: EntrantId; seed: number }[] };
+      payload: { participants: { entrantId: EntrantId; seed: number }[]; requirePhotos: boolean };
     })
   | (Envelope & { type: 'DRAW_MADE'; payload: { seed: string; charts: ChartSnapshot[] } })
   | (Envelope & {
@@ -58,6 +58,10 @@ export type MatchEvent =
   // `hubert.ts`.
   | (Envelope & { type: 'CHART_SELECTED'; payload: { by: EntrantId; drawIndex: number } })
   | (Envelope & { type: 'PROTECT_VETO_RESET'; payload: { reason: string } })
+  // Undoes exactly the single most recent protect/veto/pick — see
+  // `validate.ts`'s `isLegal` for the narrower legality window that
+  // distinguishes this from `PROTECT_VETO_RESET` above.
+  | (Envelope & { type: 'LAST_ACTION_UNDONE'; payload: { reason: string } })
   | (Envelope & {
       type: 'SONG_STARTED';
       payload: {
@@ -150,6 +154,8 @@ export interface TiebreakRound {
 export interface MatchState {
   seq: number;
   participants: { entrantId: EntrantId; seed: number }[];
+  /** Whether a song result needs a posted photo, in addition to the always-required EX score, before it can be decided. Snapshotted from the tournament's config at `MATCH_CREATED`, defaulted `true` here only until that event lands. */
+  requirePhotos: boolean;
   /** Whoever took the first Protect. A format role, unrelated to bracket slot. */
   a?: EntrantId | undefined;
   b?: EntrantId | undefined;
@@ -291,6 +297,7 @@ export function emptyState(): MatchState {
   return {
     seq: 0,
     participants: [],
+    requirePhotos: true,
     draw: [],
     protects: [],
     vetoes: [],

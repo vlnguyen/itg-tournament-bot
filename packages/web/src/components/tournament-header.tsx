@@ -1,6 +1,7 @@
 import type { TournamentState } from '@itg/shared';
 import { Anchor, Badge, Group, Stack, Title } from '@mantine/core';
 import { Link, useLocation } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
 import { useTournament } from '../hooks/use-tournament.js';
 
 export const STATE_LABEL: Record<TournamentState, string> = {
@@ -27,6 +28,7 @@ const TABS: { path: string; label: string }[] = [
   { path: '/console', label: 'Organizer Console' },
   { path: '/roster', label: 'Seeding' },
   { path: '/config', label: 'Configuration' },
+  { path: '/analytics', label: 'Analytics' },
 ];
 
 /**
@@ -54,12 +56,17 @@ export function TournamentHeader({ tournamentId }: { tournamentId: string }): JS
   return (
     <Stack gap={4}>
       {snapshot && (
-        <Group gap="xs" align="center">
-          <Title order={1}>{snapshot.name}</Title>
-          <Badge size="lg" {...(STATE_COLOR[snapshot.state] ? { color: STATE_COLOR[snapshot.state] } : {})}>
-            {STATE_LABEL[snapshot.state]}
-          </Badge>
-        </Group>
+        <>
+          <Helmet>
+            <title>{snapshot.name}</title>
+          </Helmet>
+          <Group gap="xs" align="center">
+            <Title order={1}>{snapshot.name}</Title>
+            <Badge size="lg" {...(STATE_COLOR[snapshot.state] ? { color: STATE_COLOR[snapshot.state] } : {})}>
+              {STATE_LABEL[snapshot.state]}
+            </Badge>
+          </Group>
+        </>
       )}
 
       <Group gap="md" component="nav" aria-label="Tournament pages">

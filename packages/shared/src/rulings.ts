@@ -20,6 +20,7 @@ export const RulingRequest = z.discriminatedUnion('type', [
     result: z.union([EntrantId, z.literal('TIE'), z.literal('VOID')]),
   }),
   z.object({ type: z.literal('PROTECT_VETO_RESET'), reason: z.string().min(1) }),
+  z.object({ type: z.literal('LAST_ACTION_UNDONE'), reason: z.string().min(1) }),
   z.object({ type: z.literal('SET_RESULT_RULED'), result: EntrantId }),
   z.object({ type: z.literal('DQ_APPLIED'), playerId: EntrantId }),
 ]);

@@ -14,7 +14,7 @@ import { logToOrganizers, matchLinksBlock } from '../discord/commands/organizer-
 import { compactChartLabel } from '../discord/render/chart.js';
 import { LOG_COLOR } from '../discord/render/draw.js';
 import { buildResolvedAlert } from '../discord/render/escalation.js';
-import { renderDqLog, renderResetLog, renderRulingLog, renderSetRulingLog } from '../discord/log-messages.js';
+import { renderDqLog, renderResetLog, renderRulingLog, renderSetRulingLog, renderUndoLog } from '../discord/log-messages.js';
 import { applyAppendResult, CANCELLED_MATCH_MESSAGE, describeStale } from '../discord/match-event-effects.js';
 import { buildPlayerDirectory, loadMatch, type MatchWithParticipants } from '../discord/match-lookup.js';
 import type { AlertPort, MatchChannelPort, PlayerNotificationPort, ThreadRef } from '../discord/ports.js';
@@ -98,6 +98,8 @@ export class RulingsController {
         return { actorId: discordUserId, type: 'SONG_RULED', payload: { songIndex: ruling.songIndex, result: ruling.result } };
       case 'PROTECT_VETO_RESET':
         return { actorId: discordUserId, type: 'PROTECT_VETO_RESET', payload: { reason: ruling.reason } };
+      case 'LAST_ACTION_UNDONE':
+        return { actorId: discordUserId, type: 'LAST_ACTION_UNDONE', payload: { reason: ruling.reason } };
       case 'SET_RESULT_RULED':
         return { actorId: discordUserId, type: 'SET_RESULT_RULED', payload: { result: ruling.result } };
       case 'DQ_APPLIED':
@@ -141,6 +143,8 @@ export class RulingsController {
       );
     } else if (ruling.type === 'PROTECT_VETO_RESET') {
       await this.matchChannel.postLogMessage(ref, renderResetLog(refName));
+    } else if (ruling.type === 'LAST_ACTION_UNDONE') {
+      await this.matchChannel.postLogMessage(ref, renderUndoLog(refName));
     } else if (ruling.type === 'SET_RESULT_RULED') {
       await this.resolveAlertIfOpen(match, refName, `awarded the set to ${displayName(players, ruling.result)}`, undefined);
       await this.matchChannel.postLogMessage(ref, renderSetRulingLog(ruling.result as EntrantId, refName, players));

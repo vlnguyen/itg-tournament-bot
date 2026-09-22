@@ -19,6 +19,8 @@ const fakeMatchChannel: MatchChannelPort = {
   postLogMessage: async () => undefined,
   postMatchState: async () => undefined,
   archiveThread: async () => undefined,
+  lockThread: async () => undefined,
+  applyTournamentStatus: async () => undefined,
   publishResult: async () => undefined,
 };
 const fakeAlert: AlertPort = {
@@ -34,6 +36,7 @@ const fakePlayerNotification: PlayerNotificationPort = {
   tournamentCancelled: async () => undefined,
   checkinClosed: async () => undefined,
   tournamentStarted: async () => undefined,
+  eliminated: async () => ({ reached: true }),
 };
 
 describe.skipIf(!(await isReachable()))('GET/POST /api/tournaments/:id/lifecycle', () => {

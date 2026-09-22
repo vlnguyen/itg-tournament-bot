@@ -36,17 +36,29 @@ export function renderSeedChoiceLog(
   return { embeds: [new EmbedBuilder().setColor(LOG_COLOR.PROTECT).setDescription(`🪙 **${displayName(players, actorId)}** chooses ${choice}`)] };
 }
 
+/** "Set is tied N-N." / "{leader} leads the set A-B." — `points` is the running per-match tally, not this one song's own result. */
+function recordLine(points: Record<EntrantId, number>, [a, b]: readonly [EntrantId, EntrantId], players: PlayerDirectory): string {
+  const pointsA = points[a] ?? 0;
+  const pointsB = points[b] ?? 0;
+  if (pointsA === pointsB) return `Set is tied ${pointsA}-${pointsB}.`;
+  const [leader, leaderPoints, otherPoints] = pointsA > pointsB ? [a, pointsA, pointsB] : [b, pointsB, pointsA];
+  return `**${displayName(players, leader)}** leads the set ${leaderPoints}-${otherPoints}.`;
+}
+
 /** A song committed by player agreement — "each committed song result" from DESIGN.md's log-message list. */
 export function renderSongResultLog(
   songIndex: number,
   chart: ChartSnapshot,
   winner: EntrantId | 'TIE' | 'VOID',
   players: PlayerDirectory,
+  points: Record<EntrantId, number>,
+  participantIds: readonly [EntrantId, EntrantId],
 ): RenderedMessage {
   const label = `Song ${songIndex + 1} (${compactChartLabel(chart)})`;
   const description =
     winner === 'TIE' ? `🤝 ${label} tied. No points awarded.` : winner === 'VOID' ? `🚫 ${label} voided.` : `🏆 **${displayName(players, winner)}** wins ${label}`;
-  return { embeds: [new EmbedBuilder().setColor(LOG_COLOR.SONG_RESULT).setDescription(description)] };
+  const record = winner === 'TIE' || winner === 'VOID' ? '' : `\n${recordLine(points, participantIds, players)}`;
+  return { embeds: [new EmbedBuilder().setColor(LOG_COLOR.SONG_RESULT).setDescription(description + record)] };
 }
 
 /**
@@ -120,6 +132,13 @@ export function renderResetLog(refereeDisplayName: string): RenderedMessage {
         .setColor(LOG_COLOR.RESET)
         .setDescription(`🔄 **${refereeDisplayName}** reset the Protect/Veto sequence. The Draw stands.`),
     ],
+  };
+}
+
+/** Narrower than `renderResetLog` above — undoes exactly the single most recent action, not the whole sequence. */
+export function renderUndoLog(refereeDisplayName: string): RenderedMessage {
+  return {
+    embeds: [new EmbedBuilder().setColor(LOG_COLOR.RESET).setDescription(`↩️ **${refereeDisplayName}** undid the last action.`)],
   };
 }
 

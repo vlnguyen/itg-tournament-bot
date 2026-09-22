@@ -44,8 +44,18 @@ export interface MatchChannelPort {
   /** The singular, disposable prompt. Edited in place when it is still the last message; deleted and reposted otherwise. */
   postMatchState(thread: ThreadRef, message: RenderedMessage): Promise<void>;
   archiveThread(thread: ThreadRef): Promise<void>;
+  /** Blocks non-mod members from posting or unarchiving — used on normal match completion only, distinct from (and composable with) archiving. */
+  lockThread(thread: ThreadRef): Promise<void>;
   /** One public line per finished match, outside any thread. `ref.matchId` is how the adapter resolves the guild's configured results channel. */
   publishResult(thread: ThreadRef, message: RenderedMessage): Promise<void>;
+  /**
+   * The live-edited "Tournament Status" summary, posted directly in the
+   * matches channel's own body — a deliberate, narrow exception to that
+   * channel otherwise hosting only threads (see `Guild.matchesChannelId`'s
+   * schema comment). Edited in place the same way `postMatchState` is,
+   * keyed by `Tournament.statusMsgId` instead of a per-match id.
+   */
+  applyTournamentStatus(tournamentId: string, message: RenderedMessage): Promise<void>;
 }
 
 /** "Tell these players their match is ready" — the adapter decides how (thread mention, best-effort DM, or both). */
@@ -90,6 +100,8 @@ export interface PlayerNotificationPort {
   checkinClosed(guildId: string, tournamentId: string, tournamentName: string): Promise<void>;
   /** A public, no-mentions announcement in the general channel that the tournament has started. Skipped (not an error) when no general channel is configured. `tournamentId` is for hyperlinking the tournament name. */
   tournamentStarted(guildId: string, tournamentId: string, tournamentName: string): Promise<void>;
+  /** Best-effort DM telling a player they've been eliminated — losers-bracket losses only; a winners-bracket loss just drops to the losers bracket, and a grand-final loss placed 2nd, neither of which is "eliminated." Same failure semantics as `matchReady`/`checkinOpened`. */
+  eliminated(discordUserId: string, tournamentId: string, tournamentName: string): Promise<{ reached: boolean }>;
 }
 
 export interface AlertRef {

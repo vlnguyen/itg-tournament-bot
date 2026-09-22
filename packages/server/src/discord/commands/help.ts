@@ -30,6 +30,7 @@ const WHOLE_COMMAND_GROUP: Partial<Record<string, Group>> = {
   checkin: 'ANYONE',
   leave: 'ANYONE',
   pack: 'ANYONE',
+  rules: 'ANYONE',
   commands: 'ANYONE',
   dq: 'REFEREE',
   rule: 'REFEREE',

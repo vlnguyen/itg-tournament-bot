@@ -175,6 +175,7 @@ export function makeHubertFormat(config: HubertConfig): MatchFormat {
     switch (event.type) {
       case 'MATCH_CREATED':
         s.participants = [...event.payload.participants];
+        s.requirePhotos = event.payload.requirePhotos;
         break;
 
       case 'SIDES_ASSIGNED':
@@ -292,6 +293,24 @@ export function makeHubertFormat(config: HubertConfig): MatchFormat {
         }
         break;
 
+      // Unlike protect-veto.ts's version of this event, there is no "pop the
+      // last pick" case to speak of here: a Hubert pick is atomic — the
+      // moment `CHART_SELECTED` commits, the bot loop starts that song in
+      // the same turn (see `pendingAction`'s "a pick landed but hasn't
+      // started playing yet" branch), so `pendingAction` can never observe
+      // `SELECT_SONG` again until the *next* song's pick is due. There is
+      // never a completed-but-still-pending pick sitting around to undo —
+      // only a veto ever is. `isLegal` still allows this while pending is
+      // `SELECT_SONG` (symmetry with protect-veto.ts, and it's harmless),
+      // but only the still-pre-song-1 case — `s.songs.length === 0`, vetoes
+      // just finished and the first pick hasn't landed yet — has an actual
+      // veto to pop; song 3+'s `SELECT_SONG` finds nothing here and no-ops.
+      case 'LAST_ACTION_UNDONE':
+        if (s.songs.length === 0 && s.vetoes.length > 0) {
+          s.vetoes = s.vetoes.slice(0, -1);
+        }
+        break;
+
       // Not applicable to this format — never emitted or legal for a Hubert
       // match (no PROTECT step, no human SEED_CHOICE, no private-pick
       // tiebreak round).
@@ -335,7 +354,7 @@ export function makeHubertFormat(config: HubertConfig): MatchFormat {
     const active = activeSong(state);
     if (active) {
       const { song, index } = active;
-      const incomplete = ids.filter((id) => song.ex[id] === undefined || !song.photoSeen[id]);
+      const incomplete = ids.filter((id) => song.ex[id] === undefined || (state.requirePhotos && !song.photoSeen[id]));
       if (incomplete.length > 0) return { kind: 'SUBMIT_SCORE', actors: incomplete, songIndex: index };
       const unselected = ids.filter((id) => song.selections[id] === undefined);
       if (unselected.length > 0) return { kind: 'SELECT_WINNER', actors: unselected, songIndex: index };

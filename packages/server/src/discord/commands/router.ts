@@ -4,6 +4,7 @@ import { handleCommands } from './help.js';
 import { handlePack } from './pack.js';
 import { handleCheckin, handleJoin, handleLeave } from './registration.js';
 import { handleRoster } from './roster.js';
+import { handleRules } from './rules.js';
 import { handleDq, handleDqAutocomplete, handleRule, handleRuleAutocomplete } from './rulings.js';
 import { handleSetup } from './setup.js';
 import { handleFormatAutocomplete, handleTournament } from './tournament.js';
@@ -52,6 +53,8 @@ export async function dispatchChatInputCommand(
       return handleCommands(interaction, ctx);
     case 'pack':
       return handlePack(interaction, ctx);
+    case 'rules':
+      return handleRules(interaction, ctx);
     default:
       return notImplemented(interaction);
   }

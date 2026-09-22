@@ -464,11 +464,12 @@ async function startSeatedMatch(
     throw new Error(`match ${matchId}: both seated participants have withdrawn — needs a referee`);
   }
 
+  const { requirePhotos } = await tx.tournament.findUniqueOrThrow({ where: { id: tournamentId }, select: { requirePhotos: true } });
   const state0 = emptyState();
   const created = await appendOne(tx, matchId, state0, format, {
     actorId: null,
     type: 'MATCH_CREATED',
-    payload: { participants: participants.map((p) => ({ entrantId: p.entrantId, seed: p.entrant.seed! })) },
+    payload: { participants: participants.map((p) => ({ entrantId: p.entrantId, seed: p.entrant.seed! })), requirePhotos },
   });
 
   if (withdrawn.length === 1) {
@@ -559,11 +560,12 @@ export async function startWithSeats(
   const match = await tx.match.findUniqueOrThrow({ where: { id: matchId } });
   const format = requireFormat(match.formatKey);
   const ref: MatchRef = { bracket: match.bracket, round: match.round, slot: match.slot };
+  const { requirePhotos } = await tx.tournament.findUniqueOrThrow({ where: { id: tournamentId }, select: { requirePhotos: true } });
   const state0 = emptyState();
   const created = await appendOne(tx, matchId, state0, format, {
     actorId: null,
     type: 'MATCH_CREATED',
-    payload: { participants: seatedParticipants },
+    payload: { participants: seatedParticipants, requirePhotos },
   });
   const walked = await appendOne(tx, matchId, created, format, {
     actorId: null,

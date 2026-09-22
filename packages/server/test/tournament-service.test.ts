@@ -15,6 +15,7 @@ import {
   openRegistration,
   regenerateBracket,
   renameTournament,
+  setTournamentSettings,
   setMatchFormats,
   setTournamentFormat,
   startTournament,
@@ -365,6 +366,45 @@ describe.skipIf(!(await isReachable()))('tournament-service', () => {
         const t = await createTournament(prisma, guildId, 'T', ACTOR);
         await cancelTournament(prisma, t.id, ACTOR);
         await expect(renameTournament(prisma, t.id, 'Too Late', ACTOR)).rejects.toThrow(TournamentTransitionError);
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+  });
+
+  describe('setTournamentSettings', () => {
+    it('defaults to display names and requiring photos, and updates independently of the others', async () => {
+      const guildId = `ts-settings-${Date.now()}`;
+      await makeGuild(guildId, true);
+      try {
+        const t = await createTournament(prisma, guildId, 'T', ACTOR);
+        expect(t.forceUsername).toBe(false);
+        expect(t.requirePhotos).toBe(true);
+        expect(t.rules).toBeNull();
+        expect(t.packUrl).toBeNull();
+
+        const withRules = await setTournamentSettings(prisma, t.id, { rules: 'No CMod.' }, ACTOR);
+        expect(withRules.rules).toBe('No CMod.');
+        expect(withRules.packUrl).toBeNull(); // untouched by a partial update
+        expect(withRules.forceUsername).toBe(false);
+        expect(withRules.requirePhotos).toBe(true);
+
+        const flipped = await setTournamentSettings(prisma, t.id, { forceUsername: true, requirePhotos: false }, ACTOR);
+        expect(flipped.forceUsername).toBe(true);
+        expect(flipped.requirePhotos).toBe(false);
+        expect(flipped.rules).toBe('No CMod.'); // untouched by this update
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('refuses once the tournament is cancelled or complete', async () => {
+      const guildId = `ts-settings-terminal-${Date.now()}`;
+      await makeGuild(guildId, true);
+      try {
+        const t = await createTournament(prisma, guildId, 'T', ACTOR);
+        await cancelTournament(prisma, t.id, ACTOR);
+        await expect(setTournamentSettings(prisma, t.id, { rules: 'Too late' }, ACTOR)).rejects.toThrow(TournamentTransitionError);
       } finally {
         await dropGuild(guildId);
       }

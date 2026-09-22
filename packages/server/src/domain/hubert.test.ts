@@ -109,6 +109,48 @@ describe('opening a match', () => {
     expect(d.state.songs).toEqual([]);
     expect(d.pending.kind).toBe('VETO');
   });
+
+  it('undo pops exactly the single most recent veto, leaving the coin flip alone', () => {
+    const d = opened11();
+    const aBefore = d.state.a;
+    const bBefore = d.state.b;
+    const firstVeto = d.pending;
+    if (firstVeto.kind !== 'VETO') throw new Error('expected VETO');
+    d.apply({ actorId: firstVeto.actor, type: 'CHART_VETOED', payload: { by: firstVeto.actor, drawIndex: firstVeto.choices[0]! } });
+    expect(d.state.vetoes).toHaveLength(1);
+
+    d.apply({ actorId: 'referee', type: 'LAST_ACTION_UNDONE', payload: { reason: 'wrong click' } });
+    expect(d.state.vetoes).toEqual([]);
+    expect(d.state.a).toBe(aBefore);
+    expect(d.state.b).toBe(bBefore);
+    expect(d.pending).toEqual(firstVeto);
+  });
+
+  it('undo pops the last veto even once vetoes have finished, right up until song 1 is picked', () => {
+    const d = opened11();
+    d.runProtectVeto(); // both vetoes done, pending SELECT_SONG for song 1
+    expect(d.pending.kind).toBe('SELECT_SONG');
+    expect(d.state.vetoes).toHaveLength(2);
+
+    d.apply({ actorId: 'referee', type: 'LAST_ACTION_UNDONE', payload: { reason: 'wrong click' } });
+    expect(d.state.vetoes).toHaveLength(1);
+    expect(d.pending.kind).toBe('VETO');
+  });
+
+  it('undo is a no-op for a later song’s pick — nothing pick-related is left to undo once song 1 exists', () => {
+    const d = opened11();
+    d.runProtectVeto();
+    d.pickSong();
+    d.playSong(A); // song 1 committed
+    expect(d.state.songs).toHaveLength(1);
+    const pendingBefore = d.pending;
+    expect(pendingBefore.kind).toBe('SELECT_SONG'); // song 2's pick is due
+
+    d.apply({ actorId: 'referee', type: 'LAST_ACTION_UNDONE', payload: { reason: 'nothing to undo' } });
+    expect(d.state.vetoes).toHaveLength(2); // untouched — vetoes are long since finished
+    expect(d.state.songs).toHaveLength(1); // song 1's result stands
+    expect(d.pending).toEqual(pendingBefore);
+  });
 });
 
 describe('a normal race to 3', () => {
@@ -130,6 +172,30 @@ describe('a normal race to 3', () => {
     expect(outcome?.placements.find((p) => p.entrantId === A)?.place).toBe(1);
     expect(outcome?.winCondition).toBe('POINTS');
     expect(d.state.songs.some((s) => s.chart.poolLabel === 'TB')).toBe(false);
+  });
+});
+
+describe('requirePhotos', () => {
+  it('still waits on a photo by default, even once both EX scores are in', () => {
+    const d = opened11();
+    d.runProtectVeto();
+    d.pickSong();
+    const songIndex = (d.pending as { songIndex: number }).songIndex;
+    for (const id of [A, B]) {
+      d.apply({ actorId: id, type: 'SCORE_SUBMITTED', payload: { songIndex, by: id, ex: id === A ? 95 : 90 } });
+    }
+    expect(d.pending).toMatchObject({ kind: 'SUBMIT_SCORE' });
+  });
+
+  it('moves on to SELECT_WINNER without a photo when the tournament has photos turned off', () => {
+    const d = new MatchDriver(hb11Pool(), HB11).create(A, B, { requirePhotos: false });
+    d.runProtectVeto();
+    d.pickSong();
+    const songIndex = (d.pending as { songIndex: number }).songIndex;
+    for (const id of [A, B]) {
+      d.apply({ actorId: id, type: 'SCORE_SUBMITTED', payload: { songIndex, by: id, ex: id === A ? 95 : 90 } });
+    }
+    expect(d.pending).toMatchObject({ kind: 'SELECT_WINNER' });
   });
 });
 

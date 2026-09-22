@@ -24,5 +24,6 @@ export async function handlePack(interaction: ChatInputCommandInteraction, ctx: 
   }
 
   const url = webUrl(`/t/${tournament.id}/pack`);
-  await interaction.reply({ ephemeral: true, content: `**${tournament.name}**'s song pack: ${url}` });
+  const download = tournament.packUrl ? `\nDownload: ${tournament.packUrl}` : '';
+  await interaction.reply({ ephemeral: true, content: `**${tournament.name}**'s song pack: ${url}${download}` });
 }

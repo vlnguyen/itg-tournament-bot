@@ -1,8 +1,8 @@
 import type { LifecycleAction, SetTournamentFormatMode } from '@itg/shared';
 import { FORMAT_LABEL, FormatKey, SELECTABLE_FORMAT_KEYS } from '@itg/shared';
-import { Alert, Button, Center, Group, List, Loader, Modal, Select, Stack, Text, TextInput, Title } from '@mantine/core';
+import { Alert, Button, Center, Checkbox, Group, List, Loader, Modal, Select, Stack, Text, Textarea, TextInput, Title } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { STATE_LABEL, TournamentHeader } from '../components/tournament-header.js';
 import { useCurrentUser } from '../hooks/use-current-user.js';
@@ -88,6 +88,39 @@ export default function TournamentLifecycle(): JSX.Element {
       queryClient.setQueryData(['lifecycle', tournamentId], updated);
       // The bracket page reads the tournament snapshot, not this query.
       void queryClient.invalidateQueries({ queryKey: ['tournament', tournamentId] });
+    },
+  });
+
+  // Seeded from `status` exactly once it arrives — same pattern
+  // `tournament-pack.tsx`'s `StaticPoolTab` uses for its own local-state
+  // form — after that this page owns the values until Save round-trips a
+  // fresh copy.
+  const [rules, setRules] = useState('');
+  const [packUrl, setPackUrl] = useState('');
+  const [forceUsername, setForceUsername] = useState(false);
+  const [requirePhotos, setRequirePhotos] = useState(true);
+  const settingsSeeded = useRef(false);
+  useEffect(() => {
+    if (status && !settingsSeeded.current) {
+      setRules(status.rules ?? '');
+      setPackUrl(status.packUrl ?? '');
+      setForceUsername(status.forceUsername);
+      setRequirePhotos(status.requirePhotos);
+      settingsSeeded.current = true;
+    }
+  }, [status]);
+
+  const settingsMutation = useMutation({
+    mutationFn: () =>
+      submitLifecycleAction(tournamentId!, {
+        action: 'SET_SETTINGS',
+        rules: rules.trim().length > 0 ? rules.trim() : null,
+        packUrl: packUrl.trim().length > 0 ? packUrl.trim() : null,
+        forceUsername,
+        requirePhotos,
+      }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['lifecycle', tournamentId], updated);
     },
   });
 
@@ -218,6 +251,48 @@ export default function TournamentLifecycle(): JSX.Element {
             </Text>
           </div>
         )}
+
+        <div>
+          <Group gap="xs" mb="xs">
+            <Title order={2} size="h3">
+              Settings
+            </Title>
+            {settingsMutation.isPending && <Loader size="xs" aria-label="Saving settings" />}
+          </Group>
+          {settingsMutation.isError && (
+            <Alert color="red" title="Couldn't save settings" mb="xs">
+              {settingsMutation.error instanceof ApiError ? settingsMutation.error.message : 'Something went wrong.'}
+            </Alert>
+          )}
+          <Stack gap="sm" maw={480}>
+            <TextInput
+              label="Song pack download link"
+              placeholder="https://example.com/pack.zip"
+              value={packUrl}
+              onChange={(e) => setPackUrl(e.currentTarget.value)}
+            />
+            <Textarea
+              label="Rules"
+              description="Shown to players via /rules"
+              placeholder="No CMod. No turntable."
+              minRows={3}
+              autosize
+              value={rules}
+              onChange={(e) => setRules(e.currentTarget.value)}
+            />
+            <Checkbox
+              label="Force Discord username instead of server display name"
+              checked={forceUsername}
+              onChange={(e) => setForceUsername(e.currentTarget.checked)}
+            />
+            <Checkbox label="Require photos" checked={requirePhotos} onChange={(e) => setRequirePhotos(e.currentTarget.checked)} />
+            <Group>
+              <Button size="xs" onClick={() => settingsMutation.mutate()} loading={settingsMutation.isPending}>
+                Save Settings
+              </Button>
+            </Group>
+          </Stack>
+        </div>
 
         <div>
           <Title order={2} size="h3" mb="xs">

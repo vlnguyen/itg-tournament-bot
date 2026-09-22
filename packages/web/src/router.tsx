@@ -40,6 +40,10 @@ export const router = createBrowserRouter([
         lazy: () => import('./routes/tournament-lifecycle').then((m) => ({ Component: m.default })),
       },
       {
+        path: '/t/:tournamentId/analytics',
+        lazy: () => import('./routes/tournament-analytics').then((m) => ({ Component: m.default })),
+      },
+      {
         path: '/g/:guildId/players/:discordUserId',
         lazy: () => import('./routes/player-page').then((m) => ({ Component: m.default })),
       },

@@ -377,15 +377,24 @@ export type ReorderSeedsResult =
  * `renormalizeSeeds` gives: `(tournamentId, seed)`'s uniqueness is a
  * `DEFERRABLE INITIALLY DEFERRED` constraint, checked only at commit, so
  * the whole list can pass through transiently colliding seed values.
+ *
+ * Takes `tournamentId` directly rather than resolving "the" active
+ * tournament from `guildId` — same reasoning `getRoster`'s own comment
+ * gives, and the bug that not doing so actually caused here: once a
+ * tournament reaches a terminal state (`COMPLETE`/`CANCELLED`), the
+ * guild's slot frees and a new tournament can start. Resolving by
+ * `guildId` alone meant a stale seeding page still open for the *finished*
+ * tournament would silently reorder whatever *new* tournament had since
+ * taken the guild's active slot, instead of being refused outright.
  */
 export async function reorderSeeds(
   prisma: PrismaClient,
-  guildId: string,
+  tournamentId: string,
   orderedEntrantIds: string[],
   actorId: string,
 ): Promise<ReorderSeedsResult> {
   return prisma.$transaction(async (tx) => {
-    const tournament = await findActiveTournament(tx, guildId);
+    const tournament = await tx.tournament.findUnique({ where: { id: tournamentId } });
     if (!tournament) return { kind: 'NO_TOURNAMENT' };
     if (!SEEDING_STATES.includes(tournament.state)) return { kind: 'TOO_LATE', phase: tournament.state };
 

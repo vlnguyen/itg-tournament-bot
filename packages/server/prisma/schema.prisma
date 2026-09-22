@@ -62,7 +62,7 @@ enum MatchStatus {
 
 model Guild {
   id               String  @id // Discord guild ID
-  matchesChannelId String? // hosts threads; no bot messages in its body
+  matchesChannelId String? // hosts match threads; the one exception is the live-edited "Tournament Status" summary posted directly in its body (Tournament.statusMsgId)
   alertChannelId   String?
   resultsChannelId String?
   generalChannelId String? // optional forward target — where competitors discuss
@@ -91,6 +91,12 @@ model Tournament {
   config    Json // TournamentConfig
   state     TournamentState @default(DRAFT)
   createdAt DateTime        @default(now())
+
+  statusMsgId    String? // the live-edited "Tournament Status" message in #matches, for repositioning — same pattern as Match.stateMsgId
+  rules          String? // free-form TO-facing rules text, shown by /rules
+  packUrl        String? // a download link for the song pack, appended to /pack's reply when set
+  forceUsername  Boolean @default(false) // registration snapshots the bare Discord username instead of the per-server display name
+  requirePhotos  Boolean @default(true) // whether a song result needs a posted photo (in addition to the EX score, which is always required) before it can be decided
 
   guild    Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
   entrants Entrant[]

@@ -112,7 +112,9 @@ export function createPlayerNotificationAdapter(client: Client, prisma: PrismaCl
       const dm = new EmbedBuilder()
         .setTitle('Tournament starting')
         .setColor(LOG_COLOR.TOURNAMENT_STARTING)
-        .setDescription(`Check-in is now open for **${tournamentName}**. Use \`/checkin\` to confirm you're playing.${landingLink}`);
+        .setDescription(
+          `Check-in is now open for **${tournamentName}**. Go back to the server and run \`/checkin\` there — it won't work as a reply here.${landingLink}`,
+        );
 
       const unreachable: string[] = [];
       for (const userId of playerIds) {
@@ -172,6 +174,15 @@ export function createPlayerNotificationAdapter(client: Client, prisma: PrismaCl
       await postToGeneralChannel(client, prisma, guildId, `🏁 [**${tournamentName}**](${tournamentUrl(tournamentId)}) has started!`, {
         color: LOG_COLOR.TOURNAMENT_STARTED,
       });
+    },
+
+    async eliminated(discordUserId: string, tournamentId: string, tournamentName: string): Promise<{ reached: boolean }> {
+      const dm = new EmbedBuilder()
+        .setTitle('Eliminated')
+        .setColor(LOG_COLOR.ELIMINATED)
+        .setDescription(`You've been eliminated from [**${tournamentName}**](${tournamentUrl(tournamentId)}). Thanks for playing!`);
+      const reached = await tryDm(client, discordUserId, dm);
+      return { reached };
     },
   };
 }

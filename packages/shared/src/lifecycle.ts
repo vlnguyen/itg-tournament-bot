@@ -47,6 +47,16 @@ export const LifecycleRequest = z.discriminatedUnion('action', [
   // choose one would be the wrong control; the web format picker calls this
   // action directly instead of reading it out of `legalActions`.
   z.object({ action: z.literal('SET_FORMAT'), formatKey: FormatKey, mode: SetTournamentFormatMode.optional() }),
+  // Also not a `LifecycleAction` button — a settings form, not a one-click
+  // transition. Every field is optional so the web form can send only what
+  // changed; `rules`/`packUrl` accept `null` to clear a previously-set value.
+  z.object({
+    action: z.literal('SET_SETTINGS'),
+    rules: z.string().nullable().optional(),
+    packUrl: z.string().url().nullable().optional(),
+    forceUsername: z.boolean().optional(),
+    requirePhotos: z.boolean().optional(),
+  }),
 ]);
 export type LifecycleRequest = z.infer<typeof LifecycleRequest>;
 
@@ -85,5 +95,10 @@ export const LifecycleStatus = z.object({
   formatEditable: z.boolean(),
   /** The checked-in count the current bracket (if any) was generated for — `null` before `GENERATE_BRACKET` has ever run. Lets a client label its button "Generate" vs "Regenerate". */
   bracketEntrantCount: z.number().int().nonnegative().nullable(),
+  /** TO-facing settings — see `SET_SETTINGS`'s own comment above. */
+  rules: z.string().nullable(),
+  packUrl: z.string().nullable(),
+  forceUsername: z.boolean(),
+  requirePhotos: z.boolean(),
 });
 export type LifecycleStatus = z.infer<typeof LifecycleStatus>;

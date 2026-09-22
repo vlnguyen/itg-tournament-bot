@@ -136,7 +136,7 @@ export function buildResultSummaryEmbed(
       : 'No songs played.';
 
   return new EmbedBuilder()
-    .setTitle(`Match complete: ${nameOf(winner.entrantId)} wins ${points[a] ?? 0}–${points[b] ?? 0}${decidedBy ? ` (${decidedBy})` : ''}`)
+    .setTitle(`Match complete: ${nameOf(winner.entrantId)} wins ${points[a] ?? 0}–${points[b] ?? 0}${decidedBy ? ` — ${decidedBy}` : ''}`)
     .setColor(LOG_COLOR.RESULT_SUMMARY)
     .setDescription(description);
 }

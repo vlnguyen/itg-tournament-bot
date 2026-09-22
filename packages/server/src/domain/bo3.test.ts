@@ -140,6 +140,26 @@ describe('deciding the set', () => {
   });
 });
 
+describe('requirePhotos', () => {
+  it('still waits on a photo by default, even once both EX scores are in', () => {
+    const d = opened();
+    const songIndex = (d.pending as { songIndex: number }).songIndex;
+    for (const id of [A, B]) {
+      d.apply({ actorId: id, type: 'SCORE_SUBMITTED', payload: { songIndex, by: id, ex: id === A ? 95 : 90 } });
+    }
+    expect(d.pending).toMatchObject({ kind: 'SUBMIT_SCORE' });
+  });
+
+  it('moves on to SELECT_WINNER without a photo when the tournament has photos turned off', () => {
+    const d = new MatchDriver(makePack(20), F).create(A, B, { requirePhotos: false }).chooseSeed('FIRST').runProtectVeto();
+    const songIndex = (d.pending as { songIndex: number }).songIndex;
+    for (const id of [A, B]) {
+      d.apply({ actorId: id, type: 'SCORE_SUBMITTED', payload: { songIndex, by: id, ex: id === A ? 95 : 90 } });
+    }
+    expect(d.pending).toMatchObject({ kind: 'SELECT_WINNER' });
+  });
+});
+
 describe('bo3-protect-veto-v2: deciding the set without a confirm step', () => {
   const openedV2 = (higherSeedTakes: 'FIRST' | 'SECOND' = 'FIRST') =>
     new MatchDriver(makePack(20), F2).create(A, B).chooseSeed(higherSeedTakes).runProtectVeto();
@@ -188,5 +208,27 @@ describe('referee interventions', () => {
     expect(d.state.vetoes).toEqual([]);
     expect(d.state.deciderIndex).toBeUndefined();
     expect(d.pending).toEqual({ kind: 'SEED_CHOICE', actor: A });
+  });
+
+  it('undo pops exactly the single most recent protect/veto, leaving the seed choice alone', () => {
+    const d = new MatchDriver(makePack(20), F).create(A, B).chooseSeed('FIRST');
+    const first = d.pending;
+    if (first.kind !== 'PROTECT') throw new Error('expected PROTECT');
+    d.apply({ actorId: first.actor, type: 'CHART_PROTECTED', payload: { by: first.actor, drawIndex: first.choices[0]! } });
+    expect(d.state.protects).toHaveLength(1);
+
+    d.apply({ actorId: 'ref', type: 'LAST_ACTION_UNDONE', payload: { reason: 'wrong click' } });
+    expect(d.state.protects).toEqual([]);
+    expect(d.state.a).toBe(A); // the seed choice is a step before this sequence — never touched
+    expect(d.pending).toEqual(first); // back to the exact same prompt
+  });
+
+  it('undo is a no-op when nothing has been protected or vetoed yet', () => {
+    const d = new MatchDriver(makePack(20), F).create(A, B).chooseSeed('FIRST');
+    const before = d.pending;
+    d.apply({ actorId: 'ref', type: 'LAST_ACTION_UNDONE', payload: { reason: 'nothing to undo' } });
+    expect(d.state.protects).toEqual([]);
+    expect(d.state.vetoes).toEqual([]);
+    expect(d.pending).toEqual(before);
   });
 });

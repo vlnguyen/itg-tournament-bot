@@ -91,20 +91,26 @@ export async function computeTournamentStandings(
     loserSeed: r.entrant.seed!,
   }));
 
-  const decider =
-    (await prisma.match.findFirst({
-      where: { tournamentId, bracket: 'GRAND_FINAL', round: 2, status: 'COMPLETE' },
-      include: { participants: { include: { entrant: true } } },
-    })) ??
-    (await prisma.match.findFirst({
-      where: { tournamentId, bracket: 'GRAND_FINAL', round: 1, status: 'COMPLETE' },
-      include: { participants: { include: { entrant: true } } },
-    })) ??
-    (await prisma.match.findFirst({
-      where: { tournamentId, bracket: 'WINNERS', status: 'COMPLETE' },
-      orderBy: { round: 'desc' },
-      include: { participants: { include: { entrant: true } } },
-    }));
+  // The WINNERS-bracket fallback only makes sense when there is no grand
+  // final section to begin with (exactly two entrants — see
+  // `generateBracket`). Otherwise it's reachable the moment the very first
+  // winners-round-1 match completes, long before the tournament has an
+  // actual outcome, and would report that match's participants as
+  // champion/runner-up.
+  const decider = bracket.grandFinalRef
+    ? ((await prisma.match.findFirst({
+        where: { tournamentId, bracket: 'GRAND_FINAL', round: 2, status: 'COMPLETE' },
+        include: { participants: { include: { entrant: true } } },
+      })) ??
+      (await prisma.match.findFirst({
+        where: { tournamentId, bracket: 'GRAND_FINAL', round: 1, status: 'COMPLETE' },
+        include: { participants: { include: { entrant: true } } },
+      })))
+    : await prisma.match.findFirst({
+        where: { tournamentId, bracket: 'WINNERS', status: 'COMPLETE' },
+        orderBy: { round: 'desc' },
+        include: { participants: { include: { entrant: true } } },
+      });
   if (!decider) return [];
 
   const champion = decider.participants.find((p) => p.place === 1)!;

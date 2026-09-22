@@ -76,7 +76,7 @@ describe('buildResultSummaryEmbed', () => {
   it('notes how the set was decided when not by agreement', () => {
     const ruled: MatchOutcome = { ...outcome, by: 'RULING' };
     const embed = buildResultSummaryEmbed([song(0, 'alice')], { alice: 3, bob: 1 }, ruled, participantIds, nameOf);
-    expect(embed.data.title).toContain('(by referee ruling)');
+    expect(embed.data.title).toContain('— by referee ruling');
   });
 
   it('does not call out the default win condition — reaching the outright majority', () => {
@@ -88,13 +88,13 @@ describe('buildResultSummaryEmbed', () => {
   it('calls out a tiebreaker-decided win', () => {
     const tiebreaker: MatchOutcome = { ...outcome, winCondition: 'TIEBREAKER' };
     const embed = buildResultSummaryEmbed([song(0, 'alice')], { alice: 3, bob: 1 }, tiebreaker, participantIds, nameOf);
-    expect(embed.data.title).toContain('(won by points, song pool exhausted)');
+    expect(embed.data.title).toContain('— won by points, song pool exhausted');
   });
 
   it('calls out an average-EX%-decided win', () => {
     const avgEx: MatchOutcome = { ...outcome, winCondition: 'AVG_EX' };
     const embed = buildResultSummaryEmbed([song(0, 'alice')], { alice: 3, bob: 1 }, avgEx, participantIds, nameOf);
-    expect(embed.data.title).toContain('(won on average EX%)');
+    expect(embed.data.title).toContain('— won on average EX%');
   });
 
   it('appends each player\'s average EX% after the song list, only when that is what decided it', () => {

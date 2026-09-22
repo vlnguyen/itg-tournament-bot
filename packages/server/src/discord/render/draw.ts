@@ -48,6 +48,8 @@ export const LOG_COLOR = {
   CHECKIN_CLOSED: 0x95a5a6,
   /** General channel — the tournament started. */
   TOURNAMENT_STARTED: 0x2ecc71,
+  /** The elimination DM — red, same family as `VETO`/`GENERAL_TOURNAMENT_CANCELLED`, but its own entry since the occasion is unrelated to either. */
+  ELIMINATED: 0xe74c3c,
 } as const;
 
 /**

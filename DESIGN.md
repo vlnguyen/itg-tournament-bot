@@ -108,7 +108,7 @@ Prisma models, abbreviated. Sketch, but the constraints called out below are loa
 ```prisma
 model Guild {
   id               String   @id            // Discord guild ID
-  matchesChannelId String?                 // hosts threads; no bot messages in its body
+  matchesChannelId String?                 // hosts match threads, plus the live-edited Tournament Status summary
   alertChannelId   String?
   resultsChannelId String?
   generalChannelId String?                 // optional forward target — where competitors discuss
@@ -1105,9 +1105,9 @@ Provisioning runs through a **serialized queue with backoff on 429**, keyed by m
 
 **The DM is best-effort and cannot be made reliable.** Discord lets a user refuse DMs from server members; the bot cannot detect that in advance, and the send fails with `50007 Cannot send messages to this user`. A second code matters here too: **`50278`, "Cannot send messages to this user due to having no mutual guilds"**, which is what arrives when the recipient has left the server — a case this system meets routinely, since a player can leave mid-tournament. Both are treated as expected outcomes, not errors: logged at debug, never retried, no alert raised. **The thread mention is the notification of record** — nothing depends on the DM arriving, which is what keeps the privacy setting from becoming a support burden.
 
-**The matches channel body carries nothing.** It hosts threads and holds the permissions that make them work — the bot's send and thread permissions, and the `Manage Threads` that gives organizers visibility. No message is ever posted in it.
+**The matches channel body carries one thing: the live-edited Tournament Status message.** Otherwise it hosts threads and holds the permissions that make them work — the bot's send and thread permissions, and the `Manage Threads` that gives organizers visibility. The Tournament Status summary (`MatchChannelPort.applyTournamentStatus`, keyed by `Tournament.statusMsgId`) is a deliberate, narrow exception to "no message is ever posted in it" — a round-by-round PENDING/IN_PROGRESS/COMPLETE tally, edited in place the same way a match's own state message is, posted once when the tournament starts and refreshed on every match completion.
 
-That has a consequence worth stating, because a server will hit it: **#matches looks empty to everyone.** Private threads are invisible to non-members, and thread visibility requires `View Channel` on the parent, so the channel cannot be hidden from potential competitors — anyone may `/join`. A visible, permanently empty channel is the price of hosting threads somewhere.
+That has a consequence worth stating, because a server will hit it: **#matches otherwise looks empty to everyone.** Private threads are invisible to non-members, and thread visibility requires `View Channel` on the parent, so the channel cannot be hidden from potential competitors — anyone may `/join`. Aside from the one status message, a visible channel with nothing else in its body is the price of hosting threads somewhere.
 
 **Results go to their own channel, one embed per finished match** (`buildResultAnnouncement`, `render/result-summary.ts`), colored white. The title — `{round} — {Player A} vs {Player B}`, both names in seat order regardless of who won — is the whole embed's link target (`setURL`) to the match's page on the public bracket; Discord embed titles carry no inline markdown, so "the match name as a hyperlink" is necessarily the *entire* title linked, not a styled span within it. The description is `{winner} advances ({winner score}-{loser score})`, then — when at least one song was played — a blank line and a numbered line per song (`{n}. ` — `song.index + 1`, continuous across tiebreaks — then the bolded chart, or `Tiebreak {round} — {chart}` for a tiebreak round, then 🏆 winner or 🤝 `Tie`, no EX%, which stays on the in-thread result summary), then a blank line and the tournament name linked to its own page (`[{tournament name}](tournamentUrl)`, which description fields *do* render as a real link, unlike the title).
 

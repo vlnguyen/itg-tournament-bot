@@ -4,6 +4,7 @@ import { describeGap } from './permission-diagnostic.js';
 import { runFullDiagnostic, TIER_ROLE_LABELS } from './setup-effects.js';
 import type { CommandContext } from './commands/context.js';
 import type { ThreadRef } from './ports.js';
+import { refreshTournamentStatus } from './match-event-effects.js';
 import { provisionReadyThreads } from './thread-provisioning.js';
 import { hasTier, Tier } from './tier.js';
 import { startTournament, TournamentTransitionError } from '../services/tournament-service.js';
@@ -71,12 +72,13 @@ export async function startTournamentWithDiscordEffects(
   const entrants = await ctx.prisma.entrant.findMany({
     where: { tournamentId, status: 'ACTIVE', checkedIn: true },
   });
+  const { forceUsername } = await ctx.prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId }, select: { forceUsername: true } });
   const displayNames = new Map<string, string>();
   const holdsTierRole: string[] = [];
   for (const e of entrants) {
     const member = await guild.members.fetch(e.discordUserId).catch(() => null);
     if (!member) continue; // left the guild — seated anyway; nothing here to snapshot or warn on
-    displayNames.set(e.id, member.displayName);
+    displayNames.set(e.id, forceUsername ? member.user.username : member.displayName);
     if (hasTier(member.roles.cache.keys(), guildRow, Tier.REFEREE)) holdsTierRole.push(member.displayName);
   }
 
@@ -91,6 +93,7 @@ export async function startTournamentWithDiscordEffects(
   }
 
   const threads = await provisionReadyThreads(ctx.prisma, ctx.matchChannel, ctx.playerNotification, tournamentId, result.tournament.name);
+  await refreshTournamentStatus(ctx.prisma, ctx.matchChannel, tournamentId, result.tournament.name);
 
   return {
     kind: 'STARTED',

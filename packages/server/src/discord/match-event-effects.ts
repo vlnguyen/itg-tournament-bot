@@ -17,6 +17,7 @@ import { buildEscalationAlert } from './render/escalation.js';
 import { buildMatchSongsEmbed } from './render/match-songs.js';
 import { buildResultAnnouncement, buildResultSummaryEmbed } from './render/result-summary.js';
 import { buildTournamentCompleteAnnouncement } from './render/tournament-complete.js';
+import { buildTournamentStatusMessage } from './render/tournament-status.js';
 import { refereeTierRoleIds } from './tier.js';
 import { provisionReadyThreads } from './thread-provisioning.js';
 import { displayName, renderStateMessage, type PlayerDirectory } from './state-message.js';
@@ -108,6 +109,22 @@ function renderActionLog(
 }
 
 /**
+ * Refreshes the tournament's live-edited "Tournament Status" message —
+ * called here on every match completion, and once more from
+ * `start-tournament-effects.ts` right after Start. See DESIGN.md,
+ * "Notifying players, and the channels."
+ */
+export async function refreshTournamentStatus(
+  prisma: PrismaClient,
+  matchChannel: MatchChannelPort,
+  tournamentId: string,
+  tournamentName: string,
+): Promise<void> {
+  const matches = await prisma.match.findMany({ where: { tournamentId }, select: { bracket: true, round: true, status: true } });
+  await matchChannel.applyTournamentStatus(tournamentId, buildTournamentStatusMessage(tournamentName, matches));
+}
+
+/**
  * Everything that happens after a successful append, shared by every
  * action type: a permanent log line where one applies, the Protect/Veto
  * completion recap where that transition just happened, a newly raised
@@ -171,7 +188,10 @@ export async function applyAppendResult(
     if (effect.kind === 'SONG_COMMITTED') {
       const song = result.state.songs[effect.songIndex]!;
       if (song.result?.by !== 'AGREEMENT') continue;
-      await matchChannel.postLogMessage(ref, renderSongResultLog(effect.songIndex, song.chart, song.result.winner, players));
+      await matchChannel.postLogMessage(
+        ref,
+        renderSongResultLog(effect.songIndex, song.chart, song.result.winner, players, result.state.points, [pA!.entrantId, pB!.entrantId]),
+      );
     } else if (effect.kind === 'TIEBREAK_RESOLVED') {
       const round = result.state.tiebreaks.find((t) => t.round === effect.round)!;
       await matchChannel.postLogMessage(ref, renderTiebreakRevealLog(round, [pA!.entrantId, pB!.entrantId], players));
@@ -257,7 +277,30 @@ export async function applyAppendResult(
     // on one now fails the existing stale-match guard in `interactions.ts`
     // and gets an ephemeral "this match no longer exists" in response,
     // rather than silently doing nothing.
+    //
+    // Locked before archived: locking blocks players from posting or
+    // unarchiving outright, closing the small window archiving alone
+    // leaves open (a member with "Manage Threads" can unarchive by
+    // posting). Archiving still runs too, for the unrelated reason it
+    // always has — keeping the matches channel's thread list tidy.
+    await matchChannel.lockThread(ref);
     await matchChannel.archiveThread(ref);
+
+    // A losers-bracket loss is elimination — there's no `LOSER_OF` edge for
+    // it in the bracket graph (`routeCompletedMatch`, advancement.ts), so
+    // the loser is never routed anywhere further. A winners-bracket loss
+    // only drops to the losers bracket, and a grand-final loss placed 2nd
+    // overall — neither of those is "eliminated," and `match.bracket`
+    // already distinguishes all three cases on its own.
+    if (match.bracket === 'LOSERS') {
+      const loser = outcome.placements.find((p) => p.place !== 1);
+      const loserPlayer = loser && players.get(loser.entrantId);
+      if (loserPlayer) await playerNotification.eliminated(loserPlayer.discordUserId, match.tournamentId, match.tournament.name);
+    }
+
+    // Refreshed on every completion, not just at Start — see DESIGN.md,
+    // "Notifying players, and the channels."
+    await refreshTournamentStatus(prisma, matchChannel, match.tournamentId, match.tournament.name);
 
     // This match was the one that decided the whole tournament — the grand
     // final, its reset, or (a 2-entrant field) the only match there is.

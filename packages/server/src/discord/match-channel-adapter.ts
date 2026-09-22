@@ -132,6 +132,11 @@ export function createMatchChannelAdapter(client: Client, prisma: PrismaClient):
       await thread.setArchived(true);
     },
 
+    async lockThread(ref) {
+      const thread = await getThread(ref.threadId);
+      await thread.setLocked(true);
+    },
+
     async publishResult(ref, message) {
       const guildId = await guildIdOfMatch(ref.matchId);
       const guild = await prisma.guild.findUniqueOrThrow({ where: { id: guildId } });
@@ -154,6 +159,37 @@ export function createMatchChannelAdapter(client: Client, prisma: PrismaClient):
           console.warn(`[discord] forwarding result to the general channel failed for guild ${guildId}`, err);
         }
       }
+    },
+
+    async applyTournamentStatus(tournamentId, message) {
+      const tournament = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
+      const guild = await prisma.guild.findUniqueOrThrow({ where: { id: tournament.guildId } });
+      if (!guild.matchesChannelId) throw new Error(`guild ${tournament.guildId} has no matches channel configured`);
+      const channel = await client.channels.fetch(guild.matchesChannelId);
+      if (!channel || channel.type !== ChannelType.GuildText) {
+        throw new Error(`matches channel ${guild.matchesChannelId} is not a text channel`);
+      }
+
+      if (tournament.statusMsgId) {
+        if (channel.lastMessageId === tournament.statusMsgId) {
+          try {
+            const existing = await channel.messages.fetch(tournament.statusMsgId);
+            await existing.edit({ content: message.content ?? '', embeds: message.embeds ?? [], components: message.components ?? [] });
+            return;
+          } catch (err) {
+            if (!isUnknownMessage(err)) throw err;
+          }
+        } else {
+          try {
+            await channel.messages.delete(tournament.statusMsgId);
+          } catch (err) {
+            if (!isUnknownMessage(err)) throw err;
+          }
+        }
+      }
+
+      const posted = await channel.send(message);
+      await prisma.tournament.update({ where: { id: tournamentId }, data: { statusMsgId: posted.id } });
     },
   };
 }

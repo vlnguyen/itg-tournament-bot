@@ -285,6 +285,9 @@ export class LifecycleController {
       await this.matchChannel.postMatchState(ref, {
         embeds: [new EmbedBuilder().setColor(LOG_COLOR.TOURNAMENT_CANCELLED).setDescription('⚠️ This match has been cancelled. No further action is possible.')],
       });
+      // Archive only, not lock — same reasoning as the Discord-side
+      // cancel path (`commands/tournament.ts`): a cancelled match may
+      // legitimately need reopening by an organizer.
       await this.matchChannel.archiveThread(ref);
     }
   }

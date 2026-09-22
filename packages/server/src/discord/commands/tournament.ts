@@ -433,6 +433,8 @@ async function handleCancel(interaction: ChatInputCommandInteraction, ctx: Comma
     await ctx.matchChannel.postMatchState(ref, {
       embeds: [new EmbedBuilder().setColor(LOG_COLOR.TOURNAMENT_CANCELLED).setDescription('⚠️ This match is cancelled. Nothing else to do here.')],
     });
+    // Archive only, not lock — unlike a normally-completed match, a
+    // cancelled one may legitimately need reopening by an organizer.
     await ctx.matchChannel.archiveThread(ref);
   }
 

@@ -1,5 +1,5 @@
-import type { RunView as RunViewWire, Standings as StandingsWire, TournamentSnapshot as TournamentSnapshotWire } from '@itg/shared';
-import { RunView as RunViewSchema, Standings as StandingsSchema, TournamentSnapshot as TournamentSnapshotSchema } from '@itg/shared';
+import type { RunView as RunViewWire, Standings as StandingsWire, TournamentAnalytics as TournamentAnalyticsWire, TournamentSnapshot as TournamentSnapshotWire } from '@itg/shared';
+import { RunView as RunViewSchema, Standings as StandingsSchema, TournamentAnalytics as TournamentAnalyticsSchema, TournamentSnapshot as TournamentSnapshotSchema } from '@itg/shared';
 import type { Client } from 'discord.js';
 import { Controller, ForbiddenException, Get, Inject, NotFoundException, Param } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator.js';
@@ -13,6 +13,7 @@ import type { MatchState } from '../domain/types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { entrantCountAtStart, requireFormat } from '../services/engine.js';
 import { computeTournamentStandings } from '../services/advancement-service.js';
+import { computeTournamentAnalytics } from '../services/analytics-service.js';
 import { getRunView } from '../services/run-view-service.js';
 
 /**
@@ -104,5 +105,28 @@ export class TournamentsController {
 
     const runView = await getRunView(this.prisma, id);
     return RunViewSchema.parse(runView);
+  }
+
+  /**
+   * `GET /api/tournaments/:id/analytics` — post-event protect/veto/pick
+   * aggregates and timing, for TOs reviewing how the event actually went.
+   * Organizer-gated, same threshold the lifecycle/settings endpoints use —
+   * this is TO-facing review, not anything a competitor or spectator needs.
+   */
+  @Get(':id/analytics')
+  async getAnalytics(@Param('id') id: string, @CurrentUser() discordUserId: string | null): Promise<TournamentAnalyticsWire> {
+    const tournament = await this.prisma.tournament.findUnique({ where: { id } });
+    if (!tournament) throw new NotFoundException(`no tournament ${id}`);
+
+    if (!discordUserId || !(await this.tierService.hasTier(tournament.guildId, discordUserId, Tier.TOURNAMENT_ORGANIZER))) {
+      throw new ForbiddenException('You need Tournament Organizer tier to view analytics.');
+    }
+
+    const analytics = await computeTournamentAnalytics(this.prisma, id);
+    return TournamentAnalyticsSchema.parse({
+      ...analytics,
+      startedAt: analytics.startedAt?.toISOString() ?? null,
+      endedAt: analytics.endedAt?.toISOString() ?? null,
+    });
   }
 }

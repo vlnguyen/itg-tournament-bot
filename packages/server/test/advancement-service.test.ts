@@ -67,6 +67,32 @@ describe.skipIf(!(await isReachable()))('advancement-service', () => {
     });
   });
 
+  describe('computeTournamentStandings before the tournament has an outcome', () => {
+    it('returns [] once one winners-round-1 match completes, for a bracket with a grand final', async () => {
+      // Regression: the decider lookup used to fall back to "any completed
+      // WINNERS match" whenever no grand final had completed yet, which is
+      // only correct for the 2-entrant case (no grand final section at all).
+      // For 4+ entrants a grand final section exists but simply hasn't been
+      // reached — completing the very first WR1 match must not produce a
+      // champion/runner-up out of that match's own participants.
+      const t = await makeTournament(`advancement-early-${Date.now()}`, 4);
+      const random = sequentialRandomPort(t.guildId);
+      await materializeBracket(prisma, random, t.tournamentId);
+      try {
+        const wr1 = await prisma.match.findFirstOrThrow({
+          where: { tournamentId: t.tournamentId, bracket: 'WINNERS', round: 1, status: 'IN_PROGRESS' },
+          include: { participants: true },
+          orderBy: { slot: 'asc' },
+        });
+        await playMatchToChampion(wr1.id, wr1.participants[0]!.entrantId, random);
+
+        expect(await computeTournamentStandings(prisma, t.tournamentId)).toEqual([]);
+      } finally {
+        await cleanupTournament(t);
+      }
+    });
+  });
+
   describe('tournament-scope disqualification', () => {
     it('forfeits a live match and advances the opponent', async () => {
       const t = await makeTournament(`advancement-dq-a-${Date.now()}`, 4);

@@ -79,10 +79,10 @@ export class RosterController {
       throw err;
     }
 
-    const result = await reorderSeeds(this.prisma, guildId, order, discordUserId!);
+    const result = await reorderSeeds(this.prisma, id, order, discordUserId!);
     switch (result.kind) {
       case 'NO_TOURNAMENT':
-        throw new NotFoundException(`no active tournament for guild ${guildId}`);
+        throw new NotFoundException(`no tournament ${id}`);
       case 'TOO_LATE':
         throw new BadRequestException(`Can't reorder seeding: the tournament is already ${result.phase}.`);
       case 'INVALID_ORDER':

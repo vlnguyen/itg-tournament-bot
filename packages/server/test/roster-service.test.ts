@@ -446,10 +446,14 @@ describe.skipIf(!(await isReachable()))('roster-service', () => {
 
   describe('getRoster / reorderSeeds', () => {
     it('getRoster returns [] for a tournament id with no entrants', async () => {
-      // getRoster takes a tournament id directly (not a guild lookup) — see
-      // its own comment on why: unlike reorderSeeds, it has to keep working
-      // for a COMPLETE/CANCELLED tournament, which a guild-scoped
-      // "currently active tournament" lookup would never find.
+      // Both getRoster and reorderSeeds take a tournament id directly now,
+      // not a guild lookup — but for different reasons at the terminal-state
+      // boundary: getRoster still has to work for a COMPLETE/CANCELLED
+      // tournament (reviewing final seeding order shouldn't stop being
+      // possible), while reorderSeeds must reject one (see its own comment —
+      // a guild-scoped "currently active tournament" lookup used to let a
+      // stale seeding page for a *finished* tournament silently reorder
+      // whatever new tournament had since taken the guild's slot instead).
       expect(await getRoster(prisma, 'does-not-exist')).toEqual([]);
     });
 
@@ -480,7 +484,7 @@ describe.skipIf(!(await isReachable()))('roster-service', () => {
 
         // Reordering covers the whole active roster now, checked-in or not.
         const [e1, e2, e3] = await Promise.all(['p1', 'p2', 'p3'].map((id) => entrantOf(tournamentId, id)));
-        await reorderSeeds(prisma, guildId, [e2!.id, e1!.id, e3!.id], TO);
+        await reorderSeeds(prisma, tournamentId, [e2!.id, e1!.id, e3!.id], TO);
 
         const roster = await getRoster(prisma, tournamentId);
         expect(roster.map((e) => e.discordUserId)).toEqual(['p2', 'p1', 'p3']);
@@ -500,8 +504,45 @@ describe.skipIf(!(await isReachable()))('roster-service', () => {
         await closeCheckin(prisma, tournamentId, TO);
         await prisma.tournament.update({ where: { id: tournamentId }, data: { state: 'RUNNING' } });
 
-        const result = await reorderSeeds(prisma, guildId, [(await entrantOf(tournamentId, 'p1')).id], TO);
+        const result = await reorderSeeds(prisma, tournamentId, [(await entrantOf(tournamentId, 'p1')).id], TO);
         expect(result.kind).toBe('TOO_LATE');
+      } finally {
+        await dropGuild(guildId);
+      }
+    });
+
+    it('reorderSeeds rejects a COMPLETE tournament rather than silently reordering a newer one that has since taken the guild’s slot', async () => {
+      const guildId = `rs-seed-terminal-${Date.now()}`;
+      try {
+        // Tournament A: seeded, then finishes (terminal state frees the
+        // guild's one-active-tournament slot).
+        const tournamentA = await toCheckinOpen(guildId);
+        await rosterAdd(prisma, guildId, 'p1', TO);
+        const entrantA = await entrantOf(tournamentA, 'p1');
+        await prisma.tournament.update({ where: { id: tournamentA }, data: { state: 'COMPLETE' } });
+
+        // Tournament B: a brand new tournament for the same guild, now the
+        // guild's actual "active" one. Built without `toCheckinOpen`/
+        // `toRegistrationOpen` — both call `makeGuild`, which the guild
+        // already has from tournament A above.
+        const b = await createTournament(prisma, guildId, 'T2', TO);
+        await openRegistration(prisma, b.id, TO);
+        await closeRegistration(prisma, b.id, TO);
+        await openCheckin(prisma, b.id, TO);
+        const tournamentB = b.id;
+        await rosterAdd(prisma, guildId, 'q1', TO);
+        await rosterAdd(prisma, guildId, 'q2', TO);
+        const [entrantB1, entrantB2] = await Promise.all(['q1', 'q2'].map((id) => entrantOf(tournamentB, id)));
+
+        // A stale seeding page still open for the finished tournament A
+        // must be refused — not silently applied to B, which just happens
+        // to be "the" active tournament for this guild now.
+        const result = await reorderSeeds(prisma, tournamentA, [entrantA.id], TO);
+        expect(result.kind).toBe('TOO_LATE');
+
+        // B's seeding is untouched by that call.
+        expect((await entrantOf(tournamentB, 'q1')).seed).toBe(entrantB1!.seed);
+        expect((await entrantOf(tournamentB, 'q2')).seed).toBe(entrantB2!.seed);
       } finally {
         await dropGuild(guildId);
       }
@@ -517,7 +558,7 @@ describe.skipIf(!(await isReachable()))('roster-service', () => {
         await rosterCheckin(prisma, guildId, 'p2', TO);
 
         // Missing p2 — a stale client that loaded before p2 joined.
-        const result = await reorderSeeds(prisma, guildId, [(await entrantOf(tournamentId, 'p1')).id], TO);
+        const result = await reorderSeeds(prisma, tournamentId, [(await entrantOf(tournamentId, 'p1')).id], TO);
         expect(result.kind).toBe('INVALID_ORDER');
       } finally {
         await dropGuild(guildId);
@@ -534,11 +575,11 @@ describe.skipIf(!(await isReachable()))('roster-service', () => {
 
         // Omitting p2 used to be fine (only the checked-in group mattered);
         // now the whole active roster must be present.
-        const onlyCheckedIn = await reorderSeeds(prisma, guildId, [(await entrantOf(tournamentId, 'p1')).id], TO);
+        const onlyCheckedIn = await reorderSeeds(prisma, tournamentId, [(await entrantOf(tournamentId, 'p1')).id], TO);
         expect(onlyCheckedIn.kind).toBe('INVALID_ORDER');
 
         const [e1, e2] = await Promise.all(['p1', 'p2'].map((id) => entrantOf(tournamentId, id)));
-        const whole = await reorderSeeds(prisma, guildId, [e2!.id, e1!.id], TO);
+        const whole = await reorderSeeds(prisma, tournamentId, [e2!.id, e1!.id], TO);
         expect(whole.kind).toBe('REORDERED');
         expect((await entrantOf(tournamentId, 'p2')).seed).toBe(1);
         expect((await entrantOf(tournamentId, 'p1')).seed).toBe(2);
@@ -557,7 +598,7 @@ describe.skipIf(!(await isReachable()))('roster-service', () => {
         for (const id of ['p1', 'p2', 'p3']) await rosterCheckin(prisma, guildId, id, TO);
 
         const [e1, e2, e3] = await Promise.all(['p1', 'p2', 'p3'].map((id) => entrantOf(tournamentId, id)));
-        const result = await reorderSeeds(prisma, guildId, [e3!.id, e1!.id, e2!.id], TO);
+        const result = await reorderSeeds(prisma, tournamentId, [e3!.id, e1!.id, e2!.id], TO);
         expect(result.kind).toBe('REORDERED');
 
         expect((await entrantOf(tournamentId, 'p3')).seed).toBe(1);

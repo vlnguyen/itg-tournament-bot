@@ -12,6 +12,7 @@ import { TournamentHeader } from '../components/tournament-header.js';
 import { useCurrentUser } from '../hooks/use-current-user.js';
 import { useRealtimeRoster } from '../hooks/use-realtime-roster.js';
 import { useRoster } from '../hooks/use-roster.js';
+import { useTournament } from '../hooks/use-tournament.js';
 import { ApiError, submitSeeding } from '../lib/api.js';
 
 /** Plain inline SVG rather than an icon-library dependency — same reasoning as `layout.tsx`'s `HomeIcon`. */
@@ -113,14 +114,27 @@ function SeedInput({
  * mistaken for the start of a drag gesture. `touchAction: 'none'` on the
  * handle is dnd-kit's own requirement, not decorative: without it a touch
  * drag fights the browser's default scroll gesture.
+ *
+ * `terminal` drops both the handle and the editable seed field down to
+ * plain text — not just disabled controls. The server already refuses a
+ * reorder once the tournament is `COMPLETE`/`CANCELLED` (`reorderSeeds`),
+ * but a control that's there to be clicked and then fails is worse than
+ * one that was never offered; final seeding is a historical record at
+ * that point, not something to invite editing. Not attaching `attributes`/
+ * `listeners` here is what actually disables the drag gesture — the row
+ * stays registered with `useSortable`/`SortableContext` either way, since
+ * hooks can't be called conditionally, but nothing on screen exposes the
+ * pointer/keyboard activation dnd-kit needs to start one.
  */
 function RosterRow({
   entry,
   max,
+  terminal,
   onMove,
 }: {
   entry: RosterEntrant;
   max: number;
+  terminal: boolean;
   onMove: (entrantId: string, newSeed: number) => void;
 }): JSX.Element {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: entry.entrantId });
@@ -139,22 +153,24 @@ function RosterRow({
     >
       <Table.Td>
         <Group gap={4} wrap="nowrap">
-          <ActionIcon
-            variant="subtle"
-            color="gray"
-            size="sm"
-            style={{ touchAction: 'none', cursor: 'grab' }}
-            aria-label={`Drag to reorder ${label}`}
-            {...attributes}
-            {...listeners}
-          >
-            <DragHandleIcon />
-          </ActionIcon>
-          {entry.seed !== null ? (
+          {!terminal && (
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="sm"
+              style={{ touchAction: 'none', cursor: 'grab' }}
+              aria-label={`Drag to reorder ${label}`}
+              {...attributes}
+              {...listeners}
+            >
+              <DragHandleIcon />
+            </ActionIcon>
+          )}
+          {!terminal && entry.seed !== null ? (
             <SeedInput seed={entry.seed} max={max} label={`seed for ${label}`} onMove={(v) => onMove(entry.entrantId, v)} />
           ) : (
-            <Text size="xs" c="dimmed">
-              -
+            <Text size="xs" c="dimmed" pl={terminal ? 4 : 0}>
+              {entry.seed ?? '-'}
             </Text>
           )}
         </Group>
@@ -205,6 +221,7 @@ export default function TournamentRoster(): JSX.Element {
   const { tournamentId } = useParams<{ tournamentId: string }>();
   const { data: discordUserId, isPending: userPending } = useCurrentUser();
   const { data: roster, isPending, error } = useRoster(tournamentId!);
+  const { data: snapshot, isPending: snapshotPending } = useTournament(tournamentId!);
   useRealtimeRoster(tournamentId!);
   const queryClient = useQueryClient();
   const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
@@ -231,7 +248,7 @@ export default function TournamentRoster(): JSX.Element {
 
   let content: JSX.Element;
 
-  if (userPending || isPending) {
+  if (userPending || isPending || snapshotPending) {
     content = (
       <Center h="60vh">
         <Loader aria-label="Loading" />
@@ -273,6 +290,10 @@ export default function TournamentRoster(): JSX.Element {
     // seed-at-join), then join order within a tie.
     const entries = roster;
     const ids = entries.map((e) => e.entrantId);
+    // `reorderSeeds` already refuses this server-side once the tournament
+    // is COMPLETE/CANCELLED — this is what keeps the page from offering a
+    // control that would just fail. See `RosterRow`'s own comment.
+    const terminal = snapshot ? snapshot.state === 'COMPLETE' || snapshot.state === 'CANCELLED' : false;
 
     const submitOrder = (order: string[]): void => {
       if (order.length > 0) mutation.mutate(order);
@@ -319,7 +340,7 @@ export default function TournamentRoster(): JSX.Element {
             <Table.Tbody>
               <SortableContext items={ids} strategy={verticalListSortingStrategy}>
                 {entries.map((e) => (
-                  <RosterRow key={e.entrantId} entry={e} max={entries.length} onMove={moveTo} />
+                  <RosterRow key={e.entrantId} entry={e} max={entries.length} terminal={terminal} onMove={moveTo} />
                 ))}
               </SortableContext>
             </Table.Tbody>

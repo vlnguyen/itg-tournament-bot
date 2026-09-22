@@ -3,6 +3,7 @@ import { canEditMatchFormat, displayStepartistLine, displayTitle, FORMAT_LABEL, 
 import { Alert, Badge, Center, Divider, Group, Loader, Select, Stack, Table, Text, Title } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
 import { RefereeOverrides } from '../components/referee-overrides.js';
 import { TournamentHeader } from '../components/tournament-header.js';
 import { useCurrentUser } from '../hooks/use-current-user.js';
@@ -258,12 +259,17 @@ export default function MatchDetail(): JSX.Element {
     const isBye = pub.participants.length < 2 && pub.outcome?.by === 'WALKOVER';
     const labeled = isStaticPool(pub.draw);
 
+    const titleText = isBye
+      ? `${p0?.displayName ?? p1?.displayName ?? 'TBD'} (BYE)`
+      : `${p0?.displayName ?? 'TBD'} vs ${p1?.displayName ?? 'TBD'}`;
+
     content = (
       <>
+        <Helmet>
+          <title>{titleText}</title>
+        </Helmet>
         <div>
-          <Title order={1}>
-            {isBye ? `${p0?.displayName ?? p1?.displayName ?? 'TBD'} (BYE)` : `${p0?.displayName ?? 'TBD'} vs ${p1?.displayName ?? 'TBD'}`}
-          </Title>
+          <Title order={1}>{titleText}</Title>
           <Group gap="xs" align="center">
             <Text c="dimmed">{sectionLabel(pub.bracket, pub.round, shape)}</Text>
             <Text c="dimmed">&middot;</Text>

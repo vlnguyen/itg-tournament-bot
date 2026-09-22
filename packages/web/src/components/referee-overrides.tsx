@@ -19,6 +19,7 @@ import { ApiError, submitRuling } from '../lib/api.js';
 export function RefereeOverrides({ matchId, pub }: { matchId: string; pub: PublicMatch }): JSX.Element | null {
   const queryClient = useQueryClient();
   const [resetReason, setResetReason] = useState('');
+  const [undoReason, setUndoReason] = useState('');
   const [dqTarget, setDqTarget] = useState<string | null>(null);
 
   const mutation = useMutation({
@@ -95,6 +96,37 @@ export function RefereeOverrides({ matchId, pub }: { matchId: string; pub: Publi
               }}
             >
               Reset
+            </Button>
+          </Group>
+        </div>
+      )}
+
+      {!decided && (
+        <div>
+          <Text size="sm" fw={600}>
+            Undo the last action
+          </Text>
+          <Text size="xs" c="dimmed" mb={4}>
+            Only the single most recent protect/veto/pick, before the current song starts — narrower than Reset above.
+          </Text>
+          <Group gap="xs">
+            <TextInput
+              placeholder="Reason (e.g. wrong click)"
+              size="xs"
+              value={undoReason}
+              onChange={(e) => setUndoReason(e.currentTarget.value)}
+              style={{ flex: 1 }}
+            />
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={undoReason.trim().length === 0}
+              onClick={() => {
+                rule({ type: 'LAST_ACTION_UNDONE', reason: undoReason.trim() });
+                setUndoReason('');
+              }}
+            >
+              Undo
             </Button>
           </Group>
         </div>

@@ -135,6 +135,13 @@ export function renderResetLog(refereeDisplayName: string): RenderedMessage {
   };
 }
 
+/** Narrower than `renderResetLog` above — undoes exactly the single most recent action, not the whole sequence. */
+export function renderUndoLog(refereeDisplayName: string): RenderedMessage {
+  return {
+    embeds: [new EmbedBuilder().setColor(LOG_COLOR.RESET).setDescription(`↩️ **${refereeDisplayName}** undid the last action.`)],
+  };
+}
+
 /**
  * `/dq` — either scope. "This match only" is also how a plain forfeit is
  * applied — there is no separate command for it; "withdraw from the

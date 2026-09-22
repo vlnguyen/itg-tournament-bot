@@ -11,7 +11,7 @@ import {
   type StringSelectMenuInteraction,
 } from 'discord.js';
 import type { PrismaClient } from '@prisma/client';
-import { FORMAT_LABEL, type FormatKey } from '@itg/shared';
+import { displayTitle, FORMAT_LABEL, type ChartSnapshot, type FormatKey } from '@itg/shared';
 import type { EntrantId, MatchEvent, MatchState, PendingAction } from '../domain/types.js';
 import { requireFormat } from '../services/engine.js';
 import { appendMatchEvent, IllegalActionError } from '../services/match-service.js';
@@ -22,7 +22,7 @@ import { Action, SCORE_MODAL_EX_FIELD } from './actions.js';
 import type { CommandContext } from './commands/context.js';
 import { dispatchAutocomplete, dispatchChatInputCommand } from './commands/router.js';
 import { decodeCustomId, decodeTournamentCustomId, encodeCustomId, type CustomId, type TournamentCustomId } from './custom-id.js';
-import { renderResetLog, renderRulingLog, renderSetRulingLog } from './log-messages.js';
+import { renderResetLog, renderRulingLog, renderSetRulingLog, renderUndoLog } from './log-messages.js';
 import { applyAppendResult, CANCELLED_MATCH_MESSAGE, describeStale } from './match-event-effects.js';
 import { buildPlayerDirectory, loadMatch } from './match-lookup.js';
 import { logToOrganizers, matchLinksBlock } from './commands/organizer-log.js';
@@ -85,8 +85,15 @@ async function handle(
 
   if (interaction.isModalSubmit()) {
     const decoded = decodeCustomId(interaction.customId);
-    if (!decoded || decoded.action !== Action.SCORE) return;
-    await handleScoreModalSubmit(interaction, decoded, prisma, random, matchChannel, alert, playerNotification, realtime);
+    if (!decoded) return;
+    if (decoded.action === Action.SCORE) {
+      await handleScoreModalSubmit(interaction, decoded, prisma, random, matchChannel, alert, playerNotification, realtime);
+      return;
+    }
+    if (decoded.action === Action.CONFIRM_PICK) {
+      await handleConfirmPickModalSubmit(interaction, decoded, prisma, random, matchChannel, alert, playerNotification, realtime);
+      return;
+    }
     return;
   }
 
@@ -127,12 +134,46 @@ async function handle(
     return;
   }
 
+  // Same reasoning again: undoing the last action is a referee override, not a participant action.
+  if (interaction.isButton() && decoded.action === Action.UNDO_LAST) {
+    await handleUndoButton(interaction, decoded, prisma, random, matchChannel, alert, playerNotification, realtime);
+    return;
+  }
+
   // The one place the general defer-first rule has a wrong answer:
   // deferUpdate() mutates the shared state message for everyone, which
   // would leak a tiebreak pick to the opponent before it's revealed. See
   // DESIGN.md, "The tiebreak".
   if (interaction.isStringSelectMenu() && decoded.action === Action.TIEBREAK) {
     await handleTiebreakPick(interaction, decoded, prisma, random, matchChannel, alert, playerNotification, realtime);
+    return;
+  }
+
+  // A protect/veto/song-pick select is a click that's easy to fat-finger and
+  // hard to walk back once committed — confirm it via a modal (same reason
+  // `showModal()` has to be the *first* response, before any `deferUpdate()`)
+  // rather than applying it straight off the dropdown. Nothing is written to
+  // `MatchState` here; submitting the modal is what actually commits it
+  // (`handleConfirmPickModalSubmit`), and dismissing it without submitting
+  // needs no handling at all — Discord fires no interaction for that, so
+  // there is nothing to roll back.
+  if (interaction.isStringSelectMenu() && decoded.action === Action.PROTECT_VETO) {
+    const match = await loadMatch(prisma, decoded.matchId);
+    if (!match) {
+      await interaction.reply({ ephemeral: true, content: 'This match no longer exists.' });
+      return;
+    }
+    if (match.status === 'CANCELLED') {
+      await interaction.reply({ ephemeral: true, content: CANCELLED_MATCH_MESSAGE });
+      return;
+    }
+    const drawIndex = Number(interaction.values[0]);
+    const chart = (match.state as unknown as MatchState).draw[drawIndex];
+    if (!Number.isInteger(drawIndex) || !chart) {
+      await interaction.reply({ ephemeral: true, content: 'Unrecognized action.' });
+      return;
+    }
+    await interaction.showModal(buildConfirmPickModal(decoded, drawIndex, chart));
     return;
   }
 
@@ -166,6 +207,82 @@ async function handle(
     await interaction.followUp({ ephemeral: true, content: 'Unrecognized action.' });
     return;
   }
+
+  try {
+    const result = await appendMatchEvent(prisma, random, match.id, event, interaction.id);
+    await applyAppendResult(prisma, matchChannel, alert, playerNotification, realtime, match, format, event, result);
+  } catch (err) {
+    if (err instanceof IllegalActionError) {
+      await interaction.followUp({
+        ephemeral: true,
+        content: `This action is not available. ${describeStale(err, buildPlayerDirectory(match))}`,
+      });
+      return;
+    }
+    throw err;
+  }
+}
+
+const CONFIRM_PICK_MODAL_FIELD = 'pick';
+
+/** The one required text input exists only because a Discord modal needs at least one component, not because its contents are validated — submitting the modal at all is the confirmation. */
+function buildConfirmPickModal(decoded: CustomId, drawIndex: number, chart: ChartSnapshot): ModalBuilder {
+  return new ModalBuilder()
+    .setCustomId(encodeCustomId({ matchId: decoded.matchId, action: Action.CONFIRM_PICK, arg: String(drawIndex) }))
+    .setTitle(`Confirm: ${displayTitle(chart)}`.slice(0, 45))
+    .addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId(CONFIRM_PICK_MODAL_FIELD)
+          .setLabel('Submit to lock in this pick')
+          .setStyle(TextInputStyle.Short)
+          .setValue(compactChartLabel(chart).replace(/\*\*/g, ''))
+          .setRequired(true)
+          .setMaxLength(100),
+      ),
+    );
+}
+
+async function handleConfirmPickModalSubmit(
+  interaction: ModalSubmitInteraction,
+  decoded: CustomId,
+  prisma: PrismaClient,
+  random: RandomPort,
+  matchChannel: MatchChannelPort,
+  alert: AlertPort,
+  playerNotification: PlayerNotificationPort,
+  realtime: RealtimeBroadcastPort,
+): Promise<void> {
+  await interaction.deferUpdate();
+
+  const match = await loadMatch(prisma, decoded.matchId);
+  if (!match) {
+    await interaction.followUp({ ephemeral: true, content: 'This match no longer exists.' });
+    return;
+  }
+  if (match.status === 'CANCELLED') {
+    await interaction.followUp({ ephemeral: true, content: CANCELLED_MATCH_MESSAGE });
+    return;
+  }
+  const me = match.participants.find((p) => p.entrant.discordUserId === interaction.user.id);
+  if (!me) {
+    await interaction.followUp({ ephemeral: true, content: "You're not a participant in this match." });
+    return;
+  }
+
+  const format = requireFormat(match.formatKey);
+  // Re-derived fresh, not carried over from when the modal was shown — the
+  // pending action may have moved on in the meantime (e.g. a referee reset).
+  // Same "best-effort peek, appendMatchEvent re-validates" reasoning as the
+  // generic path above.
+  const cachedPending = format.pendingAction(match.state as unknown as MatchState);
+  const drawIndex = Number(decoded.arg);
+  if (!Number.isInteger(drawIndex) || (cachedPending.kind !== 'PROTECT' && cachedPending.kind !== 'VETO' && cachedPending.kind !== 'SELECT_SONG')) {
+    await interaction.followUp({ ephemeral: true, content: "This action is not available anymore — it's moved on since you opened this." });
+    return;
+  }
+  const type = cachedPending.kind === 'VETO' ? 'CHART_VETOED' : cachedPending.kind === 'SELECT_SONG' ? 'CHART_SELECTED' : 'CHART_PROTECTED';
+  const event: Omit<MatchEvent, 'seq'> = { actorId: interaction.user.id, type, payload: { by: me.entrantId, drawIndex } };
 
   try {
     const result = await appendMatchEvent(prisma, random, match.id, event, interaction.id);
@@ -517,6 +634,61 @@ async function handleResetButton(
     const result = await appendMatchEvent(prisma, random, match.id, event, interaction.id);
     const ref: ThreadRef = { matchId: match.id, threadId: match.threadId! };
     await matchChannel.postLogMessage(ref, renderResetLog(refereeDisplayName(interaction)));
+    await applyAppendResult(prisma, matchChannel, alert, playerNotification, realtime, match, format, event, result);
+  } catch (err) {
+    if (err instanceof IllegalActionError) {
+      await interaction.followUp({
+        ephemeral: true,
+        content: `This action is not available. ${describeStale(err, buildPlayerDirectory(match))}`,
+      });
+      return;
+    }
+    throw err;
+  }
+}
+
+const LAST_ACTION_UNDONE_REASON = 'Undone by a referee via the match thread button.';
+
+async function handleUndoButton(
+  interaction: ButtonInteraction,
+  decoded: CustomId,
+  prisma: PrismaClient,
+  random: RandomPort,
+  matchChannel: MatchChannelPort,
+  alert: AlertPort,
+  playerNotification: PlayerNotificationPort,
+  realtime: RealtimeBroadcastPort,
+): Promise<void> {
+  await interaction.deferUpdate();
+
+  const match = await loadMatch(prisma, decoded.matchId);
+  if (!match) {
+    await interaction.followUp({ ephemeral: true, content: 'This match no longer exists.' });
+    return;
+  }
+  if (match.status === 'CANCELLED') {
+    await interaction.followUp({ ephemeral: true, content: CANCELLED_MATCH_MESSAGE });
+    return;
+  }
+
+  const guild = await prisma.guild.findUnique({ where: { id: match.tournament.guildId } });
+  const tierConfig: TierRoleConfig = guild ?? { refereeRoleId: null, toRoleId: null, adminRoleId: null };
+  if (!hasTier(rolesOfMember(interaction.member), tierConfig, Tier.REFEREE)) {
+    await interaction.followUp({ ephemeral: true, content: 'Only a referee can undo the last action.' });
+    return;
+  }
+
+  const event: Omit<MatchEvent, 'seq'> = {
+    actorId: interaction.user.id,
+    type: 'LAST_ACTION_UNDONE',
+    payload: { reason: LAST_ACTION_UNDONE_REASON },
+  };
+  const format = requireFormat(match.formatKey);
+
+  try {
+    const result = await appendMatchEvent(prisma, random, match.id, event, interaction.id);
+    const ref: ThreadRef = { matchId: match.id, threadId: match.threadId! };
+    await matchChannel.postLogMessage(ref, renderUndoLog(refereeDisplayName(interaction)));
     await applyAppendResult(prisma, matchChannel, alert, playerNotification, realtime, match, format, event, result);
   } catch (err) {
     if (err instanceof IllegalActionError) {

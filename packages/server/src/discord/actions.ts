@@ -14,8 +14,12 @@ export const Action = {
   TIEBREAK: 'TB',
   /** A referee resetting Protect/Veto — legal only before song 1 has started, which `isLegal` already enforces. */
   RESET_PV: 'RESETPV',
+  /** A referee undoing the single most recent protect/veto/pick — narrower than `RESET_PV`, see `LAST_ACTION_UNDONE`'s own comment in `types.ts`. */
+  UNDO_LAST: 'UNDOLAST',
   /** A player's sign-off once the set is decided — `SET_RESULT_CONFIRMED`. */
   CONFIRM: 'CONFIRM',
+  /** The confirm modal shown after a PROTECT_VETO select — submitting it is what actually commits the pick. `arg` is the chosen draw index. Distinct from `CONFIRM` above, which has a different payload shape entirely. */
+  CONFIRM_PICK: 'CONFIRMPICK',
   /** The three-way mixed-format conflict resolution — carried on `t1:` (tournament-scoped) ids, not `v1:` (match-scoped) ones. `arg` is the format key being set. */
   FORMAT_UPDATE_ALL: 'TFMTALL',
   FORMAT_DEFAULT_ONLY: 'TFMTDEF',

@@ -5,6 +5,7 @@ import {
   EmbedBuilder,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
+  type MessageActionRowComponentBuilder,
 } from 'discord.js';
 import type { EntrantId, EscalationReason, MatchState, PendingAction } from '../domain/types.js';
 import { songOneUncommitted } from '../domain/validate.js';
@@ -107,6 +108,22 @@ function resetButtonRow(matchId: string): ActionRowBuilder<ButtonBuilder> {
   );
 }
 
+/**
+ * Narrower sibling of `resetButtonRow` — undoes just the single most recent
+ * protect/veto/pick, gated on `pending.kind` alone (see `isLegal`'s
+ * `LAST_ACTION_UNDONE` case), not `songOneUncommitted`: unlike Reset, this
+ * never reaches into a started song, so there's no "still uncommitted"
+ * distinction to make.
+ */
+function undoButtonRow(matchId: string): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(encodeCustomId({ matchId, action: Action.UNDO_LAST }))
+      .setLabel('Undo last action (referee)')
+      .setStyle(ButtonStyle.Secondary),
+  );
+}
+
 function renderSeedChoice(matchId: string, actorId: EntrantId, players: PlayerDirectory): RenderedMessage {
   const embed = new EmbedBuilder()
     .setTitle('🪙 Protect order')
@@ -164,7 +181,7 @@ function renderProtectVeto(
     );
 
   const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
-  return { embeds: [embed], components: [row, resetButtonRow(matchId)] };
+  return { embeds: [embed], components: [row, resetButtonRow(matchId), undoButtonRow(matchId)] };
 }
 
 /**
@@ -207,7 +224,13 @@ function renderSelectSong(
     );
 
   const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
-  const rows = songOneUncommitted(state) ? [row, resetButtonRow(matchId)] : [row];
+  const rows: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [row];
+  if (songOneUncommitted(state)) rows.push(resetButtonRow(matchId));
+  // Undo only has something real to pop here on song 1's own pick — a later
+  // song's pick has nothing left over from the (long-since-finished) veto
+  // phase, so `LAST_ACTION_UNDONE` would just no-op there. See
+  // `hubert.ts`'s own reducer comment.
+  if (state.songs.length === 0) rows.push(undoButtonRow(matchId));
   return { embeds: [embed], components: rows };
 }
 

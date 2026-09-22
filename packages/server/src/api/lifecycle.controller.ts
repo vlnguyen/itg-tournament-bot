@@ -29,6 +29,7 @@ import {
   renameTournament,
   setMatchFormats,
   setTournamentFormat,
+  setTournamentSettings,
   TournamentTransitionError,
 } from '../services/tournament-service.js';
 
@@ -208,6 +209,12 @@ export class LifecycleController {
       case 'RENAME': {
         const t = await renameTournament(this.prisma, tournamentId, request.name, actorId);
         await this.log(guildId, actorName, linkifyTournamentName(`Renamed to **${t.name}**.`, t.name, t.id));
+        return;
+      }
+      case 'SET_SETTINGS': {
+        const { action: _action, ...input } = request;
+        const t = await setTournamentSettings(this.prisma, tournamentId, input, actorId);
+        await this.log(guildId, actorName, linkifyTournamentName(`Settings updated for **${t.name}**.`, t.name, t.id));
         return;
       }
       case 'SET_FORMAT': {

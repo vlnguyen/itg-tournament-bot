@@ -2,6 +2,7 @@ import { Prisma, type Guild, type PrismaClient, type Tournament, type Tournament
 import { DEFAULT_TOURNAMENT_CONFIG, SELECTABLE_FORMAT_KEYS, type LifecycleAction, type LifecycleStatus } from '@itg/shared';
 import { Bo5ProtectVetoFormatV2 } from '../domain/bo5.js';
 import { matchKey, type MatchRef } from '../domain/bracket.js';
+import { emptyState, type MatchState } from '../domain/types.js';
 import { logAction } from './audit-log.js';
 import { generateBracketGraph, materializeBracket } from './bracket-service.js';
 import { requireFormat, TournamentTransitionError, type Tx } from './engine.js';
@@ -232,6 +233,46 @@ export async function renameTournament(prisma: PrismaClient, tournamentId: strin
   });
 }
 
+export interface TournamentSettingsInput {
+  rules?: string | null | undefined;
+  packUrl?: string | null | undefined;
+  forceUsername?: boolean | undefined;
+  requirePhotos?: boolean | undefined;
+}
+
+/**
+ * TO-facing tournament settings with no bearing on the state machine —
+ * available any time short of `COMPLETE`/`CANCELLED`, same span
+ * `renameTournament` allows. `forceUsername` only ever matters at the
+ * display-name snapshot taken when the tournament starts
+ * (`start-tournament-effects.ts`); `requirePhotos` is baked into each
+ * match's own `MATCH_CREATED` event as it's created, so a change here only
+ * ever affects matches created from this point forward, never ones already
+ * seated — same "no retroactive change" reasoning as everywhere else a
+ * per-match snapshot is taken from tournament-level config.
+ */
+export async function setTournamentSettings(
+  prisma: PrismaClient,
+  tournamentId: string,
+  input: TournamentSettingsInput,
+  actorId: string,
+): Promise<Tournament> {
+  return prisma.$transaction(async (tx) => {
+    const t = await tx.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
+    if (t.state === 'COMPLETE' || t.state === 'CANCELLED') {
+      throw new TournamentTransitionError(tournamentId, `cannot change settings, already ${t.state}`);
+    }
+    // `Object.fromEntries`/filter rather than passing `input` straight
+    // through: an explicit `undefined` (a key the caller left out of a
+    // partial update) must be absent from Prisma's `data`, not present with
+    // an `undefined` value — those mean different things to Prisma.
+    const data = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined));
+    const updated = await tx.tournament.update({ where: { id: tournamentId }, data });
+    await logAction(tx, actorId, 'TOURNAMENT_SETTINGS_CHANGED', 'Tournament', tournamentId, { ...input });
+    return updated;
+  });
+}
+
 /**
  * States in which `Tournament.defaultFormatKey` still means something.
  * `RUNNING` onward, the bracket is materialized and every match already
@@ -394,8 +435,19 @@ export async function setMatchFormats(
         where: { tournamentId_bracket_round_slot: { tournamentId, bracket: ref.bracket, round: ref.round, slot: ref.slot } },
       });
       if (!match) throw new TournamentTransitionError(tournamentId, `no match at ${matchKey(ref)}`);
-      if (match.status !== 'PENDING') {
-        throw new TournamentTransitionError(tournamentId, `${matchKey(ref)} has already started, its format can't change`);
+      // Loosened from "status must be PENDING" (which blocked any change the
+      // instant a match merely started, even mid protect/veto with no score
+      // yet) to "nothing generated yet" — `state.seq === 0` means no draw
+      // and no coin flip either, `songOneUncommitted`'s own underlying
+      // predicate one step earlier. Changing the format after the draw/pool
+      // exists would leave already-appended protect/veto events referencing
+      // the old format's pool, which needs a proper "reformat" operation
+      // (a fresh initialization, not just flipping `formatKey`) — out of
+      // scope here; this covers the common case of fixing a format before
+      // anyone's touched the match.
+      const state = (match.state as unknown as MatchState | null) ?? emptyState();
+      if (state.seq !== 0) {
+        throw new TournamentTransitionError(tournamentId, `${matchKey(ref)}'s draw has already been generated, its format can't change`);
       }
       overrides[matchKey(ref)] = formatKey;
       await tx.match.update({ where: { id: match.id }, data: { formatKey } });
@@ -796,5 +848,9 @@ export async function getLifecycleStatus(prisma: PrismaClient, tournamentId: str
     defaultFormatKey: tournament.defaultFormatKey as LifecycleStatus['defaultFormatKey'],
     formatEditable: FORMAT_EDITABLE_STATES.includes(tournament.state),
     bracketEntrantCount: tournament.bracketEntrantCount,
+    rules: tournament.rules,
+    packUrl: tournament.packUrl,
+    forceUsername: tournament.forceUsername,
+    requirePhotos: tournament.requirePhotos,
   };
 }

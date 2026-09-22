@@ -172,6 +172,7 @@ export function makeProtectVetoFormat(config: ProtectVetoConfig): MatchFormat {
     switch (event.type) {
       case 'MATCH_CREATED':
         s.participants = [...event.payload.participants];
+        s.requirePhotos = event.payload.requirePhotos;
         break;
 
       case 'DRAW_MADE':
@@ -220,6 +221,23 @@ export function makeProtectVetoFormat(config: ProtectVetoConfig): MatchFormat {
           s.escalation = undefined;
         }
         break;
+
+      // Pops exactly the one most recent protect/veto — never the seed
+      // choice, never a whole song. `isLegal` only allows this pre-song-
+      // start, so there's no started-but-uncommitted song to drop here the
+      // way `PROTECT_VETO_RESET` above has to. The step index is
+      // deterministic from `config.sequence`, which fixes PROTECT vs. VETO
+      // per step regardless of who acted. A no-op (not an error) if nothing
+      // has been protected or vetoed yet — `isLegal`'s pending-kind check
+      // alone can't tell "the very first step" apart from "a later one,"
+      // so the reducer is what actually guards the empty case.
+      case 'LAST_ACTION_UNDONE': {
+        const step = s.protects.length + s.vetoes.length - 1;
+        if (step < 0) break;
+        if (config.sequence[step]!.action === 'PROTECT') s.protects = s.protects.slice(0, -1);
+        else s.vetoes = s.vetoes.slice(0, -1);
+        break;
+      }
 
       case 'SONG_STARTED':
         s.songs = [
@@ -381,7 +399,7 @@ export function makeProtectVetoFormat(config: ProtectVetoConfig): MatchFormat {
     if (active) {
       const { song, index } = active;
       // Winner selection appears only once both scores and both photos are in.
-      const incomplete = ids.filter((id) => song.ex[id] === undefined || !song.photoSeen[id]);
+      const incomplete = ids.filter((id) => song.ex[id] === undefined || (state.requirePhotos && !song.photoSeen[id]));
       if (incomplete.length > 0) {
         return { kind: 'SUBMIT_SCORE', actors: incomplete, songIndex: index };
       }

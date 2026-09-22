@@ -138,7 +138,7 @@ export class MatchDriver {
 
   // --- convenience actions -------------------------------------------------
 
-  create(a: EntrantId, b: EntrantId): this {
+  create(a: EntrantId, b: EntrantId, opts: { requirePhotos?: boolean } = {}): this {
     return this.apply({
       actorId: null,
       type: 'MATCH_CREATED',
@@ -147,6 +147,7 @@ export class MatchDriver {
           { entrantId: a, seed: 1 },
           { entrantId: b, seed: 2 },
         ],
+        requirePhotos: opts.requirePhotos ?? true,
       },
     });
   }
